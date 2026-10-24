@@ -1,5 +1,6 @@
-"""The trigger GitHub's schedule calls every 10 minutes
-(``.github/workflows/waiting-emails.yml``) to send the emails kept while the
+"""The trigger for sending, by hand from
+``.github/workflows/waiting-emails.yml`` (the backend's timer runs the same
+code every 10 minutes, ``apps.management.scheduler``), to send the emails kept while the
 mail server couldn't be reached (``services.waiting_email``)."""
 from drf_spectacular.utils import extend_schema
 from rest_framework import status

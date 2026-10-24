@@ -20,7 +20,7 @@ from .models import (
 )
 from .rbac import chat_recipients_qs
 from .services.storage import stored_chat_file
-from .utils import sanitize_text
+from .utils import sanitize_message_text
 
 
 def is_admin_actor(user) -> bool:
@@ -465,7 +465,7 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
         # gets persisted. Doing this here keeps the rule decoupled from
         # the view and ensures every write path goes through the same filter.
         if "message_text" in attrs:
-            attrs["message_text"] = sanitize_text(attrs["message_text"])
+            attrs["message_text"] = sanitize_message_text(attrs["message_text"])
         return attrs
 
 
@@ -632,7 +632,7 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
     )
 
     def validate_message_text(self, value):
-        return sanitize_text((value or "").strip())
+        return sanitize_message_text((value or "").strip())
 
     def validate_uploaded_file(self, value):
         return validate_uploaded_file(
@@ -721,7 +721,7 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         fields = ["message_text"]
 
     def validate_message_text(self, value):
-        return sanitize_text(value)
+        return sanitize_message_text(value)
 
     def update(self, instance, validated_data):
         from django.utils import timezone

@@ -192,3 +192,13 @@ def reminder_job(actor, options) -> dict:
     """The queued run of today's reminders (``send_guard.JOBS``). Each
     team's email that fails is tried once more at once (see ``send_messages``)."""
     return send_due_reminders()
+
+
+def queue_reminder_runs() -> str:
+    """The daily reminder run: the entry's reminders, and the finalists'
+    ahead of their slides, each queued to send in its turn."""
+    from apps.management.services.send_guard import queue_job
+
+    queue_job("finalist_submission_reminder")
+    queue_job("submission_reminder")
+    return "queued"

@@ -4,7 +4,6 @@ The deadline itself belongs to the submissions app (it gates the student
 portal); this endpoint only lets graders/admins see and set it, going through
 ``services.deadline``.
 """
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, serializers, status
@@ -15,16 +14,7 @@ from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
 
 from ..services import deadline as deadlines
-
-
-def _statement_time(at, user):
-    """``09/10/2026 at 16:12`` in the user's Profile timezone, as the site
-    writes a time in a sentence."""
-    try:
-        zone = ZoneInfo(getattr(user, "timezone", "") or "UTC")
-    except (ZoneInfoNotFoundError, ValueError):
-        zone = ZoneInfo("UTC")
-    return at.astimezone(zone).strftime("%d/%m/%Y at %H:%M")
+from ..services.date_order import deadline_problem, statement_time
 
 
 class _SetDeadlineSerializer(serializers.Serializer):
@@ -69,7 +59,7 @@ class GroupExtensionListView(APIView):
             return Response(
                 {"detail": (
                     "The extension must be later than the current deadline "
-                    f"({_statement_time(deadline['closes_at'], request.user)})."
+                    f"({statement_time(deadline['closes_at'])})."
                 )},
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -112,6 +102,10 @@ class SubmissionDeadlineView(APIView):
     def post(self, request):
         payload = _SetDeadlineSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        # After the challenge starts and registration closes.
+        problem = deadline_problem(payload.validated_data["closes_at"])
+        if problem:
+            raise serializers.ValidationError({"closes_at": problem})
         status = deadlines.set_submission_deadline(
             closes_at=payload.validated_data["closes_at"],
             grace_hours=payload.validated_data["grace_hours"],

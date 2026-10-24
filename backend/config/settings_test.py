@@ -1,6 +1,11 @@
 """
 Canonical Django settings for automated tests (`manage.py test`).
 
+These run the tests on SQLite in memory, for quick local runs with no
+database to start. CI runs them on Postgres instead, the database production
+runs on (``config.settings_test_postgres``), which refuses things SQLite lets
+through.
+
 Import base from ``settings_local`` so tests use SQLite media, lax cookies,
 in-memory Channels — not production Azure/session defaults from ``settings``.
 
@@ -66,6 +71,8 @@ QEV_API_KEY = "test-dummy-key"
 QEV_PAID_API_KEY = "test-dummy-paid-key"
 # Off whatever the environment says; the tests that need it turn it on.
 EMAIL_PRECHECK_ENABLED = False
+SCHEDULER_ENABLED = False
+EMAIL_CHECK_ON_EDIT = False
 EMAIL_VERIFICATION_DISPATCH_SYNC = True
 
 # `apps/common/storage.py` selects the Azure backend whenever this is truthy,

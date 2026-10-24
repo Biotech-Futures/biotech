@@ -19,6 +19,8 @@ import {
   systemEmailUnseenSchema,
   systemEmailMailApiSchema,
   type SystemEmailMailApi,
+  systemEmailAlwaysOnSchema,
+  type SystemEmailAlwaysOn,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
@@ -225,6 +227,13 @@ export interface AdminUser {
   id: number
   firstName: string | null
   lastName: string | null
+  /** As given registering, or since changed: blank when unsaid. */
+  pronouns?: string
+  /** Where their profile photo loads from, or null without one. */
+  profileImageUrl?: string | null
+  /** When they agreed to the BIOTech Futures policies, registering; null
+   *  for anyone who hasn't (added by someone else, or registered before). */
+  policiesAgreedAt?: string | null
   email: string | null
   role: string | null
   country: AdminUserCountry | null
@@ -241,11 +250,6 @@ export interface AdminUser {
   mentorCompany?: string | null
   mentorUniversityYear?: string | null
   mentorFieldOfStudy?: string | null
-  /** Their application's answers, beside mentorReason. */
-  mentorRelevantBackground?: string | null
-  mentorMentoringApproach?: string | null
-  /** How many hours a week they can give (1 to 40), as registering asks. */
-  mentorWeeklyHours?: number | null
   /** When they're free each week (Monday is 0, times "HH:MM"): kept from
    *  when registering asked, but no longer shown here. */
   mentorAvailability?: { weekday: number; start: string; end: string }[]
@@ -254,6 +258,9 @@ export interface AdminUser {
   /** Every group a supervisor is in (their students' groups), by name. */
   supervisorGroups?: { id: number; name: string; studentCount: number }[]
   yearLevel: number | null
+  /** The challenge year a student is from, when it's an earlier one: set
+   *  back to Active, they're this year's (see ``earlierYearMessage``). */
+  earlierChallengeYear?: number | null
   guardianFirstName: string | null
   guardianLastName: string | null
   guardianEmail: string | null
@@ -406,6 +413,21 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
     data: env.data
   }))
 
+/** A user's profile photo replaced, as the dashboard's upload checks it. */
+export const uploadAdminUserPhoto = (userId: string | number, file: File) => {
+  const formData = new FormData()
+  formData.append('image', file)
+  return adminRequest<AdminEnvelope<AdminUser>>(`/user/${userId}/profile-image/`, {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
+/** A user's profile photo taken off. */
+export const removeAdminUserPhoto = (userId: string | number) =>
+  adminDelete<AdminEnvelope<AdminUser>>(`/user/${userId}/profile-image/`).then((env) => env.data)
+
 /** A supervisor's students added or taken off, by student or by group. */
 export interface SuperviseesChangeInput {
   addStudentIds?: number[]
@@ -489,6 +511,24 @@ export const downloadGuardianConsentRecord = async (
   window.URL.revokeObjectURL(blobUrl)
 }
 
+/** Said before a student from an earlier challenge year is set back to
+ *  Active: that makes them this year's, as registering again would. "" for
+ *  anyone else. */
+export const earlierYearMessage = (
+  user: Pick<AdminUser, 'firstName' | 'lastName' | 'earlierChallengeYear'> | null | undefined
+): string => {
+  if (!user?.earlierChallengeYear) return ''
+  const name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || 'This student'
+  return (
+    `${name} is from the ${user.earlierChallengeYear} challenge. Activating them makes them one of ` +
+    "this year's students, and their guardian is emailed to give permission again."
+  )
+}
+
+/** Said with a bulk activate: any of them could be from an earlier year. */
+export const EARLIER_YEAR_BULK_NOTE =
+  "Any student from an earlier challenge year becomes one of this year's, and their guardian is emailed to give permission again."
+
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
   adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({
     msg: env.msg,
@@ -551,6 +591,101 @@ export const fetchAdminCountries = (
 
 export const fetchAdminStates = (): Promise<AdminUserState[]> =>
   adminGet<AdminEnvelope<AdminUserState[]>>('/user/states/').then((env) => env.data)
+
+// ---------------------------------------------------------------------------
+// Email checks: QuickEmailVerification's credit, for Management > Email Checks
+// ---------------------------------------------------------------------------
+
+/** One key's state: set or not (never the key), its balance as last
+ *  reported, and whether it's out of credit until ``retryAt``. */
+export interface EmailCheckKey {
+  configured: boolean
+  remaining: number | null
+  updatedAt: string | null
+  exhausted: boolean
+  exhaustedAt: string | null
+  retryAt: string | null
+}
+
+export interface EmailCheckCredits {
+  free: EmailCheckKey
+  /** The paid key, with the alert levels already sent for it. */
+  paid: EmailCheckKey & { alertedThresholds: number[] }
+  /** The low-credit alert levels, highest first. */
+  thresholds: number[]
+  lookupsToday: number
+  lookupsOn: string | null
+  /** 0: no daily limit. */
+  dailyCap: number
+  /** Checks against the test service, using no real credit. */
+  sandbox: boolean
+}
+
+export const fetchEmailCheckCredits = () =>
+  adminGet<AdminEnvelope<EmailCheckCredits>>('/email-verification/credits/').then((env) => env.data)
+
+// ---------------------------------------------------------------------------
+// Known universities: names registration treats as a university, not a school
+// ---------------------------------------------------------------------------
+
+export interface KnownUniversity {
+  id: number
+  name: string
+  acronym?: string
+  country?: string
+  createdAt: string | null
+  updatedAt?: string | null
+}
+
+/** Every listed name, by name. */
+export const fetchKnownUniversities = () =>
+  adminGet<AdminEnvelope<{ items: KnownUniversity[]; total: number }>>('/known-university/').then(
+    (env) => env.data.items
+  )
+
+/** Add one: its full name, and its acronym and country if known. Refused
+ *  when the name is blank, too long or already listed in any casing. */
+export const addKnownUniversity = (university: { name: string; acronym?: string; country?: string }) =>
+  adminPost<AdminEnvelope<KnownUniversity>>('/known-university/', university).then((env) => env.data)
+
+/** Change one's full name, acronym or country, the name checked as an added one is. */
+export const renameKnownUniversity = (id: number, university: { name: string; acronym?: string; country?: string }) =>
+  adminPatch<AdminEnvelope<KnownUniversity>>(`/known-university/${id}/`, university).then((env) => env.data)
+
+export const deleteKnownUniversity = (id: number) =>
+  adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)
+
+/** A row of an uploaded sheet: its number as the spreadsheet shows it (the
+ *  header is row 1), and its name. */
+export type KnownUniversityUploadRow = { row: number; name: string }
+
+/** Upload Universities' check of a sheet (or, applied, what it did), as My
+ *  Students' Upload guardian details has its own: its headers, then those it
+ *  adds, row by row those it fills in (a blank acronym or country), those
+ *  listed already, each name given more than once (every row it's on, the
+ *  first one used), and the rows blank or too long. */
+export type KnownUniversityUpload = {
+  checks: { missing_headers: string[]; header_order: string; conflicts: string[] }
+  summary: { added: number; filled: number; skipped: number; errors: number }
+  filled_rows: KnownUniversityUploadRow[]
+  listed_rows: KnownUniversityUploadRow[]
+  repeated_rows: { rows: number[]; name: string }[]
+  invalid_rows: number[]
+  applied?: boolean
+}
+
+/** Upload Universities: a .csv or .xlsx with columns name, acronym and
+ *  country, in order. ``dryRun`` previews it; otherwise it's loaded. */
+export const uploadKnownUniversities = (file: File, dryRun: boolean) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('dry_run', dryRun ? 'true' : 'false')
+  return adminRequest<AdminEnvelope<KnownUniversityUpload>>('/known-university/upload/', {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
 
 // ---------------------------------------------------------------------------
 // Groups
@@ -644,11 +779,19 @@ export interface StudentAssignment {
   groupId: number | string
 }
 
-/** Assign students to groups (POST /match/confirm/). Returns the count confirmed. */
-export const confirmStudentAssignments = (assignments: StudentAssignment[]) =>
-  adminPost<AdminEnvelope<{ assigned_count: number }>>('/match/confirm/', { assignments }).then(
-    (env) => ({ msg: env.msg, assignedCount: env.data.assigned_count })
-  )
+/**
+ * Assign students to groups (POST /match/confirm/). Returns the count confirmed.
+ * `onlyUngrouped`: the page listed them with no group, so nothing is saved if
+ * one has joined a group since (Add Students, the matcher).
+ */
+export const confirmStudentAssignments = (
+  assignments: StudentAssignment[],
+  { onlyUngrouped = false }: { onlyUngrouped?: boolean } = {}
+) =>
+  adminPost<AdminEnvelope<{ assigned_count: number }>>('/match/confirm/', {
+    assignments,
+    ...(onlyUngrouped ? { onlyUngrouped: true } : {})
+  }).then((env) => ({ msg: env.msg, assignedCount: env.data.assigned_count }))
 
 /** Remove a student from their group (DELETE /group/{id}/members/{userId}/). */
 export const removeGroupMember = (groupId: string | number, userId: string | number) =>
@@ -1427,17 +1570,21 @@ export interface AdminTaskListData {
   has_more: boolean
 }
 
-export interface CreateAdminTaskPayload {
+// TK4 follow-up (confirmed with the client): the actual complaint was the
+// role fan-out snapshotting individual rows per current holder, not admins
+// assigning a task straight to one person from this page — that stays.
+// Targeting a role is only ever done via a role task (below); there is no
+// "assigned_role" option here anymore.
+type CreateAdminTaskFields = {
   name: string
   description?: string
   due_date?: string | null
   status?: AdminTaskStatus
   parent?: number | null
-  task_type: AdminTaskType
-  group?: number | null
-  assigned_user?: number | null
-  assigned_role?: string | null
 }
+export type CreateAdminTaskPayload =
+  | (CreateAdminTaskFields & { task_type: 'group'; group: number })
+  | (CreateAdminTaskFields & { task_type: 'individual'; assigned_user: number })
 
 export interface UpdateAdminTaskPayload {
   name?: string
@@ -1447,17 +1594,7 @@ export interface UpdateAdminTaskPayload {
   parent?: number | null
 }
 
-export interface AdminTaskFanoutResult {
-  created_count: number
-  assigned_role: string
-}
-
-export interface AdminTaskRoleRecipientsData {
-  role: string
-  count: number
-}
-
-export type AdminTaskMutationResult<T = AdminTask | AdminTaskFanoutResult | null> = AdminEnvelope<T>
+export type AdminTaskMutationResult<T = AdminTask | null> = AdminEnvelope<T>
 
 export const fetchAdminTasks = (params: AdminTaskListParams = {}): Promise<AdminTaskListData> =>
   adminGet<AdminEnvelope<AdminTaskListData>>(`/task/${buildAdminQuery(params)}`).then(
@@ -1466,8 +1603,8 @@ export const fetchAdminTasks = (params: AdminTaskListParams = {}): Promise<Admin
 
 export const createAdminTask = (
   payload: CreateAdminTaskPayload
-): Promise<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>> =>
-  adminPost<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>>('/task/', payload)
+): Promise<AdminTaskMutationResult<AdminTask | null>> =>
+  adminPost<AdminTaskMutationResult<AdminTask | null>>('/task/', payload)
 
 export const updateAdminTask = (
   taskId: number | string,
@@ -1478,11 +1615,97 @@ export const updateAdminTask = (
 export const deleteAdminTask = (taskId: number | string): Promise<void> =>
   adminDelete<void>(`/task/${taskId}/`)
 
-export const fetchTaskRoleRecipients = (
+// ---------------------------------------------------------------------------
+// Role Tasks (TK4) — defined once per role, bulk-edited in one place. Not a
+// fan-out: editing one of these changes it for every current AND future
+// holder of the role. See backend/apps/admin/services/role_task.py.
+// ---------------------------------------------------------------------------
+
+export interface AdminRoleTaskRole {
+  id: number
+  roleName: string
+}
+
+export interface AdminRoleTask {
+  id: number
+  name: string
+  description: string
+  due_date: string | null
+  role: AdminRoleTaskRole | null
+  created_by: AdminTaskUserMini | null
+  creator_role: string
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+  // Completed-vs-current-holders count, computed server-side — not editable,
+  // since a role task has no single status (see AdminRoleTaskFormSheet.vue).
+  completed_count: number
+  holder_count: number
+}
+
+export type AdminRoleTaskSortBy = 'name' | 'role' | 'due' | 'createdAt'
+
+export interface AdminRoleTaskListParams {
+  page?: number
+  limit?: number
+  sortBy?: AdminRoleTaskSortBy
+  sortOrder?: 'asc' | 'desc'
+}
+
+export interface AdminRoleTaskListData {
+  items: AdminRoleTask[]
+  total: number
+  page: number
+  limit: number
+  has_more: boolean
+}
+
+export interface CreateAdminRoleTaskPayload {
+  name: string
+  description?: string
+  due_date?: string | null
   role: string
-): Promise<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>> =>
-  adminGet<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>>(
-    `/task/role-recipients/${buildAdminQuery({ role })}`
+}
+
+export interface UpdateAdminRoleTaskPayload {
+  name?: string
+  description?: string
+  due_date?: string | null
+}
+
+export interface AdminRoleTaskRecipientsData {
+  role: string
+  count: number
+}
+
+export type AdminRoleTaskMutationResult<T = AdminRoleTask | null> = AdminEnvelope<T>
+
+export const fetchAdminRoleTasks = (
+  params: AdminRoleTaskListParams = {}
+): Promise<AdminRoleTaskListData> =>
+  adminGet<AdminEnvelope<AdminRoleTaskListData>>(`/role-task/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+export const createAdminRoleTask = (
+  payload: CreateAdminRoleTaskPayload
+): Promise<AdminRoleTaskMutationResult> =>
+  adminPost<AdminRoleTaskMutationResult>('/role-task/', payload)
+
+export const updateAdminRoleTask = (
+  roleTaskId: number | string,
+  payload: UpdateAdminRoleTaskPayload
+): Promise<AdminRoleTaskMutationResult> =>
+  adminPatch<AdminRoleTaskMutationResult>(`/role-task/${roleTaskId}/`, payload)
+
+export const deleteAdminRoleTask = (roleTaskId: number | string): Promise<void> =>
+  adminDelete<void>(`/role-task/${roleTaskId}/`)
+
+export const fetchRoleTaskRecipients = (
+  role: string
+): Promise<AdminEnvelope<AdminRoleTaskRecipientsData | null>> =>
+  adminGet<AdminEnvelope<AdminRoleTaskRecipientsData | null>>(
+    `/role-task/role-recipients/${buildAdminQuery({ role })}`
   )
 
 // ---------------------------------------------------------------------------
@@ -1704,6 +1927,12 @@ export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
 /** Seen by every admin from now on; returns the count left, normally 0. */
 export const markSystemEmailFailuresSeen = (): Promise<number> =>
   adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Whether Azure's Always On is keeping the backend awake, for the top of System Emails. */
+export const fetchSystemEmailAlwaysOn = (): Promise<SystemEmailAlwaysOn> =>
+  adminGet<AdminEnvelope<unknown>>('/email-settings/always-on/').then((env) =>
+    systemEmailAlwaysOnSchema.parse(env.data)
+  )
 
 /** Whether bounced emails can be checked, for the top of the Log. */
 export const fetchSystemEmailMailApi = (): Promise<SystemEmailMailApi> =>

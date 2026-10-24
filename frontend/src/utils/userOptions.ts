@@ -5,14 +5,15 @@ export type UserRole = (typeof USER_ROLES)[number]
 
 /**
  * Mentor background categories, in display order. `value` is the key the
- * backend stores (MentorProfile.BackgroundChoices); each label lowercases to it.
+ * backend stores (MentorProfile.BackgroundChoices). The label no longer
+ * lowercases to the key, so never derive one from the other.
  */
 export const MENTOR_BACKGROUND_OPTIONS = [
   { value: 'academic', label: 'Academic' },
   { value: 'industry', label: 'Industry' },
-  { value: 'undergraduate', label: 'Undergraduate' },
-  { value: 'postgraduate', label: 'Postgraduate' },
-  { value: 'hdr', label: 'HDR' }
+  { value: 'undergraduate', label: 'University Student – Undergraduate' },
+  { value: 'postgraduate', label: 'University Student – Postgraduate' },
+  { value: 'hdr', label: 'University Student – HDR' }
 ] as const
 export type MentorBackground = (typeof MENTOR_BACKGROUND_OPTIONS)[number]['value']
 

@@ -489,6 +489,7 @@ def publish_new_message(message, *, context=None, viewer_id=None) -> None:
 
 
 class MessageViewSet(viewsets.ModelViewSet):
+    hidden_with_pages = True
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
     parser_classes = [JSONParser]
@@ -1182,6 +1183,7 @@ class MentionViewSet(viewsets.GenericViewSet):
     is already restricted by ownership of the mention row.
     """
 
+    hidden_with_pages = True
     serializer_class = MentionSerializer
     permission_classes = [IsAuthenticated]
 
@@ -1275,9 +1277,9 @@ class MentionViewSet(viewsets.GenericViewSet):
 class UnreadDigestTriggerView(APIView):
     """Cron-trigger endpoint for the unread-messages email digest.
 
-    Called every 15 minutes by ``.github/workflows/unread-digest.yml`` (no
-    in-process scheduler / Celery worker); per-user throttling lives in the
-    service, not here. Auth is a shared-secret header, not a user session —
+    By hand from ``.github/workflows/unread-digest.yml``; the backend's timer
+    (``apps.management.scheduler``) runs the same code every 15 minutes.
+    Per-user throttling lives in the service, not here. Auth is a shared-secret header, not a user session —
     there is no human caller. Mirrors ``RsvpReminderTriggerView``:
 
     * The email jobs' shared token (``apps.common.email_jobs``) must be set;

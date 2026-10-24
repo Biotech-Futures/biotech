@@ -1,8 +1,8 @@
 name: Daily guardian details reminders
 
 # Emails students who have no parent/guardian email on file, once a day, until
-# they add one on their profile. The backend decides who is due, so this only
-# has to fire once a day.
+# they add one on their profile. The backend decides who is due, so it only
+# has to run once a day.
 #
 # Firing more often than that is harmless: a student already emailed today is
 # skipped, so a retry or an overlapping run cannot email anyone twice.
@@ -11,11 +11,11 @@ name: Daily guardian details reminders
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
 #                              backend env of the same name
 #
-# 06:41 UTC is late afternoon in Sydney, after school. The odd minute avoids
-# GitHub's top-of-hour cron congestion.
+# Run by hand only (Actions > Run workflow), as a backup: the backend runs
+# this itself daily at 19:00 UTC (6am in Sydney under daylight saving, 5am in
+# winter), an hour after the guardian consent reminders
+# (apps.management.scheduler).
 on:
-  schedule:
-    - cron: "41 6 * * *"
   workflow_dispatch:
 
 jobs:

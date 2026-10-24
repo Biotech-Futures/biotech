@@ -13,7 +13,16 @@ from apps.users.models.mentor_profile import MENTOR_BACKGROUND_ERROR, normalize_
 
 migration = importlib.import_module("apps.users.migrations.0024_normalize_mentor_background")
 
-CATEGORIES = ["Academic", "Industry", "Undergraduate", "Postgraduate", "HDR"]
+# As main's 0041_mentor_background_labels settled them. Note the en dash:
+# the hyphen spelling below is the pre-0041 label, which the migration
+# still maps for stored data but is no longer an accepted input.
+CATEGORIES = [
+    "Academic",
+    "Industry",
+    "University Student – Undergraduate",
+    "University Student – Postgraduate",
+    "University Student – HDR",
+]
 KEYS = ["academic", "industry", "undergraduate", "postgraduate", "hdr"]
 
 
@@ -32,12 +41,16 @@ class MentorBackgroundChoicesTests(SimpleTestCase):
             self.assertIsNone(normalize_mentor_background(value))
 
     def test_rejects_anything_else(self):
+        # "University Student - HDR" uses a hyphen: that is the pre-0041 label,
+        # which the data migration still maps but is no longer a valid input.
         for value in ("Research", "HDR candidate", "University Student - HDR", 5, ["hdr"]):
             with self.assertRaisesMessage(ValueError, MENTOR_BACKGROUND_ERROR):
                 normalize_mentor_background(value)
+        # The message names the labels, so it follows them rather than being
+        # spelled out twice.
         self.assertEqual(
             MENTOR_BACKGROUND_ERROR,
-            "Mentor background must be one of: Academic, Industry, Undergraduate, Postgraduate, HDR",
+            "Mentor background must be one of: " + ", ".join(CATEGORIES),
         )
 
 

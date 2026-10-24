@@ -40,6 +40,7 @@ from typing import Iterable, Optional
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import DatabaseError, connections, transaction
@@ -364,6 +365,47 @@ def verify_email(email: str) -> VerificationResult:
     """Check one address (see ``verify_emails``). Never raises."""
     address = EmailVerification.normalise(email)
     return verify_emails([address]).get(address) or VerificationResult(address, ERROR, "blank")
+
+
+def _stored_result(address: str) -> Optional[VerificationResult]:
+    row = _stored_answers([address]).get(address)
+    return VerificationResult(address, row.status, row.reason, row.did_you_mean, cached=True) if row else None
+
+
+def check_one_address(email, *, current=None) -> Optional[VerificationResult]:
+    """The answer for an address being saved outside registration, when it's
+    INVALID (EMAIL_CHECK_ON_EDIT); otherwise None. Never raises."""
+    if not getattr(settings, "EMAIL_CHECK_ON_EDIT", False):
+        return None
+    address = EmailVerification.normalise(email)
+    if not address or address == EmailVerification.normalise(current):
+        return None
+    try:
+        if transaction.get_connection().in_atomic_block:
+            # A lookup here would hold the transaction's locks for its timeout.
+            logger.warning("email_verification.check_in_transaction email=%s", email_log_tag(address))
+            result = _stored_result(address)
+        else:
+            from .email_precheck import BUSY_SECONDS, _busy_key
+
+            key = _busy_key(address)
+            if cache.add(key, 1, BUSY_SECONDS):
+                try:
+                    result = verify_email(address)
+                finally:
+                    cache.delete(key)
+            else:
+                # Another check is paying for it: use what's on file, never pay twice.
+                result = _stored_result(address)
+    except Exception as exc:  # noqa: BLE001 - a failed check lets the save go ahead
+        logger.error("email_verification.check_failed email=%s error=%s", email_log_tag(address), type(exc).__name__)
+        return None
+    return result if result is not None and result.status == INVALID else None
+
+
+def invalid_address_message(result: VerificationResult, whose: str = "This email address") -> str:
+    suggestion = f" Did you mean {result.did_you_mean}?" if result.did_you_mean else ""
+    return f"{whose} doesn't appear to exist.{suggestion}"
 
 
 # --- background ------------------------------------------------------------

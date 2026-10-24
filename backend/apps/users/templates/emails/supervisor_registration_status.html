@@ -1,6 +1,6 @@
 {% extends "emails/base.html" %}
-{# The client's "Supervisor Daily Digest" (sent from Power Automate), in the #}
-{# shared layout. Sent daily to a supervisor with a student whose permission #}
+{# The client's supervisor digest (sent from Power Automate), in the shared  #}
+{# layout. Sent weekly to a supervisor with a student whose permission       #}
 {# form isn't signed yet (apps.users.supervisor_status). The old portal's    #}
 {# "I'm a teacher, then View current students" is their My Students now.    #}
 
@@ -56,13 +56,13 @@
                   <td style="padding:14px 16px; border:1px solid #d7e3dc; border-radius:6px;">
                     <p style="margin:0; color:#307054; font-size:26px; line-height:1.1; font-weight:700;">{{ PENDING_CONTACT_COUNT }}</p>
                     <p style="margin:4px 0 0 0; color:#1a2e23; font-size:15px; font-weight:700;">Pending Contact</p>
-                    <p style="margin:4px 0 0 0; color:#3d4b43; font-size:14px; line-height:1.55;">The student has not provided their guardian's details. The student receives a daily email from {{ SENDER_EMAIL }} prompting them to provide the details. If you know the guardian's contact details, you can add them with Upload Guardian Details on My Students, or reply to this email and our team can add them.</p>
+                    <p style="margin:4px 0 0 0; color:#3d4b43; font-size:14px; line-height:1.55;">The student has not provided their guardian's details. The student receives a daily email from {{ SENDER_EMAIL }} prompting them to provide the details. If you know the guardian's contact details, you can add them with Upload Guardian Details on Students, or reply to this email and our team can add them.</p>
                   </td>
                 </tr>
               </table>
 
               <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
-                As a supervisor, you can view each student's registration status in detail on My Students in {{ BRAND_CONNECT }}.
+                As a supervisor, you can view each student's registration status in detail on Students in {{ BRAND_CONNECT }}.
               </p>
 
               <!-- CTA: bulletproof button -->

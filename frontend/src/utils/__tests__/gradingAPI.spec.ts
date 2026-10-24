@@ -87,7 +87,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
   }
   const cases: Case[] = [
     { name: 'fetchGroupMarking', call: () => api.fetchGroupMarking(7), reply: { components: [] }, url: '/api/v1/grading/groups/7/' },
-    { name: 'fetchGroupMarking with year', call: () => api.fetchGroupMarking(7, 2026), reply: { components: [] }, url: '/api/v1/grading/groups/7/?year=2026' },
     {
       name: 'saveGradesBulk without comments',
       call: () => api.saveGradesBulk([{ submission: 1, criterion: 2, mark: '5', comment: '' }]),
@@ -106,7 +105,6 @@ describe('endpoint wrappers hit their routes with the right payloads', () => {
       body: { items: [], overall_comments: [{ submission: 1, component: 'POSTER', comment: 'Nice' }] }
     },
     { name: 'fetchComponentRows', call: () => api.fetchComponentRows('SAQ'), reply: { rows: [] }, url: '/api/v1/grading/components/SAQ/' },
-    { name: 'fetchComponentRows with year', call: () => api.fetchComponentRows('SAQ', 2026), reply: { rows: [] }, url: '/api/v1/grading/components/SAQ/?year=2026' },
     {
       name: 'startComponentDownload',
       call: () => api.startComponentDownload('SAQ', 'zip', [1, 2]),

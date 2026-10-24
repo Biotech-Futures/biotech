@@ -9,21 +9,13 @@
       <p v-if="formError" class="admin-users-form__error" role="alert">{{ formError }}</p>
 
       <div class="admin-users-form__grid">
-        <div class="form-field">
-          <label class="form-label" for="f-first">First name *</label>
-          <input id="f-first" v-model.trim="form.firstName" class="form-input" />
-        </div>
-        <div class="form-field">
-          <label class="form-label" for="f-last">Last name *</label>
-          <input id="f-last" v-model.trim="form.lastName" class="form-input" />
-        </div>
-        <div class="form-field" :class="{ 'form-field--full': isEditing }">
-          <label class="form-label" for="f-email">Email *</label>
+        <div class="form-field form-field--full">
+          <label class="form-label" for="f-email">Email <span class="required-mark" aria-hidden="true">*</span></label>
           <input
             id="f-email"
             v-model.trim="form.email"
             type="email"
-            class="form-input"
+            class="form-input app-input"
             :disabled="isEditing && isSupervisorMode"
             :readonly="isEditing && isSupervisorMode"
             :aria-describedby="isEditing && !isSupervisorMode ? 'f-email-hint' : undefined"
@@ -34,154 +26,263 @@
           </p>
         </div>
         <div v-if="!isEditing" class="form-field">
-          <label class="form-label" for="f-role">Role *</label>
-          <AppSelect id="f-role" v-model="form.role" class="form-input" :options="ROLE_OPTIONS" :disabled="!!fixedRole" />
+          <label class="form-label" for="f-role">Role <span class="required-mark" aria-hidden="true">*</span></label>
+          <AppSelect id="f-role" v-model="form.role" class="form-input app-input" :options="ROLE_OPTIONS" :disabled="!!fixedRole" />
         </div>
         <div v-if="isEditing" class="form-field">
           <label class="form-label" for="f-role-edit">Role</label>
           <AppSelect
             id="f-role-edit"
             v-model="form.role"
-            class="form-input"
+            class="form-input app-input"
             :options="ROLE_OPTIONS"
             :disabled="!!fixedRole"
           />
         </div>
+      </div>
 
-        <template v-if="form.role !== 'admin'">
-          <div class="form-field">
-            <label class="form-label" for="f-country">Country *</label>
+      <!-- Country, state and status, as the user panel's Account has them. -->
+      <template v-if="form.role !== 'admin' || !isEditing">
+        <div class="admin-users-form__section">Account</div>
+        <div class="admin-users-form__grid">
+          <template v-if="form.role !== 'admin'">
+            <div class="form-field">
+              <label class="form-label" for="f-country">Country</label>
+              <AppSelect
+                id="f-country"
+                :model-value="form.countryId ?? null"
+                class="form-input app-input"
+                :options="countryOptions"
+                @update:model-value="(value) => (form.countryId = value === null ? undefined : Number(value))"
+                @change="onFormCountryChange"
+              />
+            </div>
+            <!-- Picked from the list where the country has one (Australia's),
+                 else typed, as registering takes it. -->
+            <!-- Beside Country always: greyed out until a country is picked. -->
+            <div class="form-field">
+              <label class="form-label" for="f-state">State</label>
+              <AppSelect
+                v-if="formStates.length || form.countryId === undefined"
+                id="f-state"
+                :model-value="form.stateId ?? null"
+                class="form-input app-input"
+                :options="stateOptions"
+                :searchable="false"
+                :disabled="form.countryId === undefined"
+                :placeholder="form.countryId === undefined ? 'Choose a country first' : 'Choose a state'"
+                @update:model-value="(value) => (form.stateId = value === null ? undefined : Number(value))"
+              />
+              <input
+                v-else
+                id="f-state"
+                v-model.trim="form.stateName"
+                class="form-input app-input"
+                data-test="form-state-name"
+                maxlength="255"
+              />
+            </div>
+          </template>
+          <div v-if="!isEditing" class="form-field">
+            <label class="form-label" for="f-status">Status</label>
             <AppSelect
-              id="f-country"
-              :model-value="form.countryId ?? null"
-              class="form-input"
-              :options="countryOptions"
-              @update:model-value="(value) => (form.countryId = value === null ? undefined : Number(value))"
-              @change="onFormCountryChange"
+              id="f-status"
+              :model-value="form.active ? 'active' : 'inactive'"
+              class="form-input app-input"
+              data-test="form-status"
+              :options="STATUS_OPTIONS"
+              :searchable="false"
+              @update:model-value="(value) => (form.active = value === 'active')"
             />
           </div>
-          <div v-if="formStates.length" class="form-field">
-            <label class="form-label" for="f-state">State</label>
+        </div>
+      </template>
+
+      <!-- Their name, then what their role needs, as the user panel's details
+           part has them. -->
+      <div class="admin-users-form__section">{{ roleLabel(form.role) }} details</div>
+      <div class="admin-users-form__grid">
+        <div class="form-field">
+          <label class="form-label" for="f-first">First name</label>
+          <input id="f-first" v-model.trim="form.firstName" class="form-input app-input" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="f-last">Last name</label>
+          <input id="f-last" v-model.trim="form.lastName" class="form-input app-input" />
+        </div>
+
+        <template v-if="form.role === 'student'">
+          <div class="form-field">
+            <label class="form-label" for="f-school">School</label>
+            <input id="f-school" v-model.trim="form.schoolName" class="form-input app-input" />
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="f-year">Year level</label>
             <AppSelect
-              id="f-state"
-              :model-value="form.stateId ?? null"
-              class="form-input"
-              :options="stateOptions"
-              @update:model-value="(value) => (form.stateId = value === null ? undefined : Number(value))"
+              id="f-year"
+              :model-value="form.yearLevel ?? null"
+              class="form-input app-input"
+              :options="YEAR_OPTIONS"
+              :searchable="false"
+              placeholder="Choose a year"
+              @update:model-value="(value) => (form.yearLevel = value === null ? undefined : Number(value))"
             />
+          </div>
+        </template>
+
+        <template v-if="form.role === 'supervisor'">
+          <div class="form-field form-field--full">
+            <label class="form-label" for="f-sschool">School</label>
+            <input id="f-sschool" v-model.trim="form.supervisorSchoolName" class="form-input app-input" />
+          </div>
+        </template>
+
+        <!-- Pronouns as the user panel has them: after the name for a mentor or
+             admin, after the school for a supervisor. -->
+        <template v-if="form.role === 'mentor' || form.role === 'admin' || form.role === 'supervisor'">
+          <div class="form-field">
+            <label class="form-label" for="f-mpronouns">Pronouns</label>
+            <AppSelect
+              id="f-mpronouns"
+              v-model="form.pronounsChoice"
+              class="form-input app-input"
+              :options="PRONOUN_SELECT_OPTIONS"
+              :placeholder="PRONOUN_PLACEHOLDER"
+              clearable
+              :searchable="false"
+            />
+          </div>
+          <div v-if="form.pronounsChoice === 'Other'" class="form-field">
+            <label class="form-label" for="f-mpronouns-other">Their pronouns</label>
+            <input id="f-mpronouns-other" v-model="form.pronounsOther" class="form-input app-input" maxlength="100" />
+          </div>
+        </template>
+
+        <!-- A mentor's background and where they work or study, as the mentor
+             panel's Mentor Details has them. -->
+        <template v-if="form.role === 'mentor'">
+          <div class="form-field form-field--full">
+            <label class="form-label" for="f-mbg">Background</label>
+            <AppSelect
+              id="f-mbg"
+              v-model="form.mentorBackground"
+              class="form-input app-input"
+              :options="mentorBackgroundOptions"
+              :searchable="false"
+              placeholder="Choose a background"
+            />
+          </div>
+          <div v-if="form.mentorBackground === 'industry'" class="form-field">
+            <label class="form-label" for="f-mcompany">Company</label>
+            <input id="f-mcompany" v-model.trim="form.mentorCompany" class="form-input app-input" maxlength="255" />
+          </div>
+          <div v-else class="form-field">
+            <label class="form-label" for="f-minst">Institution</label>
+            <input id="f-minst" v-model.trim="form.mentorInstitution" class="form-input app-input" maxlength="255" />
+          </div>
+          <div v-if="mentorStudying" class="form-field">
+            <label class="form-label" for="f-myear">Year of study</label>
+            <AppSelect
+              id="f-myear"
+              v-model="form.mentorUniversityYear"
+              class="form-input app-input"
+              :options="STUDY_YEAR_OPTIONS"
+              :searchable="false"
+              placeholder="Choose a year"
+            />
+          </div>
+          <div v-if="form.mentorBackground !== 'industry'" class="form-field">
+            <label class="form-label" for="f-mfield">Field of study</label>
+            <input id="f-mfield" v-model.trim="form.mentorFieldOfStudy" class="form-input app-input" maxlength="255" />
+          </div>
+        </template>
+
+        <!-- Interests last in their details, as the user panel has them, the
+             heading on the box's line as registering shows it. -->
+        <div v-if="roleUsesInterests" class="form-field form-field--full">
+          <fieldset class="admin-users-form__interests">
+            <legend>{{ form.role === 'mentor' ? 'Expertise' : 'Interests' }}</legend>
+            <label v-for="option in INTEREST_OPTIONS" :key="option" class="admin-users-form__interest">
+              <input
+                type="checkbox"
+                :value="option"
+                :checked="form.interests.includes(option)"
+                @change="onInterestToggle(option, $event)"
+              />
+              <span>{{ option }}</span>
+            </label>
+          </fieldset>
+        </div>
+
+        <!-- A mentor's capacity and hours, after their interests as the panel has them. -->
+        <template v-if="form.role === 'mentor'">
+          <div class="form-field">
+            <label class="form-label" for="f-mcap">Capacity</label>
+            <AppSelect
+              id="f-mcap"
+              :model-value="form.mentorMaxGroupCount ?? null"
+              class="form-input app-input"
+              :options="capacityOptions"
+              :searchable="false"
+              placeholder="Choose a capacity"
+              @update:model-value="(value) => (form.mentorMaxGroupCount = value === null ? undefined : Number(value))"
+            />
+          </div>
+        </template>
+
+        <!-- A student's pronouns, after their interests as the user panel has them. -->
+        <template v-if="form.role === 'student'">
+          <div class="form-field">
+            <label class="form-label" for="f-pronouns">Pronouns</label>
+            <AppSelect
+              id="f-pronouns"
+              v-model="form.pronounsChoice"
+              class="form-input app-input"
+              :options="PRONOUN_SELECT_OPTIONS"
+              :placeholder="PRONOUN_PLACEHOLDER"
+              clearable
+              :searchable="false"
+            />
+          </div>
+          <div v-if="form.pronounsChoice === 'Other'" class="form-field">
+            <label class="form-label" for="f-pronouns-other">Their pronouns</label>
+            <input id="f-pronouns-other" v-model="form.pronounsOther" class="form-input app-input" maxlength="100" />
           </div>
         </template>
       </div>
 
+      <!-- Who supervises them and the group they join, as the user panel's
+           Supervisor and Group part has them. -->
       <template v-if="form.role === 'student'">
-        <div class="admin-users-form__section">Student details</div>
+        <div class="admin-users-form__section">Supervisor and Group</div>
         <div class="admin-users-form__grid">
-          <div class="form-field">
-            <label class="form-label" for="f-school">School *</label>
-            <input id="f-school" v-model.trim="form.schoolName" class="form-input" />
-          </div>
-          <div class="form-field">
-            <label class="form-label" for="f-year">Year level *</label>
-            <input
-              id="f-year"
-              v-model.number="form.yearLevel"
-              type="number"
-              min="9"
-              max="12"
-              class="form-input"
-            />
-          </div>
           <div class="form-field form-field--full">
-            <label class="form-label" for="f-supervisor">Supervisor (optional)</label>
-            <input
+            <label class="form-label" for="f-supervisor">Supervisor</label>
+            <AppSelect
               id="f-supervisor"
-              v-model.trim="form.supervisorEmail"
-              list="user-supervisor-datalist"
-              class="form-input"
+              v-model="form.supervisorEmail"
+              class="form-input app-input"
+              searchable
+              :options="supervisorOptions"
               placeholder="Search by name or email"
+              empty-text="No supervisor matches"
             />
-            <datalist id="user-supervisor-datalist">
-              <option v-for="supervisor in supervisors" :key="supervisor.id" :value="supervisor.email">
-                {{ userName(supervisor) }}
-              </option>
-            </datalist>
           </div>
-        </div>
-      </template>
-
-      <template v-if="form.role === 'supervisor'">
-        <div class="admin-users-form__section">Supervisor details</div>
-        <div class="admin-users-form__grid">
-          <div class="form-field form-field--full">
-            <label class="form-label" for="f-sschool">School (optional)</label>
-            <input id="f-sschool" v-model.trim="form.supervisorSchoolName" class="form-input" />
-          </div>
-        </div>
-      </template>
-
-      <template v-if="form.role === 'mentor'">
-        <div class="admin-users-form__section">Mentor details</div>
-        <div class="admin-users-form__grid">
-          <div class="form-field">
-            <label class="form-label" for="f-minst">Institution *</label>
-            <input id="f-minst" v-model.trim="form.mentorInstitution" class="form-input" />
-          </div>
-          <div class="form-field">
-            <label class="form-label" for="f-mmax">Max groups *</label>
-            <input id="f-mmax" v-model.number="form.mentorMaxGroupCount" type="number" min="0" class="form-input" />
-          </div>
-          <div class="form-field form-field--full">
-            <label class="form-label" for="f-mbg">Background</label>
-            <select
-              id="f-mbg"
-              v-model="form.mentorBackground"
-              class="form-input"
-              :aria-describedby="legacyMentorBackground ? 'f-mbg-legacy' : undefined"
-            >
-              <option value="">Not set</option>
-              <!-- An older free-text value stays selectable so it isn't shown
-                   as "Not set" or lost on save; it's kept until one is picked. -->
-              <option v-if="legacyMentorBackground" :value="legacyMentorBackground">
-                {{ legacyMentorBackground }} (not a category)
-              </option>
-              <option v-for="option in MENTOR_BACKGROUND_OPTIONS" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-            <p v-if="legacyMentorBackground" id="f-mbg-legacy" class="admin-users-form__hint">
-              This background isn't one of the five categories. It's kept as it is unless you
-              choose a category.
-            </p>
-          </div>
-          <div class="form-field form-field--full">
-            <label class="form-label" for="f-mreason">Mentor reason *</label>
-            <textarea
-              id="f-mreason"
-              v-model.trim="form.mentorReason"
-              class="form-input"
-              rows="2"
-              placeholder="Supporting student research projects"
-            ></textarea>
-          </div>
-        </div>
-      </template>
-
-      <template v-if="roleUsesInterests">
-        <div class="admin-users-form__section">
-          {{ form.role === 'mentor' ? 'Interests / Expertise' : 'Interests' }} *
-        </div>
-        <fieldset class="admin-users-form__interests">
-          <legend class="sr-only">Select areas of interest</legend>
-          <label v-for="option in INTEREST_OPTIONS" :key="option" class="admin-users-form__interest">
-            <input
-              type="checkbox"
-              :value="option"
-              :checked="form.interests.includes(option)"
-              @change="onInterestToggle(option, $event)"
+          <div v-if="!isEditing" class="form-field">
+            <label class="form-label" for="f-group">Group</label>
+            <AppSelect
+              id="f-group"
+              v-model="form.groupId"
+              class="form-input app-input"
+              searchable
+              :options="groupOptions"
+              :loading="groupsLoading"
+              placeholder="Search by group name"
+              empty-text="No group matches"
             />
-            <span>{{ option }}</span>
-          </label>
-        </fieldset>
+          </div>
+        </div>
+        <p v-if="groupsError" class="admin-users-form__error" role="alert">{{ groupsError }}</p>
       </template>
 
       <template v-if="form.role === 'student'">
@@ -195,15 +296,15 @@
         <div class="admin-users-form__grid">
           <div class="form-field">
             <label class="form-label" for="f-gfirst">Guardian first name</label>
-            <input id="f-gfirst" v-model.trim="form.guardianFirstName" class="form-input" />
+            <input id="f-gfirst" v-model.trim="form.guardianFirstName" class="form-input app-input" />
           </div>
           <div class="form-field">
             <label class="form-label" for="f-glast">Guardian last name</label>
-            <input id="f-glast" v-model.trim="form.guardianLastName" class="form-input" />
+            <input id="f-glast" v-model.trim="form.guardianLastName" class="form-input app-input" />
           </div>
           <div class="form-field form-field--full">
             <label class="form-label" for="f-gemail">Guardian email</label>
-            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input" />
+            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input app-input" />
           </div>
           <!-- Ticked when given: ticking records it, unticking records a withdrawal. -->
           <div class="form-field form-field--full admin-users-form__consents" data-test="form-consent">
@@ -226,13 +327,105 @@
         </div>
       </template>
 
-      <div class="admin-users-form__section">Account</div>
-      <div v-if="!isEditing" class="form-field">
-        <label class="form-label">
-          <input id="f-active" v-model="form.active" type="checkbox" class="form-checkbox" />
-          Active (displays in the list immediately)
-        </label>
-      </div>
+      <template v-if="form.role === 'mentor'">
+        <!-- When they're free each week: a day and its times, as many as they like. -->
+        <div class="admin-users-form__section">Weekly Availability</div>
+        <div
+          v-for="(slot, index) in form.mentorAvailability"
+          :key="index"
+          class="admin-users-form__slot"
+          :data-test="`form-mentor-slot-${index}`"
+        >
+          <AppSelect
+            v-model="slot.weekday"
+            class="form-input admin-users-form__day"
+            :aria-label="`Day ${index + 1}`"
+            :options="WEEKDAY_OPTIONS"
+            placeholder="Day"
+          />
+          <AppTimePicker
+            v-model="slot.start"
+            class="form-input admin-users-form__time"
+            :aria-label="`From, time ${index + 1}`"
+          />
+          <span class="admin-users-form__muted">to</span>
+          <AppTimePicker
+            v-model="slot.end"
+            class="form-input admin-users-form__time"
+            :aria-label="`To, time ${index + 1}`"
+          />
+          <button
+            type="button"
+            class="admin-users-form__slot-remove"
+            :aria-label="`Remove time ${index + 1}`"
+            @click="form.mentorAvailability.splice(index, 1)"
+          >
+            <i class="fas fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+        <p v-if="!form.mentorAvailability.length" class="admin-users-form__hint">No weekly times.</p>
+        <button
+          v-if="form.mentorAvailability.length < MAX_SLOTS"
+          type="button"
+          class="btn btn-outline btn-sm admin-users-form__slot-add"
+          data-test="form-mentor-add-slot"
+          @click="form.mentorAvailability.push(blankSlot())"
+        >
+          Add a time
+        </button>
+
+        <!-- The question registering asks, 150 words at most. -->
+        <div class="admin-users-form__section">Application Form</div>
+        <div
+          v-for="question in APPLICATION_QUESTIONS"
+          :key="question.key"
+          class="form-field admin-users-form__answer"
+        >
+          <label class="form-label" :for="`f-${question.key}`">{{ question.label }}</label>
+          <textarea
+            :id="`f-${question.key}`"
+            v-model="form[question.key]"
+            v-auto-grow
+            class="form-input admin-users-form__textarea"
+            rows="5"
+          ></textarea>
+          <span
+            class="admin-users-form__words"
+            :class="{ 'is-over': wordCount(form[question.key]) > MAX_ANSWER_WORDS }"
+          >
+            {{ wordCount(form[question.key]) }}/{{ MAX_ANSWER_WORDS }} words
+          </span>
+        </div>
+      </template>
+
+      <!-- Their photo, last: uploaded once they're added. -->
+      <template v-if="!isEditing">
+        <div class="admin-users-form__section">Profile Photo</div>
+        <div class="admin-users-form__photo">
+          <img v-if="photoPreview" class="admin-users-form__photo-img" :src="photoPreview" alt="Profile photo" />
+          <label class="btn btn-outline btn-sm">
+            Choose photo
+            <input
+              type="file"
+              class="sr-only"
+              :accept="PROFILE_PHOTO_ACCEPT"
+              data-test="form-photo-input"
+              @change="choosePhoto"
+            />
+          </label>
+          <button
+            v-if="photoPreview"
+            type="button"
+            class="btn btn-outline btn-sm"
+            data-test="form-photo-remove"
+            @click="clearPhoto"
+          >
+            Remove
+          </button>
+        </div>
+        <p class="admin-users-form__hint">PNG, JPEG or WebP, smaller than 5 MB.</p>
+      </template>
+
       <div class="form-field form-field--full" data-test="admin-notes-field">
         <label class="form-label">Internal admin notes (visible only to admins)</label>
         <RichEditor
@@ -270,24 +463,46 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
-import FormSheet from '@/components/admin/FormSheet.vue'
-import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
-import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
 
 const RichEditor = defineAsyncComponent(
   () => import('@/components/admin/RichEditor.vue')
 )
-import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
-import { logApiError } from '@/utils/apiError'
+import FormSheet from '@/components/admin/FormSheet.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import AppTimePicker from '@/components/AppTimePicker.vue'
+import type { AdminGroupDetail, AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
+import {
+  confirmStudentAssignments,
+  createAdminUser,
+  fetchAdminGroupList,
+  setAdminUserActive,
+  updateAdminUser,
+  uploadAdminUserPhoto
+} from '@/utils/adminAPI'
+import { apiErrorFromUnknown, logApiError } from '@/utils/apiError'
+import { DEFAULT_GROUP_MAX_SIZE, studentCount } from '@/utils/groupCapacity'
+import { PROFILE_PHOTO_ACCEPT, PROFILE_PHOTO_PROBLEM, isProfilePhoto } from '@/utils/profilePhoto'
+import {
+  APPLICATION_QUESTIONS,
+  MAX_ANSWER_WORDS,
+  MAX_SLOTS,
+  MENTOR_BACKGROUNDS,
+  STUDY_YEAR_OPTIONS,
+  WEEKDAY_OPTIONS,
+  availabilityTimes,
+  blankSlot,
+  capacityLabel,
+  isStudyingBackground,
+  mentorBackgroundCode,
+  draftSlot,
+  vAutoGrow,
+  wordCount,
+  type MentorSlot
+} from '@/utils/mentorForm'
+import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import { formatFullDate, roleLabel, userName } from '@/utils/userFormat'
-import {
-  INTEREST_OPTIONS,
-  MENTOR_BACKGROUND_OPTIONS,
-  USER_ROLES,
-  isMentorBackground,
-  type UserRole
-} from '@/utils/userOptions'
+import { INTEREST_OPTIONS, USER_ROLES, type UserRole } from '@/utils/userOptions'
 
 interface UserForm {
   firstName: string
@@ -296,15 +511,21 @@ interface UserForm {
   role: UserRole
   countryId?: number
   stateId?: number
+  /** Typed, for a country with no list of states. */
+  stateName: string
   schoolName: string
   yearLevel?: number
   interests: string[]
   supervisorEmail: string
   supervisorSchoolName: string
-  mentorBackground: string
+  mentorBackground: AppSelectOption['value']
   mentorInstitution: string
-  mentorReason: string
+  mentorCompany: string
+  mentorUniversityYear: AppSelectOption['value']
+  mentorFieldOfStudy: string
   mentorMaxGroupCount?: number
+  mentorAvailability: MentorSlot[]
+  mentorReason: string
   guardianFirstName: string
   guardianLastName: string
   guardianEmail: string
@@ -314,6 +535,11 @@ interface UserForm {
   pendingConsentGiven: boolean
   active: boolean
   adminNotes: string
+  /** The group a new student joins once added; null for none. */
+  groupId: number | null
+  /** A student's pronouns, as registering takes them. */
+  pronounsChoice: AppSelectOption['value']
+  pronounsOther: string
 }
 
 type GuardianFields = Pick<UserForm, 'guardianFirstName' | 'guardianLastName' | 'guardianEmail'>
@@ -345,16 +571,6 @@ const open = computed({
 const isEditing = computed(() => Boolean(props.user))
 const roleUsesInterests = computed(() => form.role === 'student' || form.role === 'mentor')
 
-/** The mentor's stored background, as the form loaded it ('' when unset). */
-const originalMentorBackground = computed(() =>
-  props.user?.role === 'mentor' ? props.user.mentorBackground || '' : ''
-)
-/** A stored background from before the five categories, kept until replaced. */
-const legacyMentorBackground = computed(() => {
-  const stored = originalMentorBackground.value
-  return stored && !isMentorBackground(stored) ? stored : ''
-})
-
 const defaultForm = (): UserForm => ({
   firstName: '',
   lastName: '',
@@ -362,15 +578,20 @@ const defaultForm = (): UserForm => ({
   role: (props.fixedRole as UserRole) || 'student',
   countryId: undefined,
   stateId: undefined,
+  stateName: '',
   schoolName: '',
   yearLevel: undefined,
   interests: [],
   supervisorEmail: '',
   supervisorSchoolName: '',
-  mentorBackground: '',
+  mentorBackground: null,
   mentorInstitution: '',
+  mentorCompany: '',
+  mentorUniversityYear: null,
+  mentorFieldOfStudy: '',
+  mentorMaxGroupCount: undefined,
+  mentorAvailability: [],
   mentorReason: '',
-  mentorMaxGroupCount: 2,
   guardianFirstName: '',
   guardianLastName: '',
   guardianEmail: '',
@@ -378,7 +599,10 @@ const defaultForm = (): UserForm => ({
   mediaGiven: false,
   pendingConsentGiven: false,
   active: true,
-  adminNotes: ''
+  adminNotes: '',
+  groupId: null,
+  pronounsChoice: '',
+  pronounsOther: ''
 })
 
 const blankGuardian = (): GuardianFields => ({
@@ -391,6 +615,8 @@ const form = reactive<UserForm>(defaultForm())
 const formError = ref('')
 const saving = ref(false)
 const editingOriginalActive = ref(false)
+// Remounts the editor whenever the form opens on a different user, so a
+// draft can never carry over from the last one.
 const editorSessionKey = ref(0)
 const editorKey = computed(() => {
   const userId = props.user?.id ? `edit-user-${props.user.id}` : 'new-user'
@@ -430,9 +656,21 @@ const formStates = computed(() => {
 
 const onFormCountryChange = () => {
   form.stateId = undefined
+  form.stateName = ''
 }
 
+// In Australia a state is needed, as registering asks, so no None.
+const inAustralia = computed(
+  () => props.countries.find((item) => item.id === form.countryId)?.countryName === 'Australia'
+)
+
 const ROLE_OPTIONS: AppSelectOption[] = USER_ROLES.map((role) => ({ value: role, label: roleLabel(role) }))
+const YEAR_OPTIONS: AppSelectOption[] = [9, 10, 11, 12].map((year) => ({ value: year, label: String(year) }))
+// Active users show in the list straight away.
+const STATUS_OPTIONS: AppSelectOption[] = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' }
+]
 
 // No country or state is null here, undefined on the form.
 const countryOptions = computed<AppSelectOption[]>(() => [
@@ -440,8 +678,9 @@ const countryOptions = computed<AppSelectOption[]>(() => [
   ...props.countries.map((country) => ({ value: country.id, label: country.countryName }))
 ])
 
-const stateOptions = computed<AppSelectOption[]>(() => [
-  { value: null, label: 'None' },
+// Nothing until a country is picked, so its box says to pick one first.
+const stateOptions = computed<AppSelectOption[]>(() => form.countryId === undefined ? [] : [
+  ...(inAustralia.value ? [] : [{ value: null, label: 'None' }]),
   ...formStates.value.map((state) => ({ value: state.id, label: state.stateName }))
 ])
 
@@ -456,6 +695,8 @@ const onInterestToggle = (option: string, event: Event) => {
 const initForm = (editingUser: AdminUser | null) => {
   formError.value = ''
   editorSessionKey.value++
+  createdUserId.value = null
+  clearPhoto()
   if (!editingUser) {
     Object.assign(form, defaultForm())
     editingOriginalActive.value = false
@@ -479,15 +720,27 @@ const initForm = (editingUser: AdminUser | null) => {
     role: (editingUser.role as UserRole) || props.fixedRole || 'student',
     countryId: editingUser.country?.id,
     stateId: editingUser.state?.id,
+    stateName: editingUser.state?.stateName || '',
     schoolName: editingUser.role === 'student' ? editingUser.schoolName || '' : '',
     yearLevel: editingUser.role === 'student' ? (editingUser.yearLevel ?? undefined) : undefined,
     interests: (editingUser.interests || []).filter((interest) => INTEREST_OPTIONS.includes(interest)),
     supervisorEmail: editingUser.role === 'student' ? (editingUser.supervisorEmail || '') : '',
+    // Their own words, not a listed choice, come back under Other.
+    pronounsChoice: pronounDraft(editingUser.pronouns).choice,
+    pronounsOther: pronounDraft(editingUser.pronouns).other,
     supervisorSchoolName: editingUser.role === 'supervisor' ? editingUser.schoolName || '' : '',
-    mentorBackground: editingUser.role === 'mentor' ? (editingUser.mentorBackground || '') : '',
-    mentorInstitution: editingUser.role === 'mentor' ? (editingUser.mentorInstitution || '') : '',
-    mentorReason: editingUser.role === 'mentor' ? (editingUser.mentorReason || '') : '',
-    mentorMaxGroupCount: editingUser.role === 'mentor' ? (editingUser.mentorMaxGroupCount ?? 2) : 2,
+    ...(editingUser.role === 'mentor'
+      ? {
+          mentorBackground: mentorBackgroundCode(editingUser.mentorBackground),
+          mentorInstitution: editingUser.mentorInstitution || '',
+          mentorCompany: editingUser.mentorCompany || '',
+          mentorUniversityYear: editingUser.mentorUniversityYear || null,
+          mentorFieldOfStudy: editingUser.mentorFieldOfStudy || '',
+          mentorMaxGroupCount: editingUser.mentorMaxGroupCount ?? undefined,
+          mentorAvailability: (editingUser.mentorAvailability || []).map(draftSlot),
+          mentorReason: editingUser.mentorReason || ''
+        }
+      : {}),
     ...originalGuardian.value,
     consentGiven: isStudent && Boolean(editingUser.joinPermissionReceived),
     mediaGiven: isStudent && Boolean(editingUser.joinPermissionReceived) && editingUser.mediaConsent === true,
@@ -504,22 +757,182 @@ watch(
   }
 )
 
+// --- Supervisor and Group ------------------------------------------------------
+
+// By name, with the email underneath; none first, as it's optional. The one
+// they have stays a choice even when it isn't in the list.
+const supervisorOptions = computed<AppSelectOption[]>(() => {
+  const options = props.supervisors
+    .flatMap((supervisor) => {
+      const email = supervisor.email
+      return email ? [{ value: email.toLowerCase(), label: userName(supervisor) || email, detail: email }] : []
+    })
+    .sort((a, b) => a.label.localeCompare(b.label))
+  const current = form.supervisorEmail.toLowerCase()
+  if (current && !options.some((option) => option.value === current)) {
+    options.unshift({ value: current, label: current, detail: current })
+  }
+  return [{ value: '', label: 'No supervisor', detail: '' }, ...options]
+})
+
+const groupList = ref<AdminGroupDetail[]>([])
+const groupsLoading = ref(false)
+const groupsError = ref('')
+
+// Every group, fresh each time a student is being added, so the seats are current.
+const loadGroups = async () => {
+  groupsLoading.value = true
+  groupsError.value = ''
+  try {
+    const groups: AdminGroupDetail[] = []
+    for (let page = 1; page <= 20; page += 1) {
+      const data = await fetchAdminGroupList({ page, limit: 200 })
+      // The list gives each id as text.
+      groups.push(...data.items.map((group) => ({ ...group, id: Number(group.id) })))
+      if (!data.has_more) break
+    }
+    groupList.value = groups
+  } catch (error) {
+    groupsError.value = apiErrorFromUnknown(error, 'Could not load the groups.').message
+  } finally {
+    groupsLoading.value = false
+  }
+}
+
+watch(
+  () => [props.modelValue, form.role] as const,
+  ([opening, role]) => {
+    if (opening && role === 'student' && !isEditing.value) void loadGroups()
+  }
+)
+
+// "No group" first, then each group with its seats taken; a full one can't
+// be picked.
+const groupOptions = computed<AppSelectOption[]>(() => [
+  { value: null, label: 'No group', detail: 'Not in a group' },
+  ...[...groupList.value]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    .map((group) => {
+      const taken = studentCount(group)
+      const full = taken >= DEFAULT_GROUP_MAX_SIZE
+      return {
+        value: group.id,
+        label: group.name,
+        detail: `${taken}/${DEFAULT_GROUP_MAX_SIZE} students${full ? ' · Full' : ''}`,
+        disabled: full
+      }
+    })
+])
+
+// --- Profile Photo ---------------------------------------------------------------
+
+const photoFile = ref<File | null>(null)
+const photoPreview = ref('')
+
+function clearPhoto() {
+  if (photoPreview.value) URL.revokeObjectURL(photoPreview.value)
+  photoFile.value = null
+  photoPreview.value = ''
+}
+
+const choosePhoto = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // So choosing the same file again still counts.
+  input.value = ''
+  if (!file) return
+  if (!isProfilePhoto(file)) {
+    formError.value = PROFILE_PHOTO_PROBLEM
+    return
+  }
+  clearPhoto()
+  formError.value = ''
+  photoFile.value = file
+  photoPreview.value = URL.createObjectURL(file)
+}
+
+// --- A mentor's details, weekly times and application ------------------------
+
+const mentorStudying = computed(() => isStudyingBackground(form.mentorBackground))
+// Registering's backgrounds, and one typed before that, as written.
+const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
+  const current = form.mentorBackground
+  return typeof current === 'string' && current && !MENTOR_BACKGROUNDS.some((option) => option.value === current)
+    ? [...MENTOR_BACKGROUNDS, { value: current, label: current }]
+    : MENTOR_BACKGROUNDS
+})
+// 1 to 5 groups as registering offers, and whatever they have now.
+const capacityOptions = computed<AppSelectOption[]>(() => {
+  const counts = new Set([1, 2, 3, 4, 5])
+  if (form.mentorMaxGroupCount !== undefined) counts.add(form.mentorMaxGroupCount)
+  return [...counts].sort((a, b) => a - b).map((count) => ({ value: count, label: capacityLabel(count) }))
+})
+
+// What's given wrong: anything may be left out, to be filled in later.
+const mentorProblem = (): string => {
+  const times = availabilityTimes(form.mentorAvailability)
+  if (typeof times === 'string') return times
+  if (APPLICATION_QUESTIONS.some((question) => wordCount(form[question.key]) > MAX_ANSWER_WORDS)) {
+    return `Keep the answer to ${MAX_ANSWER_WORDS} words or fewer.`
+  }
+  return ''
+}
+
+// What their background doesn't ask for is cleared, as registering does.
+const mentorPayload = (): Record<string, unknown> => {
+  const industry = form.mentorBackground === 'industry'
+  const times = availabilityTimes(form.mentorAvailability)
+  return {
+    mentorBackground: form.mentorBackground,
+    mentorCompany: industry ? form.mentorCompany : '',
+    mentorInstitution: industry ? '' : form.mentorInstitution,
+    mentorUniversityYear: mentorStudying.value ? form.mentorUniversityYear : '',
+    mentorFieldOfStudy: industry ? '' : form.mentorFieldOfStudy,
+    mentorMaxGroupCount: form.mentorMaxGroupCount,
+    mentorAvailability: typeof times === 'string' ? [] : times,
+    mentorReason: form.mentorReason.trim()
+  }
+}
+
+// A user added whose group or photo didn't take: Create then only retries those.
+const createdUserId = ref<number | null>(null)
+
+const finishNewUser = async (userId: number) => {
+  createdUserId.value = userId
+  if (form.role === 'student' && form.groupId !== null) {
+    try {
+      await confirmStudentAssignments([{ studentId: userId, groupId: form.groupId }])
+    } catch (error) {
+      throw new Error(
+        `They were added, but not to the group: ${apiErrorFromUnknown(error, 'it could not be joined.').message}`
+      )
+    }
+  }
+  if (photoFile.value) {
+    try {
+      await uploadAdminUserPhoto(userId, photoFile.value)
+    } catch (error) {
+      throw new Error(
+        `They were added, but their photo wasn't saved: ${apiErrorFromUnknown(error, 'it could not be uploaded.').message}`
+      )
+    }
+  }
+}
+
 const onCancel = () => {
   open.value = false
 }
 
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
+// The pronouns to save: null when Other is chosen with nothing typed.
+const chosenPronouns = () =>
+  pronounsToSave({ choice: String(form.pronounsChoice ?? ''), other: form.pronounsOther })
+
 const validateForm = (): boolean => {
   const role = form.role
-  if (!form.firstName.trim()) {
-    formError.value = 'First name is required.'
-    return false
-  }
-  if (!form.lastName.trim()) {
-    formError.value = 'Last name is required.'
-    return false
-  }
+  // Only an email and a role are needed: the rest may come later. What's
+  // given wrong is still refused.
   if (!form.email.trim()) {
     formError.value = 'Email is required.'
     return false
@@ -528,17 +941,13 @@ const validateForm = (): boolean => {
     formError.value = 'Invalid email format.'
     return false
   }
-  if (role !== 'admin' && form.countryId === undefined) {
-    formError.value = 'Country is required for non-admin users.'
-    return false
-  }
   if (role === 'student') {
-    if (!form.schoolName.trim()) {
-      formError.value = 'School is required for student users.'
-      return false
-    }
-    if (!form.yearLevel || form.yearLevel < 9 || form.yearLevel > 12) {
-      formError.value = 'Year level must be between 9 and 12.'
+    // Consent needs a guardian on file: one named, or the student's own name
+    // standing in until they are.
+    const guardianNamed = Boolean(form.guardianFirstName && form.guardianLastName)
+    const studentNamed = Boolean(form.firstName.trim() && form.lastName.trim())
+    if (form.consentGiven && !isEditing.value && !guardianNamed && !studentNamed) {
+      formError.value = "Enter the guardian's name to record their consent."
       return false
     }
     if (guardianNamesChanged() && (!form.guardianFirstName || !form.guardianLastName)) {
@@ -555,21 +964,14 @@ const validateForm = (): boolean => {
     }
   }
   if (role === 'mentor') {
-    if (!form.mentorInstitution.trim()) {
-      formError.value = 'Institution is required for mentor users.'
-      return false
-    }
-    if (!form.mentorReason.trim()) {
-      formError.value = 'Mentor reason is required for mentor users.'
-      return false
-    }
-    if (form.mentorMaxGroupCount === undefined || form.mentorMaxGroupCount < 0) {
-      formError.value = 'Max group count must be 0 or greater.'
+    const problem = mentorProblem()
+    if (problem) {
+      formError.value = problem
       return false
     }
   }
-  if (roleUsesInterests.value && form.interests.length === 0) {
-    formError.value = `At least one interest is required for ${role} users.`
+  if (chosenPronouns() === null) {
+    formError.value = 'Enter their pronouns.'
     return false
   }
   return true
@@ -626,6 +1028,11 @@ const submitForm = async () => {
         stateId: role === 'admin' ? null : form.stateId,
         adminNotes: form.adminNotes.trim()
       }
+      // A typed state, for a country with no list of states.
+      if (role !== 'admin' && form.countryId !== undefined && !formStates.value.length) {
+        delete payload.stateId
+        payload.stateName = form.stateName
+      }
       if (!props.isSupervisorMode && form.email.trim().toLowerCase() !== (props.user.email || '').trim().toLowerCase()) {
         payload.email = form.email.trim().toLowerCase()
       }
@@ -638,16 +1045,10 @@ const submitForm = async () => {
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
       } else if (role === 'mentor') {
-        // Only a change is sent, so an unrelated edit leaves the stored
-        // background (including an older free-text one) untouched.
-        if (form.mentorBackground !== originalMentorBackground.value) {
-          payload.mentorBackground = form.mentorBackground || null
-        }
-        payload.mentorInstitution = form.mentorInstitution
-        payload.mentorReason = form.mentorReason
-        payload.mentorMaxGroupCount = form.mentorMaxGroupCount
+        Object.assign(payload, mentorPayload())
         payload.interests = form.interests
       }
+      payload.pronouns = chosenPronouns()
 
       const activeWasChanged = form.active !== editingOriginalActive.value
       await updateAdminUser(props.user.id, payload)
@@ -664,7 +1065,12 @@ const submitForm = async () => {
         adminNotes: form.adminNotes.trim()
       }
       const countryName = resolveCountryName(form.countryId)
-      const stateName = role === 'admin' ? undefined : resolveStateName(form.stateId)
+      const stateName =
+        role === 'admin'
+          ? undefined
+          : formStates.value.length
+            ? resolveStateName(form.stateId)
+            : form.stateName || undefined
       if (countryName) payload.country = countryName
       if (stateName) payload.state = stateName
 
@@ -677,14 +1083,17 @@ const submitForm = async () => {
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
       } else if (role === 'mentor') {
-        payload.mentorInstitution = form.mentorInstitution
-        payload.mentorReason = form.mentorReason
-        payload.mentorMaxGroupCount = form.mentorMaxGroupCount
-        payload.mentorBackground = form.mentorBackground || null
+        Object.assign(payload, mentorPayload())
         payload.interests = form.interests
       }
+      payload.pronouns = chosenPronouns()
 
-      await createAdminUser(payload as CreateUserPayload)
+      if (createdUserId.value !== null) {
+        await finishNewUser(createdUserId.value)
+      } else {
+        const created = await createAdminUser(payload as CreateUserPayload)
+        if (created.data) await finishNewUser(created.data.id)
+      }
     }
     open.value = false
     emit('saved')
@@ -692,6 +1101,9 @@ const submitForm = async () => {
     logApiError('admin.users.save', submitError)
     formError.value =
       submitError instanceof Error ? submitError.message : 'Unable to save the user right now.'
+    // Added, though not to their group or without their photo: the list
+    // shows them meanwhile.
+    if (createdUserId.value !== null) emit('saved')
   } finally {
     saving.value = false
   }
@@ -699,10 +1111,16 @@ const submitForm = async () => {
 </script>
 
 <style scoped>
+/* Two equal columns, whatever a box holds: a long placeholder ("Choose a
+   country first") mustn't widen its own. */
 .admin-users-form__grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.9rem;
+}
+
+.admin-users-form__grid > .form-field {
+  min-width: 0;
 }
 
 .admin-users-form__section {
@@ -716,27 +1134,130 @@ const submitForm = async () => {
   color: var(--dark-green);
 }
 
+/* In a box, in two columns, as registering and the student dashboard
+   show them. */
 .admin-users-form__interests {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.45rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 30px 16px;
+  margin: 0;
+  padding: 0.6rem 1rem 1.1rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+}
+
+/* A weekly time: day, from, to, and its ×, as the mentor panel's. */
+.admin-users-form__slot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.form-input.admin-users-form__day {
+  flex: 1 1 7rem;
+  min-width: 7rem;
+  width: auto;
+}
+
+/* A time (AppTimePicker): as wide as it needs. */
+.form-input.admin-users-form__time {
+  flex: none;
+  width: auto;
+  min-width: 0;
+}
+
+.admin-users-form__muted {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.admin-users-form__slot-remove {
+  padding: 0.25rem 0.4rem;
   border: none;
-  padding: 0;
-  margin: 0.4rem 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.admin-users-form__slot-add {
+  margin: 0.2rem 0 0;
+}
+
+.admin-users-form__answer + .admin-users-form__answer {
+  margin-top: 0.9rem;
+}
+
+/* It grows with what's written rather than scrolling. */
+.admin-users-form__textarea {
+  resize: vertical;
+  min-height: 6rem;
+}
+
+.admin-users-form__words {
+  align-self: flex-end;
+  margin-top: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.admin-users-form__words.is-over {
+  color: var(--danger);
+}
+
+/* Its heading on the box's line, in the form's label style. */
+.admin-users-form__interests legend {
+  padding: 0 6px;
+  color: var(--teal);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* The photo as the user's dashboard shows it: round, filling its circle. */
+.admin-users-form__photo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.admin-users-form__photo-img {
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center;
+  border: 1px solid var(--border-light);
+}
+
+/* Choose photo is a label (for its file box), which would take the page's
+   taller line; both buttons take the button's, so they match. */
+.admin-users-form__photo .btn {
+  margin: 0;
+  font-family: inherit;
+  line-height: normal;
+  cursor: pointer;
 }
 
 .admin-users-form__interest {
   display: flex;
   align-items: flex-start;
-  gap: 0.5rem;
+  gap: 10px;
+  padding: 0 12px 0 2px;
   font-size: 0.9rem;
+  line-height: 1.35;
   color: var(--teal);
   cursor: pointer;
 }
 
+/* Centred on the first line of its text, at any text size. */
 .admin-users-form__interest input {
-  margin-top: 0.2rem;
+  flex: 0 0 auto;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  margin: calc((0.9rem * 1.35 - 1.0625rem) / 2) 0 0;
   accent-color: var(--dark-green);
+  cursor: pointer;
 }
 
 .admin-users-form__note {
@@ -755,16 +1276,19 @@ const submitForm = async () => {
   font-size: 0.85rem;
 }
 
-/* Consent to take part and media consent: large tick boxes. */
+/* Consent to take part and media consent side by side, with large tick
+   boxes; a pending guardian's goes on the next line when there's no room. */
 .admin-users-form__consents {
   display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 0.6rem 2rem;
 }
 
-/* The form's usual label text, beside a larger tick box. */
+/* The form's usual label text, its larger tick box just after it. */
 .admin-users-form__check {
   display: inline-flex;
+  flex-direction: row-reverse;
   align-items: center;
   gap: 0.6rem;
   font-size: 0.85rem;
@@ -804,10 +1328,17 @@ const submitForm = async () => {
 
 .form-input {
   width: 100%;
+  background-color: var(--white);
+}
+
+/* The weekly times and the application's answers keep their own box; the
+   rest are the shared one (app-input). */
+.admin-users-form__day,
+.admin-users-form__time,
+.admin-users-form__textarea {
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  background-color: var(--white);
   color: var(--teal);
   font: inherit;
 }
@@ -879,8 +1410,9 @@ const submitForm = async () => {
 }
 
 @media (max-width: 640px) {
-  .admin-users-form__grid {
-    grid-template-columns: 1fr;
+  .admin-users-form__grid,
+  .admin-users-form__interests {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

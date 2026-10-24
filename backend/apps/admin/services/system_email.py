@@ -37,7 +37,7 @@ from django.template.loader import get_template
 from django.template.loader_tags import ExtendsNode
 
 from apps.services.email_branding import LOGO_CID, brand_context, logo_data_uri
-from apps.services.email_log import email_log, mark_failures_seen, unseen_failures
+from apps.services.email_log import email_log, mark_failures_seen, reason_for, unseen_failures
 from apps.services.email_metrics import record_email_delivery
 from apps.services.email_registry import (
     EMAIL_TYPES,
@@ -520,6 +520,8 @@ def send_test_email(
             delivered=0,
             failed=1,
             initiated_by=requested_by,
+            recipients=[recipient],
+            missed={recipient: reason_for(exc)},
         )
         # Not logger.exception: SMTP errors can carry the address in their args.
         logger.error(
@@ -539,6 +541,7 @@ def send_test_email(
         delivered=1,
         failed=0,
         initiated_by=requested_by,
+        recipients=[recipient],
     )
 
     return {
@@ -573,6 +576,20 @@ def get_mail_api_state() -> dict:
     from apps.services.email_log import mail_api_state
 
     return {"msg": "Mail API state retrieved", "data": mail_api_state()}
+
+
+def get_scheduled_jobs() -> dict:
+    """The timed jobs the backend runs itself and how each last went, for Email Checks."""
+    from apps.management.scheduler import job_states
+
+    return {"msg": "Scheduled jobs retrieved", "data": job_states()}
+
+
+def get_always_on_state() -> dict:
+    """Whether Azure's Always On is keeping the backend awake, for the top of System Emails."""
+    from apps.services.always_on import always_on_state
+
+    return {"msg": "Always On state retrieved", "data": always_on_state()}
 
 
 def get_unseen_failures() -> dict:

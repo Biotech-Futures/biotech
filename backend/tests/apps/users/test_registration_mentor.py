@@ -5,11 +5,15 @@ import uuid
 from datetime import time
 
 from django.core import mail
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import MentorProfile, RegistrationSubmission, User, UserInterest
+from apps.users.models import (
+    MentorProfile, RegistrationSubmission, StudentProfile, SupervisorProfile, User, UserInterest,
+)
 from apps.users.models.mentor_availability import MentorAvailability
+from apps.users.views import REGISTRATION_PER_IP_LIMIT
 from tests.apps.users.test_registration_latelink import RegistrationSetup
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
@@ -23,10 +27,7 @@ def mentor_body(**changes):
         "universityYear": "2", "fieldOfStudy": "Bioengineering",
         "interests": ["Biomedical Innovations", "AI & Robotics and Smart Systems"],
         "capacity": "3",
-        "weeklyHours": "4",
-        "background": "Two years of lab work on tissue scaffolds.",
         "motivation": "I'd like to help students find their way into research.",
-        "mentoringApproach": "Weekly check-ins and pointing them to good sources.",
         "availability": [
             {"weekday": "0", "start": "17:00", "end": "18:30"},
             {"weekday": "", "start": "", "end": ""},
@@ -34,7 +35,7 @@ def mentor_body(**changes):
         ],
     }
     mentor.update(changes)
-    return {"journey": "mentor", "payload": {"mentor": mentor}}
+    return {"journey": "mentor", "payload": {"mentor": mentor}, "policiesAgreed": True}
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM)
@@ -62,12 +63,12 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         profile = MentorProfile.objects.get(user=user)
         self.assertEqual(
             (profile.background, profile.institution, profile.company, profile.university_year,
-             profile.field_of_study, profile.max_group_count, profile.weekly_hours),
-            ("postgraduate", "University of Sydney", "", "2", "Bioengineering", 3, 4),
+             profile.field_of_study, profile.max_group_count),
+            ("postgraduate", "University of Sydney", "", "2", "Bioengineering", 3),
         )
         self.assertEqual(profile.mentor_reason, "I'd like to help students find their way into research.")
-        self.assertEqual(profile.relevant_background, "Two years of lab work on tissue scaffolds.")
-        self.assertEqual(profile.mentoring_approach, "Weekly check-ins and pointing them to good sources.")
+        # No longer asked: hours a week, relevant background, how they'd mentor.
+        self.assertEqual((profile.weekly_hours, profile.relevant_background, profile.mentoring_approach), (None, "", ""))
         self.assertEqual(
             sorted(UserInterest.objects.filter(user=user).values_list("interest__interest_desc", flat=True)),
             ["AI & Robotics and Smart Systems", "Biomedical Innovations"],
@@ -92,8 +93,6 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         ind = MentorProfile.objects.get(user__email="ind@example.test")
         self.assertEqual((ind.background, ind.company, ind.institution, ind.field_of_study), ("industry", "Cochlear", "", ""))
         acad = MentorProfile.objects.get(user__email="acad@example.test")
-        # AM2 shortened the five labels, so "Academic / research staff" is now
-        # just "Academic". The stored key is unchanged.
         self.assertEqual((acad.background, acad.get_background_display()), ("academic", "Academic"))
 
     def test_what_the_form_asks_for_is_checked_again_here(self):
@@ -106,9 +105,12 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
             "mentor.state": mentor_body(state=""),
             "mentor.interests": mentor_body(interests=[]),
             "mentor.capacity": mentor_body(capacity="6"),
-            "mentor.weeklyHours": mentor_body(weeklyHours="0"),
             "mentor.affiliation": mentor_body(affiliation="retired"),
-            "mentor.mentoringApproach": mentor_body(mentoringApproach=long),
+            "mentor.motivation": mentor_body(motivation=long),
+            # No longer asked: refused as any unknown field is.
+            "mentor.weeklyHours": mentor_body(weeklyHours="4"),
+            "mentor.background": mentor_body(background="Lab work."),
+            "mentor.mentoringApproach": mentor_body(mentoringApproach="Weekly check-ins."),
             "mentor.availability.0": mentor_body(availability=[{"weekday": "1", "start": "10:00", "end": ""}]),
             "mentor.nickname": mentor_body(nickname="J"),
         }
@@ -122,22 +124,43 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(email="jordan.ng@uni.example.test").exists())
 
-    def test_hours_per_week_are_needed_and_a_whole_number_up_to_40(self):
-        for hours in ("", "41", "2.5"):
-            with self.subTest(hours=hours):
-                response = self.register(mentor_body(weeklyHours=hours))
+    def test_why_they_would_mentor_is_needed_and_kept_to_150_words(self):
+        for motivation in ("", " ".join(["word"] * 151)):
+            with self.subTest(words=len(motivation.split())):
+                response = self.register(mentor_body(motivation=motivation))
                 self.assertEqual(response.status_code, 400, response.data)
-        body = mentor_body()
-        del body["payload"]["mentor"]["weeklyHours"]
-        self.assertEqual(self.register(body).status_code, 400)
+                self.assertIn("mentor.motivation", response.data["fields"] if "fields" in response.data else response.data)
+        # Exactly 150 words is allowed.
+        response = self.register(mentor_body(motivation=" ".join(["word"] * 150)))
+        self.assertEqual(response.status_code, 201, response.data)
+
+    def test_a_name_and_country_are_needed(self):
+        for field in ("firstName", "lastName", "country"):
+            left_out = mentor_body()
+            del left_out["payload"]["mentor"][field]
+            for how, body in (("blank", mentor_body(**{field: ""})), ("left out", left_out)):
+                with self.subTest(field=field, how=how):
+                    response = self.register(body)
+                    self.assertEqual(response.status_code, 400, response.data)
+                    self.assertIn(f"mentor.{field}", response.data["fields"] if "fields" in response.data else response.data)
+        self.assertFalse(MentorProfile.objects.exists())
+
+    def test_a_mentor_agrees_to_the_policies_and_its_time_is_kept(self):
+        refused = mentor_body()
+        refused["policiesAgreed"] = False
+        self.assertEqual(self.register(refused).status_code, 400)
+
+        response = self.register()
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIsNotNone(User.objects.get(email="jordan.ng@uni.example.test").policies_agreed_at)
 
     def test_the_form_without_weekly_times_registers(self):
-        body = mentor_body(weeklyHours="40")
+        body = mentor_body()
         del body["payload"]["mentor"]["availability"]
         response = self.register(body)
         self.assertEqual(response.status_code, 201, response.data)
         user = User.objects.get(email="jordan.ng@uni.example.test")
-        self.assertEqual(MentorProfile.objects.get(user=user).weekly_hours, 40)
         self.assertFalse(MentorAvailability.objects.filter(mentor_user=user).exists())
 
     def test_closed_dates_an_email_with_an_account_and_a_late_link_are_refused(self):
@@ -153,6 +176,34 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         response = self.register()
         self.assertEqual(response.status_code, 400)
         self.assertFalse(MentorProfile.objects.exists())
+
+    def test_an_email_that_belongs_to_a_student_or_a_supervisor_is_refused(self):
+        student = User.objects.create_user(email="pupil@example.test", first_name="Robin", last_name="Existing")
+        StudentProfile.objects.create(
+            user=student, pg_first_name="Pat", pg_last_name="Parent", school_name="Test High School", year_lvl="10",
+        )
+        supervisor = User.objects.create_user(email="grace@example.test", first_name="Grace", last_name="Green")
+        SupervisorProfile.objects.create(user=supervisor, school_name="Test High School")
+        for typed in ("pupil@example.test", "Grace@Example.test"):
+            with self.subTest(typed=typed):
+                response = self.register(mentor_body(email=typed))
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertIn("mentor.email", response.data["fields"] if "fields" in response.data else response.data)
+        # Neither account was given the mentor role or a mentor profile.
+        self.assertFalse(MentorProfile.objects.exists())
+        self.assertFalse(RoleAssignmentHistory.objects.filter(role__role_name="mentor").exists())
+
+    def test_the_per_ip_limit_applies_but_a_repeated_request_still_gets_its_receipt(self):
+        key = uuid.uuid4()
+        first = self.register(key=key)
+        self.assertEqual(first.status_code, 201, first.data)
+        cache.set("registration_ip:127.0.0.1", REGISTRATION_PER_IP_LIMIT)
+        response = self.register(mentor_body(email="another@example.test"))
+        self.assertEqual(response.status_code, 429)
+        self.assertFalse(User.objects.filter(email="another@example.test").exists())
+        again = self.register(key=key)
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.data, first.data)
 
     def test_the_same_request_sent_again_registers_one_mentor(self):
         key = uuid.uuid4()

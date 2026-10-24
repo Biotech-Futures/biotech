@@ -32,7 +32,7 @@
               <AppSelect
                 :id="`cond-field-${index}`"
                 v-model="row.field"
-                class="form-input form-select"
+                class="form-input form-select app-input app-input--wide"
                 :options="FIELD_OPTIONS"
                 @change="onFieldChange(row)"
               />
@@ -44,7 +44,7 @@
               <AppSelect
                 :id="`cond-op-${index}`"
                 v-model="row.operator"
-                class="form-input form-select"
+                class="form-input form-select app-input app-input--wide"
                 :options="OPERATOR_OPTIONS"
               />
             </div>
@@ -59,7 +59,7 @@
                   type="text"
                   disabled
                   placeholder="(No value needed)"
-                  class="form-input form-input--disabled"
+                  class="form-input form-input--disabled app-input app-input--wide"
                 />
               </template>
 
@@ -67,7 +67,7 @@
                 <AppSelect
                   :id="`cond-val-${index}`"
                   v-model="row.value"
-                  class="form-input form-select"
+                  class="form-input form-select app-input app-input--wide"
                   :options="countryOptions"
                 />
               </template>
@@ -76,7 +76,7 @@
                 <AppSelect
                   :id="`cond-val-${index}`"
                   v-model="row.value"
-                  class="form-input form-select"
+                  class="form-input form-select app-input app-input--wide"
                   :options="stateOptions"
                 />
               </template>
@@ -85,7 +85,7 @@
                 <AppSelect
                   :id="`cond-val-${index}`"
                   v-model="row.value"
-                  class="form-input form-select"
+                  class="form-input form-select app-input app-input--wide"
                   :options="ROLE_OPTIONS"
                 />
               </template>
@@ -96,7 +96,7 @@
                   v-model="row.value"
                   type="text"
                   placeholder="Enter value..."
-                  class="form-input"
+                  class="form-input app-input app-input--wide"
                 />
               </template>
             </div>
@@ -320,16 +320,9 @@ const onFieldChange = (row: ViewCondition) => {
   align-items: center;
 }
 
+/* The shared box (app-input), filling its cell of the row. */
 .form-input {
-  width: 100%;
-  padding: 0.45rem 0.65rem;
-  font: inherit;
-  font-family: inherit;
-  font-size: 0.875rem;
-  border: 1px solid var(--border-light, #cbd5e1);
-  border-radius: 6px;
   background-color: var(--white, #ffffff);
-  color: var(--teal);
   transition: border-color 0.15s ease-in-out;
 }
 

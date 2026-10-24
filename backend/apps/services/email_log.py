@@ -55,14 +55,16 @@ def note_send(
     failed: int | None = None,
     source_mailbox: str | None = None,
     started_at=None,
+    recipients=None,
     last_sent: bool = True,
     ref: dict | None = None,
 ) -> None:
     """Note a send of ``key`` now: ``missed`` ({address: reason}) for those it
-    didn't reach, ``by`` the signed-in person who sent it, if anyone. Without
-    ``last_sent`` (an email kept to send later, given up on), when it last
-    went out stays as it was. ``ref`` is what the send was of, kept with who
-    it missed, for Resend: an announcement's, ``{"announcement_id",
+    didn't reach, ``by`` the signed-in person who sent it, if anyone, and
+    ``recipients`` every address it was sent to, kept with the send's counts.
+    Without ``last_sent`` (an email kept to send later, given up on), when it
+    last went out stays as it was. ``ref`` is what the send was of, kept with
+    who it missed, for Resend: an announcement's, ``{"announcement_id",
     "delivery_id"}``."""
     by_id = by.pk if getattr(by, "is_authenticated", False) else None
     now = timezone.now()
@@ -94,6 +96,8 @@ def note_send(
             failed=failed or 0,
             initiated_by=by,
             started_at=started_at,
+            recipients=recipients,
+            missed=missed,
         )
 
 

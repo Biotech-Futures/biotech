@@ -207,6 +207,9 @@ describe('AdminSystemLogsPage', () => {
   })
 
   it('does not offer All rows per page, as the server caps a page at 200', async () => {
+    // More rows than one page holds: the picker is disabled when there is
+    // nothing to page through, and a disabled one will not open to be read.
+    listMock.mockResolvedValue(page([buildRow()], 500))
     await mountPage()
 
     const options = await appSelectLabels(wrapper!, '.data-table-page-size')

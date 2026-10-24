@@ -525,7 +525,8 @@ describe('GroupDetailModal', () => {
     )
     expect(confirmCall).toBeDefined()
     expect(JSON.parse(String((confirmCall![1] as RequestInit).body))).toEqual({
-      assignments: [{ studentId: 30, groupId: 1 }]
+      assignments: [{ studentId: 30, groupId: 1 }],
+      onlyUngrouped: true
     })
 
     // Back on the info view with the new member listed.
@@ -803,7 +804,7 @@ describe('GroupDetailModal', () => {
     const fetchMock = fetchMockFor()
     await mountModal(fetchMock, groupWithInterests)
 
-    expect(dialog()!.textContent).toContain('Mutual Areas of Interest')
+    expect(dialog()!.textContent).toContain('Mutual Area(s) of Interest')
     expect(dialog()!.textContent).toContain('Bioinformatics')
     expect(dialog()!.textContent).toContain('(3)')
     expect(dialog()!.textContent).toContain('Genetics')
@@ -823,7 +824,7 @@ describe('GroupDetailModal', () => {
     const fetchMock = fetchMockFor()
     await mountModal(fetchMock, groupWithNoOverlap)
 
-    expect(dialog()!.textContent).toContain('Mutual Areas of Interest')
+    expect(dialog()!.textContent).toContain('Mutual Area(s) of Interest')
     expect(dialog()!.textContent).toContain('No mutual areas of interest identified yet.')
   })
 

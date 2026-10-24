@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -9,7 +10,11 @@ from drf_spectacular.utils import extend_schema
 
 from apps.groups.models import GroupAutoNameUnavailable, GroupInterest, GroupMembership, Groups
 from apps.common.rbac import is_admin
-from apps.groups.services import assign_mentor_to_group, sync_supervisor_memberships_for_student
+from apps.groups.services import (
+    assign_mentor_to_group,
+    check_room_for_students,
+    sync_supervisor_memberships_for_student,
+)
 from apps.users.models import (
     AreasOfInterest,
     MentorProfile,
@@ -307,7 +312,6 @@ class SupervisedGroupMembersView(APIView):
             mentor = User.objects.filter(pk=user_ids[0]).first()
             if mentor is None:
                 raise PermissionDenied("One or more people are not available to assign.")
-            from django.core.exceptions import ValidationError as DjangoValidationError
             try:
                 assign_mentor_to_group(group=group, mentor_user=mentor, replace_existing=True)
             except DjangoValidationError as exc:
@@ -321,6 +325,11 @@ class SupervisedGroupMembersView(APIView):
         found = {profile.user_id for profile in profiles}
         if [user_id for user_id in user_ids if user_id not in found]:
             raise PermissionDenied("One or more students are not on your roster.")
+        # Five at most, counting other supervisors' students in it too.
+        try:
+            check_room_for_students(group, user_ids)
+        except DjangoValidationError as exc:
+            raise ValidationError({"user_ids": exc.messages}) from exc
 
         now = timezone.now()
         vacated_group_ids = set(

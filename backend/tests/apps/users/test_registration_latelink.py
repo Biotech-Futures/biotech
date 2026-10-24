@@ -33,6 +33,7 @@ MANAGEMENT = "/api/v1/registration-management/"
 def request_body():
     return {
         "journey": "student_individual",
+        "policiesAgreed": True,
         "payload": {
             "students": [{
                 "firstName": "Jordan", "lastName": "Lee", "email": "jordan.lee@example.com",
@@ -252,22 +253,26 @@ class ManagementTests(RegistrationSetup, TestCase):
 
 
 class IntakeTests(RegistrationSetup, TestCase):
-    def test_open_registration_saves_pending_student_and_real_receipt(self):
+    def test_open_registration_saves_an_active_student_and_real_receipt(self):
         response = self.submit()
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(set(response.data), {"reference_code", "journey", "student_count", "created_at"})
+        # With the token to set their password next (apps.users.registration_password).
+        self.assertEqual(
+            set(response.data), {"reference_code", "journey", "student_count", "created_at", "passwordToken"},
+        )
         self.assertEqual(response.data["student_count"], 1)
         self.assertEqual(response.data["journey"], "student_individual")
         row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
         self.assertEqual(row.created_at.isoformat(), response.data["created_at"])
         user = row.student
         profile = StudentProfile.objects.get(user=user)
-        self.assertEqual(user.account_status, User.AccountStatus.PENDING)
-        self.assertFalse(user.is_active)
+        # Active straight away: a student is never Pending.
+        self.assertEqual(user.account_status, User.AccountStatus.ACTIVE)
+        self.assertTrue(user.is_active)
         self.assertFalse(user.has_usable_password())
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
-        self.assertIsNone(user.activated_at)
+        self.assertIsNotNone(user.activated_at)
         self.assertFalse(profile.has_join_permission)
         self.assertIsNone(profile.joinperm_responseID)
         self.assertEqual(profile.pg_email, "guardian@example.com")
@@ -276,10 +281,12 @@ class IntakeTests(RegistrationSetup, TestCase):
         self.assertEqual(row.guardian_phone, "+61 400 000 000")
         self.assertEqual(row.guardian_relationship, "Parent")
         self.assertEqual(row.source, {"method": "student_individual"})
-        self.assertEqual(RoleAssignmentHistory.objects.count(), 1)
-        self.assertEqual(RoleAssignmentHistory.objects.get().role.role_name, "student")
-        self.assertEqual(SupervisorProfile.objects.count(), 0)
-        self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
+        # The student's role, and the role of the supervisor they named, who
+        # had no account: created for them (apps.users.registration_intake).
+        self.assertEqual(
+            sorted(RoleAssignmentHistory.objects.values_list("role__role_name", flat=True)), ["student", "supervisor"],
+        )
+        self.assertEqual(profile.supervisor, SupervisorProfile.objects.get(user__email="teacher@example.com"))
         self.assertEqual(row.supervisor_details["email"], "teacher@example.com")
 
     def test_areas_of_interest_are_optional(self):
@@ -488,7 +495,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         body = copy.deepcopy(self.body)
         student = body["payload"]["students"][0]
         student.update(firstName="William", lastName="Nixon", email="wiliam.nixon@example.com", school="USYD")
-        KnownUniversity.objects.get_or_create(name="USYD")
+        KnownUniversity.objects.get_or_create(full_name="USYD")
         return body
 
     def test_all_soft_warnings_have_canonical_paths_and_do_not_burn_link(self):
@@ -634,7 +641,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
             self.assertEqual(serializer.is_valid(), expected, serializer.errors)
 
     def test_known_university_alias_normalizes_and_legacy_serializer_uses_same_warning(self):
-        KnownUniversity.objects.create(name="  Example   Institute ")
+        KnownUniversity.objects.create(full_name="  Example   Institute ")
         self.assertTrue(KnownUniversity.matches(" example institute "))
         from apps.users.registration_intake import validation_body
         body = validation_body(self.body["payload"]["students"][0], self.body["payload"]["supervisor"])
@@ -686,6 +693,20 @@ class PhotoTests(RegistrationSetup, TestCase):
         self.assertTrue(get_profile_image_storage().exists(self.staff.profile_image_key))
         self.assertEqual(self.staff._meta.get_field("profile_image_key").max_length, 512)
         self.assertEqual(self.staff._meta.get_field("profile_image_content_type").max_length, 64)
+
+    def test_someone_removes_their_own_photo(self):
+        from apps.users.profile_images import save_profile_image
+        old_key = save_profile_image(user=self.staff, uploaded_file=self.photo())
+
+        response = self.staff_client.delete("/api/v1/users/me/profile-image/")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertFalse(response.data["profile_image_url"])
+        self.staff.refresh_from_db()
+        self.assertEqual(self.staff.profile_image_key, "")
+        self.assertFalse(get_profile_image_storage().exists(old_key))
+        # Again, with no photo left, is fine.
+        self.assertEqual(self.staff_client.delete("/api/v1/users/me/profile-image/").status_code, 200)
 
     def test_invalid_replacement_preserves_the_existing_photo(self):
         from apps.users.profile_images import save_profile_image
@@ -797,7 +818,8 @@ class LegacyTests(RegistrationSetup, TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data, body["body"])
         self.assertEqual(StudentProfile.objects.count(), 1)
-        self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
+        # The supervisor they named, who had no account, is created for them.
+        self.assertTrue(SupervisorProfile.objects.filter(user__email="teacher@example.com").exists())
 
     def test_legacy_cannot_bypass_window_or_self_guardian_validation(self):
         self.close_window()

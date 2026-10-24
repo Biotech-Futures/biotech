@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
-import { appSelectLabels } from '@/__tests__/appSelect'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
 const columns: DataTableColumn[] = [
   { key: 'icon', label: '' },
@@ -107,6 +108,64 @@ describe('the bottom bar', () => {
     expect(wrapper.find('.data-table-summary').text()).toBe('1 - 5 out of 12')
   })
 
+  const picker = (wrapper: ReturnType<typeof mountTable>) => wrapper.find('.data-table-page-size .app-select')
+
+  it('reads as the rows there are, and is off, while they all fit on one page', () => {
+    const wrapper = mountTable({ rows: many.slice(0, 8), pageSize: 10 })
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 8 out of 8')
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('8 Entries')
+    expect(picker(wrapper).classes()).toContain('is-disabled')
+  })
+
+  it('shows its own size, and is on, with more than one page', () => {
+    const wrapper = mountTable({ rows: many, pageSize: 10 })
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('10 Entries')
+    expect(picker(wrapper).classes()).not.toContain('is-disabled')
+  })
+
+  it('turns to the page with focusRow and brings it into view, then lets go once someone pages', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const wrapper = mountTable({ rows: many, pageSize: 5, focusRow: 9 })
+    await flushPromises()
+    expect(wrapper.find('.data-table-summary').text()).toBe('6 - 10 out of 12')
+    expect(wrapper.get('tr.data-table-row--focused').attributes('data-row-key')).toBe('9')
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+
+    // Paged on, a change of rows doesn't pull them back to it.
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await wrapper.setProps({ rows: [...many] })
+    await flushPromises()
+    expect(wrapper.find('.data-table-summary').text()).toBe('11 - 12 out of 12')
+  })
+
+  // Rows, headings, bottom bar and scrollbar each 56px: 10 rows fit the
+  // 768px window (600px of room under the headings and above the bar).
+  const rowsOf56px = () => vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(56)
+
+  it('stays on for a table on All whose rows run past the screen', async () => {
+    rowsOf56px()
+    const wrapper = mountTable({ rows: many, pageSize: DATA_TABLE_ALL })
+    await flushPromises()
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 12 out of 12')
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('All Entries')
+    expect(picker(wrapper).classes()).not.toContain('is-disabled')
+  })
+
+  it('is off for a table on All whose rows are all on screen', async () => {
+    rowsOf56px()
+    const wrapper = mountTable({ rows: many.slice(0, 8), pageSize: DATA_TABLE_ALL })
+    await flushPromises()
+    expect(picker(wrapper).classes()).toContain('is-disabled')
+  })
+
+  it('keeps a picked size as picked, on one page too, and stays on to change it back', async () => {
+    const wrapper = mountTable({ rows: many, pageSize: 10 })
+    await pickAppSelect(wrapper, '.data-table-page-size', '15 Entries')
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 12 out of 12')
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('15 Entries')
+    expect(picker(wrapper).classes()).not.toContain('is-disabled')
+  })
+
   // Turns a page with the bar at ``from`` on screen, drawn at ``to`` on the
   // next, scrolled ``scrolled`` down; the table box ``tall`` px.
   const turnPage = async (from: number, to: number, scrolled: number, tall = 230) => {
@@ -156,15 +215,24 @@ describe('the bottom bar', () => {
 })
 
 describe('rows per page', () => {
-  const pageSizeOptions = (wrapper: ReturnType<typeof mountTable>) =>
-    appSelectLabels(wrapper, '.data-table-page-size')
+  // More rows than one page holds: the picker is disabled while everything
+  // already fits on screen, and a disabled one will not open to be read.
+  const manyRows = Array.from({ length: 40 }, (_, index) => ({
+    id: index + 1,
+    icon: 'x',
+    name: `Name ${index}`,
+    school: 'North',
+    open: false
+  }))
+  const pageSizeOptions = (props: Record<string, unknown> = {}) =>
+    appSelectLabels(mountTable({ rows: manyRows, ...props }), '.data-table-page-size')
 
   it('offers All by default, as every other table does', async () => {
-    expect(await pageSizeOptions(mountTable())).toContain('All Entries')
+    expect(await pageSizeOptions()).toContain('All Entries')
   })
 
   it('leaves All out when a page turns it off', async () => {
-    const options = await pageSizeOptions(mountTable({ allowAllRows: false }))
+    const options = await pageSizeOptions({ allowAllRows: false })
 
     expect(options).not.toContain('All Entries')
     expect(options.length).toBeGreaterThan(0)

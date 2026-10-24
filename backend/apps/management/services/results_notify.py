@@ -422,14 +422,14 @@ class Documents:
         )
 
     def marks_summary(self, team) -> bytes:
-        context = marks_summary_context(team, self.year, grades_payload(team, self.year))
+        context = marks_summary_context(team, self.year, grades_payload(team))
         return render_marks_summary_data(self._template("marks_summary_template"), context, self._signatures())
 
     def marks_sheet(self, teams) -> bytes:
         """One row per group, filled exactly as its marks summary is."""
         return _marks_sheet([
             _sheet_row(marks_release_fields(
-                marks_summary_context(team, self.year, grades_payload(team, self.year))
+                marks_summary_context(team, self.year, grades_payload(team))
             ))
             for team in teams
         ])
@@ -471,7 +471,7 @@ def _marks_sheet(rows: list[dict]) -> bytes:
     )
 
 
-def sample_marks_sheet(year: int) -> bytes:
+def sample_marks_sheet() -> bytes:
     """The supervisor's marks spreadsheet as it will look: made-up groups,
     marked against the real rubric's criteria and maximums, as Document
     Setup's test render fills the marks summary."""
@@ -484,7 +484,7 @@ def sample_marks_sheet(year: int) -> bytes:
             project_title=title,
             students=students,
             mentors=mentors,
-            components=sample_components(year, shift=n - 1),
+            components=sample_components(shift=n - 1),
         )
         rows.append(_sheet_row(marks_release_fields(context)))
     return _marks_sheet(rows)
@@ -787,7 +787,7 @@ def _work(audience: str, actor, options: dict) -> list[Work]:
             # Anyone a run already reached isn't emailed again.
             due = set(still_due(EMAIL_KEYS[GROUPS], item, list(people)))
             people = {address: label for address, label in people.items() if address in due}
-        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor)))
+        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor), list(people)))
     return work
 
 

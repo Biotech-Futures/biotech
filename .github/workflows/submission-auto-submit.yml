@@ -1,9 +1,9 @@
 name: Hourly submission auto-submit
 
 # Submits complete drafts that teams left unsubmitted once their own cut-off has passed.
+# Run by hand only (Actions > Run workflow), as a backup: the backend runs
+# this itself every hour (apps.management.scheduler).
 on:
-  schedule:
-    - cron: "7 * * * *"
   workflow_dispatch:
 
 jobs:

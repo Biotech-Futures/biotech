@@ -8,9 +8,9 @@ class MentorProfile(models.Model):
     class BackgroundChoices(models.TextChoices):
         ACADEMIC = "academic", "Academic"
         INDUSTRY = "industry", "Industry"
-        UG = "undergraduate", "Undergraduate"
-        PG = "postgraduate", "Postgraduate"
-        HDR = "hdr", "HDR"
+        UG = "undergraduate", "University Student – Undergraduate"
+        PG = "postgraduate", "University Student – Postgraduate"
+        HDR = "hdr", "University Student – HDR"
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     background = models.CharField(max_length=50, choices=BackgroundChoices.choices, blank=True, null=True)
@@ -23,12 +23,10 @@ class MentorProfile(models.Model):
     company = models.CharField(max_length=255, blank=True, default="")
     university_year = models.CharField(max_length=8, blank=True, default="")
     field_of_study = models.CharField(max_length=255, blank=True, default="")
-    # Their relevant background, and how they'd mentor BIOTech groups (150
-    # words at most each, as the form asks).
+    # No longer asked, shown or changed (relevant background, how they'd
+    # mentor BIOTech groups, hours a week): kept for what earlier mentors gave.
     relevant_background = models.TextField(blank=True, default="")
     mentoring_approach = models.TextField(blank=True, default="")
-    # How many hours a week they can give a group, as registering asks (1 to
-    # 40). None for mentors from before it was asked.
     weekly_hours = models.PositiveSmallIntegerField(blank=True, null=True)
 
     class Meta:
@@ -65,6 +63,12 @@ def normalize_mentor_background(value):
     key = value.strip().lower()
     if not key:
         return None
-    if key not in MentorProfile.BackgroundChoices.values:
-        raise ValueError(MENTOR_BACKGROUND_ERROR)
-    return key
+    if key in MentorProfile.BackgroundChoices.values:
+        return key
+    # A label no longer lowercases to its key ("University Student –
+    # Undergraduate"), so match the labels explicitly rather than relying on
+    # the two happening to coincide.
+    for choice_key, label in MentorProfile.BackgroundChoices.choices:
+        if label.lower() == key:
+            return choice_key
+    raise ValueError(MENTOR_BACKGROUND_ERROR)

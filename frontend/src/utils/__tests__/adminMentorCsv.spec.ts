@@ -57,7 +57,9 @@ describe('parseMentorCsv', () => {
       'email,firstname,lastname,country,state,mentor reason,max group count,interests,background,institution',
       'mentor@example.edu,Ada,Lovelace,Australia,VIC,Help students,3,"AI, AI, Ethics",HDR candidate,Lab One',
       'industry@example.edu,Grace,Hopper,United States,,Career guidance,1,Computing,Industry,Company One',
-      'undergrad@example.edu,Alan,Turing,Australia,NSW,Share experience,2,Genetics,Undergraduate student,Uni Two'
+      'undergrad@example.edu,Alan,Turing,Australia,NSW,Share experience,2,Genetics,Undergraduate student,Uni Two',
+      'academic@example.edu,Rosalind,Franklin,Australia,NSW,Share research,2,Genetics,Academic,Uni Three',
+      'postgrad@example.edu,Marie,Curie,Australia,NSW,Share research,2,Genetics,University Student – Postgraduate,Uni Four'
     ].join('\n')
 
     const result = parseMentorCsv(csv)
@@ -66,7 +68,9 @@ describe('parseMentorCsv', () => {
     expect(result.valid.map((row) => row.mentorBackground)).toEqual([
       'hdr',
       'industry',
-      'undergraduate'
+      'undergraduate',
+      'academic',
+      'postgraduate'
     ])
     expect(result.valid[0]).toMatchObject({
       email: 'mentor@example.edu',
@@ -105,7 +109,7 @@ describe('parseMentorCsv', () => {
       '',
       ',Missing,Email,Australia,NSW,,0,,Academic,',
       'not-an-email,Ada,Lovelace,Australia,NSW,Help students,2,Genetics,Academic,University',
-      'valid@example.edu,Valid,Mentor,Australia,NSW,Help students,1,Genetics,Research,University'
+      'valid@example.edu,Valid,Mentor,Australia,NSW,Help students,1,Genetics,Retired,University'
     ].join('\n')
 
     const result = parseMentorCsv(csv)
@@ -114,7 +118,7 @@ describe('parseMentorCsv', () => {
     expect(result.valid[0]).toMatchObject({
       email: 'valid@example.edu',
       mentorBackground: null,
-      backgroundNote: 'background "Research" not recognised - left unset'
+      backgroundNote: 'background "Retired" not recognised - left unset'
     })
     expect(result.invalid).toEqual([
       {
@@ -150,7 +154,7 @@ describe('parseMentorCsv', () => {
 
   it('throws a file-level error when required columns are missing', () => {
     expect(() => parseMentorCsv('Email,First Name\nmentor@example.edu,Ada')).toThrow(
-      "This doesn't look like a Mentors export - missing columns: Surname, Country, Area(s) of Interest, Mentor Reason, Institution or Company, Capacity."
+      "This doesn't look like a Mentors export - missing columns: Surname, Country, Expertise, Mentor Reason, Institution or Company, Capacity."
     )
   })
 
@@ -161,10 +165,10 @@ describe('parseMentorCsv', () => {
       'First Name',
       'Surname',
       'Country',
-      'Region',
+      'State',
       'Mentor Reason',
       'Capacity',
-      'Area(s) of Interest',
+      'Expertise',
       'Background',
       'Institution or Company'
     ])

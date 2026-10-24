@@ -1,6 +1,6 @@
 name: Send waiting emails
 
-# Every 10 minutes, sends the emails the backend kept while the mail server
+# Sends the emails the backend kept while the mail server
 # couldn't be reached (a connection that dropped and couldn't be opened
 # again). The backend gives up on those past their time (3 days, or sooner
 # for one that would be out of date, like an event reminder), then sends the
@@ -12,11 +12,9 @@ name: Send waiting emails
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
 #                              backend env of the same name
 #
-# Odd minutes (7,17,...) dodge GitHub's top-of-hour scheduler spike and the
-# bounce check's minutes. Scheduled runs can still lag a few minutes under load.
+# Run by hand only (Actions > Run workflow), as a backup: the backend runs
+# this itself every 10 minutes (apps.management.scheduler).
 on:
-  schedule:
-    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
 
 concurrency:

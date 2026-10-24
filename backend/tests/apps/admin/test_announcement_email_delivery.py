@@ -17,6 +17,7 @@ This module covers the engagement-aware replacement:
   * The legacy ``"sent"`` key is preserved for backward compatibility.
 """
 
+import smtplib
 from unittest.mock import patch, MagicMock
 
 from django.core import mail
@@ -36,7 +37,7 @@ from apps.announcements.models import (
     AnnouncementAudience,
     AnnouncementDelivery,
 )
-from apps.services.models import EmailDeliveryMetric
+from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
 from apps.users.models import User
 from apps.users.models.admin_scope import AdminScope
 
@@ -153,6 +154,32 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
         self.assertEqual(delivery.failure_count, result["failed"])
         self.assertGreaterEqual(len(delivery.failed_recipients), 1)
 
+    def test_send_keeps_every_recipient_and_whether_it_reached_them(self):
+        call_count = {"n": 0}
+
+        def fake_send(self, *args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return 1
+            # A real refusal carries the server's reply code; one without a
+            # code reads as the connection dropping (see retry.lost_connection).
+            raise smtplib.SMTPRecipientsRefused({"refused@example.com": (550, b"5.1.1 unknown user")})
+
+        with patch("apps.services.system_email.EmailMultiAlternatives.send", new=fake_send):
+            result = send_announcement_email(self.announcement.id)
+
+        rows = list(EmailDeliveryRecipient.objects.filter(metric__email_type="announcement"))
+        self.assertEqual(len(rows), result["attempted"])
+        self.assertEqual(sum(row.status == "delivered" for row in rows), 1)
+        failed = [row for row in rows if row.status == "failed"]
+        self.assertEqual(len(failed), result["failed"])
+        self.assertTrue(all(row.reason == "address refused" for row in failed))
+        self.assertEqual(
+            {row.email for row in rows},
+            {"author@example.com", "r1@example.com", "r2@example.com"},
+        )
+        self.assertTrue(all(row.user_id for row in rows))
+
     # ------------------------------------------------------------------
     # SMTP connection itself can't even open: every recipient marked failed
     # and an error summary captures the connection cause.
@@ -232,6 +259,38 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
             (AnnouncementDelivery.Status.SUCCESS, attempted, 0, []),
         )
         self.assertFalse(WaitingEmail.objects.exists())
+
+    def test_kept_emails_record_their_recipients_once_they_go(self):
+        from django.core import mail
+
+        from apps.services.system_email import sender_for
+        from apps.services.waiting_email import send_waiting
+
+        real_send = mail.EmailMultiAlternatives.send
+        tries = []
+
+        def first_then_down(self_msg, *args, **kwargs):
+            tries.append(self_msg.to[0])
+            if len(tries) == 1:
+                return real_send(self_msg, *args, **kwargs)
+            raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+
+        with patch("apps.services.system_email.EmailMultiAlternatives.send", new=first_then_down):
+            result = send_announcement_email(self.announcement.id)
+
+        def recipients():
+            return sorted(
+                (row.email, row.status)
+                for row in EmailDeliveryRecipient.objects.filter(metric__email_type="announcement")
+            )
+
+        # Only the one that went is recorded; the kept ones aren't "delivered" yet.
+        self.assertEqual(recipients(), [(tries[0], "delivered")])
+
+        send_waiting(sender_for("announcement").key)
+        self.assertEqual(len(recipients()), result["attempted"])
+        self.assertEqual({email for email, _ in recipients()}, set(tries))
+        self.assertTrue(all(state == "delivered" for _, state in recipients()))
 
     def test_no_recipients_skipped_and_no_delivery_row(self):
         from apps.groups.models import Groups

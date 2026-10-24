@@ -2,7 +2,7 @@
   <FormSheet
     v-model="open"
     :title="isEditing ? 'Edit Task' : 'Add Task'"
-    :description="isEditing ? 'Update the task details below.' : 'Create a group task, assign one user, or assign a task to everyone with a selected role.'"
+    :description="isEditing ? 'Update the task details below.' : 'Create a group task, or assign one directly to a specific person. For a task assigned by role, use Role Tasks.'"
     width="min(100vw, 680px)"
   >
     <form class="admin-task-form" novalidate @submit.prevent="submitForm">
@@ -18,7 +18,7 @@
             <AppSelect
               id="task-type"
               v-model="form.task_type"
-              class="form-input"
+              class="form-input app-input"
               :options="TASK_TYPE_OPTIONS"
               :disabled="busy"
             />
@@ -31,7 +31,7 @@
             <AppSelect
               id="task-group"
               v-model="form.group"
-              class="form-input"
+              class="form-input app-input"
               :options="groupOptions"
               :placeholder="groups.length ? 'Select group' : 'No groups available'"
               searchable
@@ -39,74 +39,20 @@
             />
           </div>
 
-          <template v-if="form.task_type === 'individual'">
-            <div class="form-field">
-              <label class="form-label" for="task-assign-mode">
-                Assign to <span class="admin-task-form__required">*</span>
-              </label>
-              <AppSelect
-                id="task-assign-mode"
-                v-model="form.assign_mode"
-                class="form-input"
-                :options="ASSIGN_MODE_OPTIONS"
-                :disabled="busy"
-              />
-            </div>
-
-            <div v-if="form.assign_mode === 'user'" class="form-field">
-              <label class="form-label" for="task-user">
-                User <span class="admin-task-form__required">*</span>
-              </label>
-              <AppSelect
-                id="task-user"
-                v-model="form.assigned_user"
-                class="form-input"
-                :options="userOptions"
-                :placeholder="users.length ? 'Select user' : 'No users available'"
-                searchable
-                :disabled="busy"
-              />
-            </div>
-
-            <div v-else class="form-field">
-              <label class="form-label" for="task-role">
-                Role <span class="admin-task-form__required">*</span>
-              </label>
-              <AppSelect
-                id="task-role"
-                v-model="form.assigned_role"
-                class="form-input"
-                :options="roleOptions"
-                :placeholder="roles.length ? 'Select role' : 'No roles available'"
-                :disabled="busy"
-              />
-              <div v-if="form.assigned_role">
-                <p v-if="recipientLookupError" class="admin-task-form__lookup-error" role="alert">
-                  <span>{{ recipientLookupError }}</span>
-                  <button
-                    type="button"
-                    class="admin-task-form__retry"
-                    :disabled="busy || recipientCountLoading"
-                    @click="retryRecipientLookup"
-                  >
-                    Retry
-                  </button>
-                </p>
-                <p v-else class="admin-task-form__hint">
-                  <template v-if="recipientCountLoading">Resolving recipients...</template>
-                  <template v-else-if="roleRecipientCount === null">
-                    Creates a separate task for every {{ form.assigned_role }}.
-                  </template>
-                  <template v-else-if="roleRecipientCount === 0">
-                    No active users currently have this role.
-                  </template>
-                  <template v-else>
-                    Creates {{ roleRecipientCount }} separate task{{ roleRecipientCount === 1 ? '' : 's' }} - one per {{ form.assigned_role }}.
-                  </template>
-                </p>
-              </div>
-            </div>
-          </template>
+          <div v-else class="form-field">
+            <label class="form-label" for="task-user">
+              User <span class="admin-task-form__required">*</span>
+            </label>
+            <AppSelect
+              id="task-user"
+              v-model="form.assigned_user"
+              class="form-input app-input"
+              :options="userOptions"
+              :placeholder="users.length ? 'Select user' : 'No users available'"
+              searchable
+              :disabled="busy"
+            />
+          </div>
         </div>
       </template>
 
@@ -116,7 +62,7 @@
           <label class="form-label" for="task-name">
             Name <span class="admin-task-form__required">*</span>
           </label>
-          <input id="task-name" v-model.trim="form.name" class="form-input" :disabled="busy" placeholder="Task name" />
+          <input id="task-name" v-model.trim="form.name" class="form-input app-input app-input--wide" :disabled="busy" placeholder="Task name" />
         </div>
 
         <div class="form-field form-field--full">
@@ -124,7 +70,7 @@
           <textarea
             id="task-description"
             v-model.trim="form.description"
-            class="form-input"
+            class="form-input app-input app-input--wide admin-task-form__description"
             rows="3"
             :disabled="busy"
             placeholder="Optional description"
@@ -133,7 +79,7 @@
 
         <div class="form-field">
           <label class="form-label" for="task-due-date">Due date</label>
-          <input id="task-due-date" v-model="form.due_date" type="date" class="form-input" :disabled="busy" />
+          <AppDatePicker id="task-due-date" v-model="form.due_date" class="form-input app-input" :disabled="busy" />
         </div>
 
         <div class="form-field">
@@ -141,7 +87,7 @@
           <AppSelect
             id="task-status"
             v-model="form.status"
-            class="form-input"
+            class="form-input app-input"
             :options="STATUS_OPTIONS"
             :disabled="busy"
           />
@@ -165,32 +111,22 @@
 import { computed, reactive, ref, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import type {
   AdminGroup,
   AdminTask,
-  AdminTaskMutationResult,
-  AdminTaskRoleRecipientsData,
   AdminTaskStatus,
   AdminTaskType,
   AdminUser,
   CreateAdminTaskPayload,
   UpdateAdminTaskPayload
 } from '@/utils/adminAPI'
-import { fetchTaskRoleRecipients } from '@/utils/adminAPI'
-import { logApiError } from '@/utils/apiError'
 import { userName } from '@/utils/userFormat'
-
-interface RoleOption {
-  id?: number
-  roleName: string
-}
 
 interface TaskForm {
   task_type: AdminTaskType
   group: string
-  assign_mode: 'user' | 'role'
   assigned_user: string
-  assigned_role: string
   name: string
   description: string
   due_date: string
@@ -202,32 +138,25 @@ const props = defineProps<{
   task?: AdminTask | null
   groups: AdminGroup[]
   users: AdminUser[]
-  roles: RoleOption[]
   busy?: boolean
   submitError?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
-  (e: 'save', value: CreateAdminTaskPayload | UpdateAdminTaskPayload, recipientCount?: number | null): void
+  (e: 'save', value: CreateAdminTaskPayload | UpdateAdminTaskPayload): void
 }>()
 
 const form = reactive<TaskForm>({
   task_type: 'group',
   group: '',
-  assign_mode: 'user',
   assigned_user: '',
-  assigned_role: '',
   name: '',
   description: '',
   due_date: '',
   status: 'todo'
 })
 const formError = ref('')
-const roleRecipientCount = ref<number | null>(null)
-const recipientCountLoading = ref(false)
-const recipientLookupError = ref('')
-const recipientRequestId = ref(0)
 
 const open = computed({
   get: () => props.modelValue,
@@ -236,16 +165,9 @@ const open = computed({
 const isEditing = computed(() => Boolean(props.task))
 const displayError = computed(() => formError.value || props.submitError || '')
 const hasName = computed(() => Boolean(form.name.trim()))
-const hasValidRoleRecipients = computed(() => {
-  if (form.task_type !== 'individual' || form.assign_mode !== 'role') return true
-  if (!form.assigned_role || recipientCountLoading.value) return false
-  return roleRecipientCount.value !== null && roleRecipientCount.value > 0
-})
 const hasValidAssignment = computed(() => {
   if (isEditing.value) return true
-  if (form.task_type === 'group') return Boolean(form.group)
-  if (form.assign_mode === 'user') return Boolean(form.assigned_user)
-  return hasValidRoleRecipients.value
+  return form.task_type === 'group' ? Boolean(form.group) : Boolean(form.assigned_user)
 })
 const canSave = computed(() => hasName.value && hasValidAssignment.value)
 const saveDisabled = computed(() => Boolean(props.busy) || !canSave.value)
@@ -261,15 +183,10 @@ const toEditDueDatePayload = () => {
 
 const reset = () => {
   formError.value = ''
-  roleRecipientCount.value = null
-  recipientLookupError.value = ''
   if (props.task) {
     form.task_type = props.task.task_type
     form.group = props.task.group != null ? String(props.task.group) : ''
-    form.assign_mode = 'user'
-    form.assigned_user =
-      props.task.assigned_user != null ? String(props.task.assigned_user) : ''
-    form.assigned_role = ''
+    form.assigned_user = props.task.assigned_user != null ? String(props.task.assigned_user) : ''
     form.name = props.task.name
     form.description = props.task.description
     form.due_date = toDateInput(props.task.due_date)
@@ -279,14 +196,21 @@ const reset = () => {
 
   form.task_type = 'group'
   form.group = ''
-  form.assign_mode = 'user'
   form.assigned_user = ''
-  form.assigned_role = ''
   form.name = ''
   form.description = ''
   form.due_date = ''
   form.status = 'todo'
 }
+
+watch(
+  () => form.task_type,
+  () => {
+    formError.value = ''
+    if (form.task_type === 'group') form.assigned_user = ''
+    else form.group = ''
+  }
+)
 
 watch(
   () => props.modelValue,
@@ -302,71 +226,6 @@ watch(
   }
 )
 
-watch(
-  () => form.task_type,
-  () => {
-    formError.value = ''
-    roleRecipientCount.value = null
-    recipientLookupError.value = ''
-    if (form.task_type === 'group') {
-      form.assign_mode = 'user'
-      form.assigned_user = ''
-      form.assigned_role = ''
-    } else {
-      form.group = ''
-    }
-  }
-)
-
-watch(
-  () => form.assign_mode,
-  () => {
-    formError.value = ''
-    roleRecipientCount.value = null
-    recipientLookupError.value = ''
-    if (form.assign_mode === 'user') form.assigned_role = ''
-    else form.assigned_user = ''
-  }
-)
-
-const loadRecipientCount = async (role = form.assigned_role) => {
-  roleRecipientCount.value = null
-  recipientLookupError.value = ''
-  if (!props.modelValue || form.task_type !== 'individual' || form.assign_mode !== 'role' || !role) {
-    return
-  }
-  const requestId = recipientRequestId.value + 1
-  recipientRequestId.value = requestId
-  recipientCountLoading.value = true
-  try {
-    const result: AdminTaskMutationResult<AdminTaskRoleRecipientsData | null> =
-      await fetchTaskRoleRecipients(role)
-    if (recipientRequestId.value === requestId) {
-      roleRecipientCount.value = result.data?.count ?? null
-      recipientLookupError.value = ''
-    }
-  } catch (error) {
-    logApiError('admin.tasks.role-recipients', error)
-    if (recipientRequestId.value === requestId) {
-      roleRecipientCount.value = null
-      recipientLookupError.value = 'Recipient count could not be loaded. Try again.'
-    }
-  } finally {
-    if (recipientRequestId.value === requestId) recipientCountLoading.value = false
-  }
-}
-
-watch(
-  () => form.assigned_role,
-  (role) => {
-    void loadRecipientCount(role)
-  }
-)
-
-const retryRecipientLookup = () => {
-  void loadRecipientCount()
-}
-
 const groupLabel = (group: AdminGroup) =>
   String(group.name ?? group.group_id ?? `Group #${group.id ?? ''}`)
 
@@ -378,11 +237,6 @@ const userLabel = (user: AdminUser) => {
 const TASK_TYPE_OPTIONS: AppSelectOption[] = [
   { value: 'group', label: 'Group Task' },
   { value: 'individual', label: 'Individual Task' }
-]
-
-const ASSIGN_MODE_OPTIONS: AppSelectOption[] = [
-  { value: 'user', label: 'A specific user' },
-  { value: 'role', label: 'Everyone with a role' }
 ]
 
 const STATUS_OPTIONS: AppSelectOption[] = [
@@ -398,14 +252,6 @@ const groupOptions = computed<AppSelectOption[]>(() =>
 
 const userOptions = computed<AppSelectOption[]>(() =>
   props.users.map((user) => ({ value: String(user.id), label: userLabel(user) }))
-)
-
-// A role listed twice under one name shows once: either assigns by the name.
-const roleOptions = computed<AppSelectOption[]>(() =>
-  [...new Set(props.roles.map((role) => role.roleName))].map((roleName) => ({
-    value: roleName,
-    label: `Everyone with the ${roleName} role`
-  }))
 )
 
 const onCancel = () => {
@@ -426,37 +272,32 @@ const submitForm = () => {
       formError.value = 'Select a group for this task.'
       return
     }
-    if (form.task_type === 'individual' && form.assign_mode === 'user' && !form.assigned_user) {
+    if (form.task_type === 'individual' && !form.assigned_user) {
       formError.value = 'Select a user for this task.'
       return
     }
-    if (form.task_type === 'individual' && form.assign_mode === 'role' && !form.assigned_role) {
-      formError.value = 'Select a role for this task.'
-      return
-    }
-    if (form.task_type === 'individual' && form.assign_mode === 'role' && !hasValidRoleRecipients.value) {
-      formError.value = 'Select a role with at least one active recipient.'
-      return
-    }
 
-    const payload: CreateAdminTaskPayload = {
-      task_type: form.task_type,
-      group: form.task_type === 'group' ? Number(form.group) : null,
-      assigned_user:
-        form.task_type === 'individual' && form.assign_mode === 'user'
-          ? Number(form.assigned_user)
-          : null,
-      assigned_role:
-        form.task_type === 'individual' && form.assign_mode === 'role'
-          ? form.assigned_role
-          : null,
-      name: form.name.trim(),
-      description: form.description.trim(),
-      due_date: toDueDatePayload(form.due_date),
-      status: form.status,
-      parent: null
-    }
-    emit('save', payload, form.assign_mode === 'role' ? roleRecipientCount.value : null)
+    const payload: CreateAdminTaskPayload =
+      form.task_type === 'group'
+        ? {
+            task_type: 'group',
+            group: Number(form.group),
+            name: form.name.trim(),
+            description: form.description.trim(),
+            due_date: toDueDatePayload(form.due_date),
+            status: form.status,
+            parent: null
+          }
+        : {
+            task_type: 'individual',
+            assigned_user: Number(form.assigned_user),
+            name: form.name.trim(),
+            description: form.description.trim(),
+            due_date: toDueDatePayload(form.due_date),
+            status: form.status,
+            parent: null
+          }
+    emit('save', payload)
     return
   }
 
@@ -493,25 +334,27 @@ const submitForm = () => {
   color: var(--teal);
 }
 
+/* The shared box (app-input), on the sheet's own background. */
 .form-input {
-  width: 100%;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
-  color: var(--teal);
-  font: inherit;
+}
+
+/* Three lines, as tall as it was before the shared box. */
+.admin-task-form__description {
+  min-height: 6rem;
 }
 
 .form-input:disabled,
-.app-select.form-input.is-disabled {
+.app-select.form-input.is-disabled,
+.app-picker.form-input.is-disabled {
   background-color: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;
 }
 
-/* Drawn as the disabled inputs, without the dropdown's own fading. */
-.app-select.form-input.is-disabled {
+/* Drawn as the disabled inputs, without the dropdown's or picker's own fading. */
+.app-select.form-input.is-disabled,
+.app-picker.form-input.is-disabled {
   opacity: 1;
 }
 
