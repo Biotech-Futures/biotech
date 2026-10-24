@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { reactive } from 'vue'
 
 import { useEmailFieldChecks, type EmailBox } from '@/registration/emailFieldCheck'
 import { configuredRegistrationGateway } from '@/registration/httpRegistrationGateway'
@@ -12,31 +11,28 @@ const soft = (message: string, overrideField: string) => ({
 })
 
 // The checks' requests, each one's body.
-let sent: Array<Record<string, any>> = []
+interface Sent {
+  journey?: string
+  fields: Array<Record<string, unknown> & { field: string }>
+}
+let sent: Sent[] = []
 const serve = (...answers: unknown[]) => {
   const queue = [...answers]
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (String(url).includes('/services/csrf/')) return json({ csrfToken: 'csrf' })
-    sent.push(JSON.parse(String(init?.body)))
+    sent.push(JSON.parse(String(init?.body)) as Sent)
     const next = queue.length > 1 ? queue.shift() : queue[0]
-    return next instanceof Response ? next : json({ results: { [sent.at(-1)!.fields[0].field]: next } })
+    return next instanceof Response ? next : json({ results: { [sent.at(-1)!.fields[0]!.field]: next } })
   }))
 }
 
 const setup = () => {
-  const overrides = reactive<Record<string, boolean>>({})
   // The page's own gateway, over the stubbed network.
   const gateway = configuredRegistrationGateway(undefined, 'http://localhost:8000')
-  const checks = useEmailFieldChecks({
+  return useEmailFieldChecks({
     request: (body) => gateway.checkEmailField!(body),
-    overrides: () => overrides,
-    setOverride: (path, confirmed) => {
-      if (confirmed) overrides[path] = true
-      else delete overrides[path]
-    },
     journey: () => 'student_individual',
   })
-  return { checks, overrides }
 }
 
 const student = (email: string): EmailBox => ({
@@ -53,7 +49,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('an email box checked as it is left', () => {
   it("sends the box as Submit would, and keeps a hard problem as the box's error", async () => {
     serve({ ok: false, severity: 'hard', code: 'invalid', message: 'Enter a valid email address.' })
-    const { checks } = setup()
+    const checks = setup()
 
     await checks.check(student(' jo@ '))
 
@@ -61,7 +57,7 @@ describe('an email box checked as it is left', () => {
       journey: 'student_individual',
       fields: [{
         field: 'studentIndividual.student.email', kind: 'student', email: 'jo@', student: 0,
-        firstName: 'Jo', lastName: 'Lee', overrides: {},
+        firstName: 'Jo', lastName: 'Lee',
       }],
     }])
     expect(checks.hardProblems(() => 'jo@')).toEqual({
@@ -73,7 +69,7 @@ describe('an email box checked as it is left', () => {
 
   it('asks once for an address left unchanged', async () => {
     serve({ ok: true })
-    const { checks } = setup()
+    const checks = setup()
 
     await checks.check(student('jo@example.test'))
     await checks.check(student('jo@example.test'))
@@ -82,47 +78,43 @@ describe('an email box checked as it is left', () => {
     expect(checks.stateOf('studentIndividual.student.email', 'jo@example.test')?.status).toBe('ok')
   })
 
-  it('a warning confirmed is the next check\'s and Submit\'s, and another address drops it', async () => {
-    const path = 'students.0.overrides.ConfirmEmailInvalidOverride'
-    serve(soft("This email address couldn't be verified.", path), { ok: true })
-    const { checks, overrides } = setup()
+  it('shows a warning, with nothing to confirm here, and checks a new address again', async () => {
+    serve(soft("This email address couldn't be verified.", 'students.0.overrides.ConfirmEmailInvalidOverride'), {
+      ok: true,
+    })
+    const checks = setup()
 
     await checks.check(student('jo@example.test'))
-    expect(checks.stateOf('studentIndividual.student.email', 'jo@example.test')).toMatchObject({
-      status: 'soft', overrideField: path,
+    expect(checks.stateOf('studentIndividual.student.email', 'jo@example.test')).toEqual({
+      email: 'jo@example.test', status: 'soft', message: "This email address couldn't be verified.",
     })
 
-    await checks.confirm(student('jo@example.test'), true)
-    expect(overrides).toEqual({ [path]: true })
-    expect(sent[1]!.fields[0].overrides).toEqual({ ConfirmEmailInvalidOverride: true })
-    expect(checks.stateOf('studentIndividual.student.email', 'jo@example.test')?.status).toBe('ok')
-
     await checks.check(student('jo.lee@example.test'))
-    expect(overrides).toEqual({})
-    expect(sent[2]!.fields[0].overrides).toEqual({})
+    expect(sent).toHaveLength(2)
+    expect(sent[1]!.fields[0]).not.toHaveProperty('overrides')
+    expect(checks.stateOf('studentIndividual.student.email', 'jo.lee@example.test')?.status).toBe('ok')
+  })
+
+  it("sends a School box's school, not an address", async () => {
+    serve(soft('This looks like a university, not a school.', 'students.0.overrides.ConfirmSchoolOverride'))
+    const checks = setup()
+
+    await checks.check({
+      field: 'studentIndividual.student.school', kind: 'school', email: '', school: ' University of Sydney ', student: 0,
+    })
+
+    expect(sent[0]!.fields[0]).toEqual({
+      field: 'studentIndividual.student.school', kind: 'school', email: '', school: 'University of Sydney', student: 0,
+    })
+    expect(checks.stateOf('studentIndividual.student.school', 'University of Sydney')?.status).toBe('soft')
   })
 
   it("says nothing when it can't check, and Submit still checks", async () => {
     serve(json({ detail: 'Too many' }, 429))
-    const { checks } = setup()
+    const checks = setup()
 
     await checks.check(student('jo@example.test'))
 
     expect(checks.stateOf('studentIndividual.student.email', 'jo@example.test')).toBeUndefined()
-  })
-
-  it("a mentor's or supervisor's confirmations are their own", async () => {
-    serve(soft('Check it.', 'supervisor.overrides.ConfirmNameEmailOverride'), { ok: true })
-    const { checks, overrides } = setup()
-    const box: EmailBox = {
-      field: 'supervisor.email', kind: 'supervisor_self', email: 'samteachr@example.test',
-      firstName: 'Sam', lastName: 'Teacher',
-    }
-
-    await checks.check(box)
-    await checks.confirm(box, true)
-
-    expect(overrides).toEqual({ 'supervisor.overrides.ConfirmNameEmailOverride': true })
-    expect(sent[1]!.fields[0].overrides).toEqual({ ConfirmNameEmailOverride: true })
   })
 })

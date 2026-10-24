@@ -149,7 +149,8 @@ describe('canonical registration intake', () => {
       const joinContinue = () => wrapper.get('.group-join__actions button')
       expect(html.indexOf('group-join__actions')).toBeLessThan(html.indexOf('or-divider'))
       await joinContinue().trigger('click')
-      expect(wrapper.text()).toContain('Enter the 6-digit group code.')
+      expect(wrapper.text()).toContain('Enter the group code.')
+      expect(wrapper.text()).not.toContain('digit')
       // Add member beside the step's Continue.
       expect(wrapper.get('.form-footer').text()).toContain('Add member')
 
@@ -179,7 +180,7 @@ describe('canonical registration intake', () => {
       expect(setup.validateCurrentStep()).toBe(false)
       await check('12')
       expect(setup.validateCurrentStep()).toBe(false)
-      expect(setup.errors['studentTeam.joinCode']).toBe('Enter the 6-digit group code.')
+      expect(setup.errors['studentTeam.joinCode']).toBe('No group has this code. Check it with your group.')
 
       // Cleared: back to creating one.
       await check('')
@@ -552,7 +553,7 @@ describe('canonical registration intake', () => {
     expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Submit registration')
   })
 
-  it("lets a student leave out their supervisor, but asks for all of one that's started", async () => {
+  it('asks a student for all of their supervisor: each part is required', async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Student')
     await clickButton(wrapper, "I don't have a group")
@@ -565,18 +566,22 @@ describe('canonical registration intake', () => {
     setup.currentStep = 2
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('A supervisor is usually a teacher, but can also be a guardian.')
-    // No * on the supervisor's fields.
+    // A * on each of the supervisor's fields.
     for (const id of ['first', 'last', 'email']) {
-      expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).not.toContain('*')
+      expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).toContain('*')
     }
 
     setup.validateCurrentStep()
-    expect(Object.keys(setup.errors).some((key) => key.includes('.supervisor.'))).toBe(false)
+    expect(setup.errors).toMatchObject({
+      'studentIndividual.supervisor.firstName': 'Enter the supervisor first name.',
+      'studentIndividual.supervisor.lastName': 'Enter the supervisor last name.',
+    })
+    expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
 
     setup.forms.studentIndividual.supervisor.firstName = 'Sam'
     setup.validateCurrentStep()
+    expect(setup.errors['studentIndividual.supervisor.firstName']).toBeUndefined()
     expect(setup.errors['studentIndividual.supervisor.lastName']).toBeTruthy()
-    expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
   })
 
   it("starts each member in Member 1's country, and offers the group's schools", async () => {
@@ -915,7 +920,7 @@ describe('canonical registration intake', () => {
     const block = wrapper.get('.group-code')
     expect(block.get('.group-code__value').text()).toBe('482915')
     expect(block.text()).toContain('Save this code for future reference and share it with your teammates.')
-    expect(block.text()).toContain('held for you for 24 hours until you register')
+    expect(block.text()).toContain("It's held for you for 4 months.")
     // Before the group's interests.
     const html = wrapper.html()
     expect(html.indexOf('group-code')).toBeLessThan(html.indexOf('Group members'))

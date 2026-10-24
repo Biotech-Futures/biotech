@@ -8,9 +8,7 @@
     :errors="studentErrors"
     allow-guardian-defer
     :email-state="emailState"
-    :email-confirmed="emailConfirmed"
     @box-left="emit('box-left', $event)"
-    @box-confirm="(field, confirmed) => emit('box-confirm', field, confirmed)"
   />
 </template>
 
@@ -35,16 +33,14 @@ const props = withDefaults(
     /** Its boxes' checks, as Register one student's (its paths are
      *  csv-row-<row number>.email, .guardian.email and .school). */
     emailState?: (path: string, email: string) => EmailBoxState | undefined
-    emailConfirmed?: (path: string) => boolean
   }>(),
-  { errors: () => ({}), emailState: undefined, emailConfirmed: undefined },
+  { errors: () => ({}), emailState: undefined },
 )
 
 const emit = defineEmits<{
   'update:values': [values: CsvRow['values']]
-  // A checked box left, or its warning confirmed: the page checks it.
+  // A checked box left: the page checks it.
   'box-left': [field: StudentBoxField]
-  'box-confirm': [field: StudentBoxField, confirmed: boolean]
 }>()
 
 // Each column's field on the student form.

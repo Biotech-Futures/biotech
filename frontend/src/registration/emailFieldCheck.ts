@@ -1,9 +1,8 @@
 /**
  * Each email box on the registration page, checked as it's left: what Submit
  * would refuse (a hard problem, shown as the box's error, which keeps its
- * step from going on) or warn about (soft, shown under it with a tick to
- * confirm the address; the tick is Submit's confirmation too, so it isn't
- * asked again). POST registration/email-check/field/ (email_field_check on the
+ * step from going on) or warn about (soft, only shown under it: Submit asks
+ * for it to be ticked, just above the button). POST registration/email-check/field/ (email_field_check on the
  * backend): the address's format, the template's placeholder, whether its
  * mailbox exists, whether it's already used, a name that looks like a typo of
  * it, and a guardian or supervisor the same as the student. A student's
@@ -51,45 +50,18 @@ export interface EmailBoxState {
   email: string
   status: 'checking' | 'ok' | 'hard' | 'soft'
   message: string
-  /** A warning's confirmation: its path among Submit's overrides. */
-  overrideField: string
 }
 
 /** The gateway's check (RegistrationGateway.checkEmailField): the results by
  *  box, or null when it can't be done. */
 export type EmailCheckRequest = (body: { journey?: string; fields: unknown[] }) => Promise<Record<string, unknown> | null>
 
-// A box's confirmations: the overrides under its prefix, by their names.
-const overridePrefix = (box: EmailBox) => {
-  if (box.kind === 'mentor') return 'mentor.overrides.'
-  if (box.kind === 'supervisor_self') return 'supervisor.overrides.'
-  // The supervisor a student names is the registration's, on its first student.
-  return `students.${box.kind === 'supervisor' ? 0 : (box.student ?? 0)}.overrides.`
-}
-// Which confirmations are a box's own: a student's mailbox and name, a
-// guardian's mailbox and account, the named supervisor's mailbox and name,
-// a student's school.
-const OWN_OVERRIDES: Record<EmailCheckKind, string[]> = {
-  student: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
-  guardian: ['ConfirmGuardianEmailInvalidOverride', 'ConfirmGuardianEmailHasAccountOverride'],
-  supervisor: ['ConfirmSupervisorEmailInvalidOverride', 'ConfirmSupervisorNameEmailOverride'],
-  mentor: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
-  supervisor_self: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
-  school: ['ConfirmSchoolOverride'],
-}
-
 // What a box is checked for: its address, or a school box's school.
 const valueOf = (box: EmailBox) => (box.kind === 'school' ? (box.school ?? '') : box.email).trim()
 
-/**
- * The page's boxes, by their paths. ``overrides`` is the page's own map of
- * confirmed warnings (Submit's): a tick under a box goes in it, and a box
- * whose address changes takes its own back out.
- */
+/** The page's boxes, by their paths. */
 export function useEmailFieldChecks(options: {
   request: EmailCheckRequest
-  overrides: () => Record<string, boolean>
-  setOverride: (path: string, confirmed: boolean) => void
   journey: () => string | null
 }) {
   const boxes = reactive<Record<string, EmailBoxState>>({})
@@ -97,24 +69,14 @@ export function useEmailFieldChecks(options: {
   // What each box was last checked with, so leaving it unchanged asks nothing.
   const asked: Record<string, string> = {}
 
-  const ownOverrides = (box: EmailBox) => {
-    const prefix = overridePrefix(box)
-    return Object.fromEntries(
-      OWN_OVERRIDES[box.kind]
-        .filter((name) => options.overrides()[`${prefix}${name}`])
-        .map((name) => [name, true]),
-    )
-  }
-
   const run = async (box: EmailBox) => {
     const email = valueOf(box)
-    const overrides = ownOverrides(box)
-    boxes[box.field] = { email, status: 'checking', message: '', overrideField: '' }
+    boxes[box.field] = { email, status: 'checking', message: '' }
     const journey = options.journey()
     const results = await options
       .request({
         ...(journey ? { journey } : {}),
-        fields: [{ ...box, ...(box.kind === 'school' ? { school: email } : { email }), overrides }],
+        fields: [{ ...box, ...(box.kind === 'school' ? { school: email } : { email }) }],
       })
       .catch(() => null)
     const result = (results?.[box.field] ?? null) as Result | null
@@ -123,31 +85,24 @@ export function useEmailFieldChecks(options: {
     if (!result) {
       delete boxes[box.field]
     } else if (result.ok) {
-      boxes[box.field] = { email, status: 'ok', message: '', overrideField: '' }
+      boxes[box.field] = { email, status: 'ok', message: '' }
     } else if (result.severity === 'hard') {
-      boxes[box.field] = { email, status: 'hard', message: result.message, overrideField: '' }
+      boxes[box.field] = { email, status: 'hard', message: result.message }
     } else {
-      const warning = result.warnings[0]!
-      boxes[box.field] = { email, status: 'soft', message: warning.message, overrideField: warning.override_field }
+      boxes[box.field] = { email, status: 'soft', message: result.warnings[0]!.message }
     }
   }
 
-  /** Left, or a warning confirmed: checked again when anything it's
-   *  checked with changed. */
+  /** Left: checked again when anything it's checked with changed. */
   const check = (box: EmailBox) => {
     const email = valueOf(box)
     const before = boxes[box.field]
-    // Another address: the old one's confirmations don't carry over.
-    if (before && before.email !== email) {
-      const prefix = overridePrefix(box)
-      OWN_OVERRIDES[box.kind].forEach((name) => options.setOverride(`${prefix}${name}`, false))
-    }
     if (!email) {
       delete boxes[box.field]
       delete asked[box.field]
       return Promise.resolve()
     }
-    const signature = JSON.stringify([box, ownOverrides(box)])
+    const signature = JSON.stringify(box)
     if (asked[box.field] === signature && before && before.email === email) return Promise.resolve()
     asked[box.field] = signature
     const job = run(box).finally(() => pending.delete(job))
@@ -169,14 +124,6 @@ export function useEmailFieldChecks(options: {
         .map(([field, state]) => [field, state.message]),
     )
 
-  /** A warning confirmed or not, then checked again for the next one. */
-  const confirm = (box: EmailBox, confirmed: boolean) => {
-    const state = boxes[box.field]
-    if (!state?.overrideField) return Promise.resolve()
-    options.setOverride(state.overrideField, confirmed)
-    return check(box)
-  }
-
   /** Whether any check is under way. */
   const checking = () => pending.size > 0
 
@@ -188,5 +135,5 @@ export function useEmailFieldChecks(options: {
     Object.keys(asked).forEach((key) => delete asked[key])
   }
 
-  return { boxes, check, stateOf, hardProblems, confirm, checking, settled, reset }
+  return { boxes, check, stateOf, hardProblems, checking, settled, reset }
 }

@@ -28,19 +28,16 @@
         wide
         @blur="emit('box-left', 'email')"
       />
-      <!-- Checked as it's left: a warning to confirm, under it. -->
+      <!-- Checked as it's left: a warning, under it (Submit asks for it to be ticked). -->
       <EmailCheckNote
         class="student-editor__note"
-        :id="fieldId('email')"
         :state="emailState?.(`${prefix}.email`, student.email)"
-        :confirmed="emailConfirmed?.(`${prefix}.email`)"
-        @confirm="emit('box-confirm', 'email', $event)"
       />
     </div>
 
     <template v-if="showProfile">
       <div class="student-editor__grid">
-        <!-- Checked as it's left too: a university gets a warning to confirm. -->
+        <!-- Checked as it's left too: a university gets a warning. -->
         <div class="student-editor__cell">
           <RegistrationTextField
             :id="fieldId('school')"
@@ -53,11 +50,8 @@
             @blur="emit('box-left', 'school')"
           />
           <EmailCheckNote
-            :id="fieldId('school')"
             subject="school"
             :state="emailState?.(`${prefix}.school`, student.school)"
-            :confirmed="emailConfirmed?.(`${prefix}.school`)"
-            @confirm="emit('box-confirm', 'school', $event)"
           />
         </div>
         <label class="select-field">
@@ -160,10 +154,7 @@
         />
         <EmailCheckNote
           class="student-editor__note"
-          :id="fieldId('guardian.email')"
           :state="emailState?.(`${prefix}.guardian.email`, student.guardian.email)"
-          :confirmed="emailConfirmed?.(`${prefix}.guardian.email`)"
-          @confirm="emit('box-confirm', 'guardian.email', $event)"
         />
       </div>
     </div>
@@ -197,11 +188,9 @@ const props = withDefaults(
     /** States the others in their group gave, for a typed state (outside
      *  Australia, whose states are a dropdown). */
     regionSuggestions?: string[]
-    /** Its email boxes' checks, by their paths (registration/emailFieldCheck):
-     *  the state for the address there now, and whether its warning is
-     *  confirmed. */
+    /** Its boxes' checks, by their paths (registration/emailFieldCheck): the
+     *  state for the address (or school) there now. */
     emailState?: (path: string, email: string) => EmailBoxState | undefined
-    emailConfirmed?: (path: string) => boolean
   }>(),
   {
     allowGuardianDefer: false,
@@ -209,15 +198,13 @@ const props = withDefaults(
     schoolSuggestions: () => [],
     regionSuggestions: () => [],
     emailState: undefined,
-    emailConfirmed: undefined,
   },
 )
 
 const emit = defineEmits<{
-  // Its student's or guardian's email box left, or that box's warning
-  // confirmed (or not): the page checks it (registration/emailFieldCheck).
+  // Its student's or guardian's email box, or the School, left: the page
+  // checks it (registration/emailFieldCheck).
   'box-left': [field: StudentBoxField]
-  'box-confirm': [field: StudentBoxField, confirmed: boolean]
 }>()
 const student = defineModel<StudentDetails>('student', { required: true })
 
@@ -311,6 +298,15 @@ const fieldError = (field: string) => props.errors[`${props.prefix}.${field}`]
   color: var(--registration-muted);
   font-size: 0.78rem;
   font-weight: 500;
+}
+
+/* Its error, red as every other box's: not the label's dark bold. */
+.select-field > .student-editor__error {
+  display: block;
+  color: #982c27;
+  font-size: 0.82rem;
+  font-weight: 400;
+  line-height: 1.35;
 }
 
 /* The shared box (app-input), as the text boxes beside it, in

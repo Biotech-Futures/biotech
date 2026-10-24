@@ -1,6 +1,7 @@
 // The registration page's email boxes, checked as each is left
 // (registration/emailFieldCheck): a hard problem is the box's error and keeps
-// its step from going on; a warning is shown under it, its tick Submit's.
+// its step from going on; a warning is only shown under it (Submit asks for
+// it to be ticked, just above its button).
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,7 +23,7 @@ let answers: Record<string, unknown> = {}
 // Each check the page asked for, as sent.
 interface CheckRequest {
   journey?: string
-  fields: Array<{ field: string; email?: string; school?: string; overrides?: Record<string, boolean> }>
+  fields: Array<{ field: string; email?: string; school?: string }>
 }
 let checks: CheckRequest[] = []
 
@@ -118,7 +119,7 @@ describe('a student registering on their own', () => {
     expect(step(wrapper)).toBe(1)
   })
 
-  it('shows a warning under the box, and its tick goes with the next check', async () => {
+  it('shows a warning under the box, with nothing to tick there', async () => {
     const path = 'students.0.overrides.ConfirmEmailInvalidOverride'
     answers['jo@unsure.test'] = {
       ok: false, severity: 'soft',
@@ -130,23 +131,17 @@ describe('a student registering on their own', () => {
     const wrapper = await start()
 
     await leave(wrapper, '#studentIndividual-student-email', 'jo@unsure.test')
-    expect(wrapper.get('.email-check-note--warning').text()).toContain("couldn't be verified")
+    const note = wrapper.get('.email-check-note--warning')
+    expect(note.text()).toContain("couldn't be verified")
+    expect(note.find('input').exists()).toBe(false)
     // A warning doesn't hold the step up.
     await continueStep(wrapper)
     expect(step(wrapper)).toBe(1)
-
-    ;(wrapper.vm as unknown as { currentStep: number }).currentStep = 0
-    await flushPromises()
-    answers['jo@unsure.test'] = { ok: true }
-    await wrapper.get('[data-test="studentIndividual-student-email-confirm"]').setValue(true)
-    await flushPromises()
-    expect(checks.at(-1)!.fields[0]!.overrides).toEqual({ ConfirmEmailInvalidOverride: true })
-    expect(wrapper.find('.email-check-note--warning').exists()).toBe(false)
   })
 })
 
 describe("a student's School", () => {
-  it('warns about a university as the box leaves, and its tick goes with the next check', async () => {
+  it('warns about a university as the box leaves, with nothing to tick there', async () => {
     const message = 'This looks like a university, not a school. Please confirm if this is correct.'
     answers['University of Sydney'] = {
       ok: false, severity: 'soft',
@@ -174,13 +169,8 @@ describe("a student's School", () => {
     })
     const note = wrapper.get('.email-check-note--warning')
     expect(note.text()).toContain(message)
-    expect(note.text()).toContain('Yes, this school is correct')
-
-    answers['University of Sydney'] = { ok: true }
-    await wrapper.get('[data-test="studentIndividual-student-school-confirm"]').setValue(true)
-    await flushPromises()
-    expect(checks.at(-1)!.fields[0]!.overrides).toEqual({ ConfirmSchoolOverride: true })
-    expect(wrapper.find('.email-check-note--warning').exists()).toBe(false)
+    expect(note.find('input').exists()).toBe(false)
+    expect(note.text()).not.toContain('Yes, this school is correct')
   })
 })
 

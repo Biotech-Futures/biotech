@@ -6,7 +6,6 @@
     width="min(100vw, 680px)"
   >
     <form class="admin-users-form" novalidate @submit.prevent="submitForm">
-      <p v-if="formError" class="admin-users-form__error" role="alert">{{ formError }}</p>
 
       <div class="admin-users-form__grid">
         <div class="form-field form-field--full">
@@ -27,9 +26,7 @@
             {{ emailProblem('email') }}
           </p>
           <EmailCheckNote
-            id="f-email"
             :state="emailNote('email')"
-            :confirmable="false"
           />
           <p v-if="isEditing && !isSupervisorMode" id="f-email-hint" class="admin-users-form__hint">
             Changing this address updates the user's login and future emails. They will need to
@@ -152,10 +149,8 @@
             />
             <!-- Checked as it's left too: a university gets a warning to confirm. -->
             <EmailCheckNote
-              id="f-school"
               subject="school"
               :state="emailNote('schoolName')"
-              :confirmable="false"
             />
           </div>
           <div class="form-field">
@@ -358,9 +353,7 @@
               {{ emailProblem('guardianEmail') }}
             </p>
             <EmailCheckNote
-              id="f-gemail"
               :state="emailNote('guardianEmail')"
-              :confirmable="false"
             />
           </div>
           <!-- Ticked when given: ticking records it, unticking records a withdrawal. -->
@@ -484,6 +477,10 @@
       </template>
 
       <div class="admin-users-form__footer">
+        <!-- What stopped saving: under the line, just above the buttons. -->
+        <p v-if="formError" class="admin-users-form__error admin-users-form__error--save" role="alert">
+          {{ formError }}
+        </p>
         <button
           v-if="isEditing && !isSupervisorMode"
           type="button"
@@ -770,7 +767,7 @@ const emailProblem = (field: EmailField) => {
 const emailNote = (field: EmailField): EmailBoxState | undefined => {
   const state = emailCheckFor(field)
   return state && (state.status === 'checking' || state.status === 'soft')
-    ? { email: state.email, status: state.status, message: state.message, overrideField: field }
+    ? { email: state.email, status: state.status, message: state.message }
     : undefined
 }
 const checkEmailBox = (field: EmailField) => {
@@ -1535,8 +1532,15 @@ const submitForm = async () => {
   color: var(--danger);
 }
 
+/* A row of its own, the buttons under it. */
+.admin-users-form__error--save {
+  flex: 0 0 100%;
+  margin: 0 0 0.4rem;
+}
+
 .admin-users-form__footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 1.5rem;

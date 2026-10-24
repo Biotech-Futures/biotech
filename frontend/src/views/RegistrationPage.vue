@@ -310,29 +310,6 @@
         </div>
 
         <form novalidate :aria-busy="isSubmitting" @submit.prevent="handlePrimaryAction">
-          <section
-            v-if="registrationWarnings.length"
-            ref="warningSummaryRef"
-            class="registration-warnings"
-            role="alert"
-            tabindex="-1"
-            aria-labelledby="registration-warnings-title"
-          >
-            <h2 id="registration-warnings-title">Check before submitting</h2>
-            <p>
-              No registration has been saved. Correct the details, or confirm each item to continue.
-            </p>
-            <label v-for="warning in registrationWarnings" :key="warning.overrideField">
-              <input
-                v-model="warningAcknowledgements[warning.overrideField]"
-                type="checkbox"
-                :disabled="isSubmitting"
-              />
-              <span
-                ><strong>{{ warningSubject(warning) }}:</strong> {{ warning.message }}</span
-              >
-            </label>
-          </section>
           <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
           <div v-if="serverError" class="server-error" role="alert" tabindex="-1">
             <strong>We couldn’t submit this registration.</strong>
@@ -369,9 +346,7 @@
                 section="identity"
                 :errors="errors"
                 :email-state="emailChecks.stateOf"
-                :email-confirmed="emailConfirmed"
                 @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
-                @box-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
               />
 
               <RegistrationStudentEditor
@@ -381,9 +356,7 @@
                 section="profile"
                 :errors="errors"
                 :email-state="emailChecks.stateOf"
-                :email-confirmed="emailConfirmed"
                 @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
-                @box-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -397,12 +370,14 @@
                     v-model="forms.studentIndividual.supervisor.firstName"
                     label="Supervisor first name"
                     :error="errors['studentIndividual.supervisor.firstName']"
+                    required
                   />
                   <RegistrationTextField
                     id="student-individual-supervisor-last"
                     v-model="forms.studentIndividual.supervisor.lastName"
                     label="Supervisor last name"
                     :error="errors['studentIndividual.supervisor.lastName']"
+                    required
                   />
                   <RegistrationTextField
                     id="student-individual-supervisor-email"
@@ -410,15 +385,13 @@
                     label="Supervisor email"
                     type="email"
                     :error="errors['studentIndividual.supervisor.email']"
+                    required
                     wide
                     @blur="checkOwnBox('studentIndividual.supervisor.email')"
                   />
                   <EmailCheckNote
                     class="email-check-row"
-                    id="student-individual-supervisor-email"
                     :state="ownBoxState('studentIndividual.supervisor.email')"
-                    :confirmed="emailConfirmed('studentIndividual.supervisor.email')"
-                    @confirm="confirmOwnBox('studentIndividual.supervisor.email', $event)"
                   />
                 </div>
 
@@ -434,9 +407,7 @@
                   section="guardian"
                   :errors="errors"
                   :email-state="emailChecks.stateOf"
-                  :email-confirmed="emailConfirmed"
                   @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
-                  @box-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
                 />
               </div>
             </template>
@@ -449,9 +420,7 @@
                 section="identity"
                 :errors="errors"
                 :email-state="emailChecks.stateOf"
-                :email-confirmed="emailConfirmed"
                 @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
-                @box-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -465,7 +434,6 @@
                       id="student-team-join-code"
                       v-model="forms.studentTeam.joinCode"
                       label="Group code"
-                      placeholder="6-digit code"
                       autocomplete="off"
                       :hint="joinHint"
                       :error="joinError"
@@ -503,7 +471,7 @@
                           {{ groupCodeCopied ? 'Copied' : 'Copy' }}
                         </button>
                       </div>
-                      <p>It's held for you for 24 hours until you register.</p>
+                      <p>It's held for you for 4 months.</p>
                     </template>
                     <p v-else>
                       {{
@@ -524,12 +492,14 @@
                       v-model="forms.studentTeam.supervisor.firstName"
                       label="Supervisor first name"
                       :error="errors['studentTeam.supervisor.firstName']"
+                      required
                     />
                     <RegistrationTextField
                       id="student-team-supervisor-last"
                       v-model="forms.studentTeam.supervisor.lastName"
                       label="Supervisor last name"
                       :error="errors['studentTeam.supervisor.lastName']"
+                      required
                     />
                     <RegistrationTextField
                       id="student-team-supervisor-email"
@@ -537,15 +507,13 @@
                       label="Supervisor email"
                       type="email"
                       :error="errors['studentTeam.supervisor.email']"
+                      required
                       wide
                       @blur="checkOwnBox('studentTeam.supervisor.email')"
                     />
                     <EmailCheckNote
                       class="email-check-row"
-                      id="student-team-supervisor-email"
                       :state="ownBoxState('studentTeam.supervisor.email')"
-                      :confirmed="emailConfirmed('studentTeam.supervisor.email')"
-                      @confirm="confirmOwnBox('studentTeam.supervisor.email', $event)"
                     />
                   </div>
                   <!-- Its members: Member 1 (the student), then the others. -->
@@ -596,9 +564,7 @@
                       :region-suggestions="teamRegionsBesides(index)"
                       allow-guardian-defer
                       :email-state="emailChecks.stateOf"
-                      :email-confirmed="emailConfirmed"
                       @box-left="checkStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], $event)"
-                      @box-confirm="(field, confirmed) => confirmStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], field, confirmed)"
                     />
                   </div>
                 </template>
@@ -611,9 +577,7 @@
                   section="profile"
                   :errors="errors"
                   :email-state="emailChecks.stateOf"
-                  :email-confirmed="emailConfirmed"
                   @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
-                  @box-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
                 />
                 <div class="section-divider">
                   <h3>Guardian contact</h3>
@@ -625,9 +589,7 @@
                   section="guardian"
                   :errors="errors"
                   :email-state="emailChecks.stateOf"
-                  :email-confirmed="emailConfirmed"
                   @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
-                  @box-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
                 />
               </div>
             </template>
@@ -658,9 +620,7 @@
                     :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
                     allow-guardian-defer
                     :email-state="emailChecks.stateOf"
-                    :email-confirmed="emailConfirmed"
                     @box-left="checkStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, $event)"
-                    @box-confirm="(field, confirmed) => confirmStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, field, confirmed)"
                   />
                 </div>
                 <div
@@ -687,9 +647,7 @@
                     :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
                     allow-guardian-defer
                     :email-state="emailChecks.stateOf"
-                    :email-confirmed="emailConfirmed"
                     @box-left="checkStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], $event)"
-                    @box-confirm="(field, confirmed) => confirmStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], field, confirmed)"
                   />
                 </div>
               </div>
@@ -732,9 +690,7 @@
                     :region-suggestions="supervisedStatesBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
                     allow-guardian-defer
                     :email-state="emailChecks.stateOf"
-                    :email-confirmed="emailConfirmed"
                     @box-left="checkStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], $event)"
-                    @box-confirm="(field, confirmed) => confirmStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], field, confirmed)"
                   />
                 </div>
               </div>
@@ -854,10 +810,8 @@
                       ...csvEmailProblems(editingCsvRow),
                     }"
                     :email-state="emailChecks.stateOf"
-                    :email-confirmed="emailConfirmed"
                     @update:values="updateCsvRow(editingCsvRow, $event)"
                     @box-left="checkEditingCsvBox"
-                    @box-confirm="confirmEditingCsvBox"
                   />
                   <footer class="csv-editor-footer">
                     <button type="button" class="primary-action" @click="closeCsvEditor">
@@ -946,10 +900,7 @@
                 />
                 <EmailCheckNote
                   class="email-check-row"
-                  id="mentor-email"
                   :state="ownBoxState('mentor.email')"
-                  :confirmed="emailConfirmed('mentor.email')"
-                  @confirm="confirmOwnBox('mentor.email', $event)"
                 />
                 <RegistrationTextField
                   id="mentor-country"
@@ -1245,10 +1196,7 @@
                 />
                 <EmailCheckNote
                   class="email-check-row"
-                  id="supervisor-email"
                   :state="ownBoxState('supervisor.email')"
-                  :confirmed="emailConfirmed('supervisor.email')"
-                  @confirm="confirmOwnBox('supervisor.email', $event)"
                 />
               </div>
 
@@ -1382,6 +1330,32 @@
 
           </section>
 
+          <!-- Submit's warnings, each ticked to confirm: just above Submit, after
+               the policies, so they're all ticked in one place. -->
+          <section
+            v-if="registrationWarnings.length"
+            ref="warningSummaryRef"
+            class="registration-warnings"
+            role="alert"
+            tabindex="-1"
+            aria-labelledby="registration-warnings-title"
+          >
+            <h2 id="registration-warnings-title">Check before submitting</h2>
+            <p>
+              No registration has been saved. Correct the details, or confirm each item to continue.
+            </p>
+            <label v-for="warning in registrationWarnings" :key="warning.overrideField">
+              <input
+                v-model="warningAcknowledgements[warning.overrideField]"
+                type="checkbox"
+                :disabled="isSubmitting"
+              />
+              <span
+                ><strong>{{ warningSubject(warning) }}:</strong> {{ warning.message }}</span
+              >
+            </label>
+          </section>
+
           <!-- What Continue or Submit was stopped by, last before them. -->
           <div
             v-if="errorMessages.length"
@@ -1507,7 +1481,6 @@ import {
   createPendingPeer,
   countWords,
   findCrossRoleEmailConflicts,
-  hasSupervisor,
   isAustralia,
   isBlankStudent,
   isUsyd,
@@ -1976,27 +1949,15 @@ const registrationWarnings = ref<RegistrationWarning[]>([])
 const warningAcknowledgements = reactive<Record<string, boolean>>({})
 const warningOverrides = ref<Record<string, boolean>>({})
 
-// Each email box, checked as it's left (registration/emailFieldCheck): a hard
-// problem is the box's error and keeps its step from going on; a warning is
-// shown under it to confirm. A box's confirmations are kept while its address
-// is (unlike Submit's own list, warningOverrides, which any change clears),
-// and go with Submit's (submitOverrides).
-const boxOverrides = reactive<Record<string, boolean>>({})
+// Each email box (and each student's School), checked as it's left
+// (registration/emailFieldCheck): a hard problem is the box's error and keeps
+// its step from going on; a warning is only shown under it, and Submit asks
+// for it to be ticked, just above its button.
 const emailChecks = useEmailFieldChecks({
   // Through the page's gateway, as Submit goes: none, no check.
   request: (body) => registrationGateway.checkEmailField?.(body) ?? Promise.resolve(null),
-  overrides: () => boxOverrides,
-  setOverride: (path, confirmed) => {
-    if (confirmed) boxOverrides[path] = true
-    else delete boxOverrides[path]
-  },
   journey: () => journey.value,
 })
-const emailConfirmed = (path: string) => {
-  const state = emailChecks.boxes[path]
-  return Boolean(state?.overrideField && boxOverrides[state.overrideField])
-}
-const submitOverrides = () => ({ ...boxOverrides, ...warningOverrides.value })
 // A student's place in the registration as Submit sends it, for their
 // warnings' confirmations: a supervisor's extra students follow Student 1.
 const studentIndexOf = (prefix: string) => {
@@ -2027,12 +1988,6 @@ const studentBox = (prefix: string, student: StudentDetails, field: StudentBoxFi
 }
 const checkStudentBox = (prefix: string, student: StudentDetails, field: StudentBoxField) =>
   emailChecks.check(studentBox(prefix, student, field))
-const confirmStudentBox = (
-  prefix: string,
-  student: StudentDetails,
-  field: StudentBoxField,
-  confirmed: boolean,
-) => emailChecks.confirm(studentBox(prefix, student, field), confirmed)
 // The registration's own boxes: the supervisor a student names, and a mentor's
 // or supervisor's own address.
 const ownBoxes = {
@@ -2057,7 +2012,6 @@ const ownBoxes = {
 }
 type OwnBox = keyof typeof ownBoxes
 const checkOwnBox = (path: OwnBox) => emailChecks.check(ownBoxes[path]())
-const confirmOwnBox = (path: OwnBox, confirmed: boolean) => emailChecks.confirm(ownBoxes[path](), confirmed)
 const ownBoxState = (path: OwnBox) => emailChecks.stateOf(path, ownBoxes[path]().email)
 // The forms' value at a dotted path ("studentTeam.teammates.1"), if any.
 const valueAtPath = (root: unknown, path: string): unknown =>
@@ -2098,10 +2052,6 @@ const csvBox = (row: CsvRow, field: StudentBoxField): EmailBox => {
 const checkEditingCsvBox = (field: StudentBoxField) => {
   const row = editingCsvRow.value
   return row ? emailChecks.check(csvBox(row, field)) : Promise.resolve()
-}
-const confirmEditingCsvBox = (field: StudentBoxField, confirmed: boolean) => {
-  const row = editingCsvRow.value
-  return row ? emailChecks.confirm(csvBox(row, field), confirmed) : Promise.resolve()
 }
 // A row's hard problems, as its editor's own errors (by column).
 const csvEmailProblems = (row: CsvRow): Partial<Record<CsvHeader, string>> => {
@@ -2638,12 +2588,8 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
           items: [
             {
               label: 'Group code',
-              // Held 24 hours while registering; once registered, for 4 months.
-              value: success.value
-                ? `${success.value.groupCode || forms.studentTeam.groupCode} (held for 4 months)`
-                : forms.studentTeam.groupCode
-                  ? `${forms.studentTeam.groupCode} (held for 24 hours until you register)`
-                  : 'Given once you register',
+              // Held for 4 months, while registering as once registered.
+              value: success.value?.groupCode || forms.studentTeam.groupCode || 'Given once you register',
               // To copy, once there is one.
               copy: success.value?.groupCode || forms.studentTeam.groupCode || undefined,
             },
@@ -2869,8 +2815,8 @@ const validateEmail = (key: string, value: string, label: string) => {
 }
 
 // A nominated supervisor is optional: none at all, or their name and email.
+// A student registering themselves names their supervisor: all of it.
 const validateSupervisor = (supervisor: SupervisorDetails, prefix: string) => {
-  if (!hasSupervisor(supervisor)) return
   requireValue(`${prefix}.firstName`, supervisor.firstName, 'Enter the supervisor first name.')
   requireValue(`${prefix}.lastName`, supervisor.lastName, 'Enter the supervisor last name.')
   validateEmail(`${prefix}.email`, supervisor.email, 'Supervisor email')
@@ -2946,11 +2892,10 @@ const validateCurrentStep = () => {
       validateGuardian(forms.studentTeam.creator, 'studentTeam.creator', false)
     }
     if (step === 2 && joiningGroup.value) {
-      // Joining: a 6-digit code of a group with room.
+      // Joining: a group's code (one that can't be one is no group's), with room.
       const result = joinCheckResult.value
-      if (!GROUP_CODE_PATTERN.test(forms.studentTeam.joinCode.trim()))
-        clientErrors['studentTeam.joinCode'] = 'Enter the 6-digit group code.'
-      else if (result?.state === 'missing') clientErrors['studentTeam.joinCode'] = JOIN_CODE_MISSING
+      if (!GROUP_CODE_PATTERN.test(forms.studentTeam.joinCode.trim()) || result?.state === 'missing')
+        clientErrors['studentTeam.joinCode'] = JOIN_CODE_MISSING
       else if (result?.state === 'full') clientErrors['studentTeam.joinCode'] = JOIN_CODE_FULL
     } else if (step === 2) {
       validateSupervisor(forms.studentTeam.supervisor, 'studentTeam.supervisor')
@@ -3248,7 +3193,7 @@ const handlePrimaryAction = () => {
 // Continue by a group's code (the join's own Continue): one is needed.
 const continueJoining = () => {
   if (!joiningGroup.value) {
-    clientErrors['studentTeam.joinCode'] = 'Enter the 6-digit group code.'
+    clientErrors['studentTeam.joinCode'] = 'Enter the group code.'
     return
   }
   handlePrimaryAction()
@@ -3530,7 +3475,8 @@ const submitRegistration = async () => {
   if (
     registrationWarnings.value.some((warning) => !warningAcknowledgements[warning.overrideField])
   ) {
-    warningSummaryRef.value?.focus()
+    // Above Submit already: focused for screen readers, not scrolled to.
+    warningSummaryRef.value?.focus({ preventScroll: true })
     return
   }
   if (journey.value === 'mentor' && !forms.mentor.signature) {
@@ -3560,20 +3506,20 @@ const submitRegistration = async () => {
       : buildRegistrationRequest(journey.value, forms)
     // An admin's students' supervisor goes with it (Management > Registration).
     const supervisorEmail = adminChoosesSupervisor.value ? forms.adminSupervisorEmail.trim() : ''
-    const signature = JSON.stringify({ request, overrides: submitOverrides(), supervisorEmail })
+    const signature = JSON.stringify({ request, overrides: warningOverrides.value, supervisorEmail })
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
     // Any address found not to exist then comes back as a warning to correct
     // or confirm. Skipped whenever it can't be done; never holds this up.
     await checkEmails(registrationGateway, request, {
       invitationToken: invitationToken.value,
-      overrides: submitOverrides(),
+      overrides: warningOverrides.value,
       supervisorEmail: supervisorEmail || undefined,
     })
     const result = await registrationGateway.submit(request, {
       invitationToken: invitationToken.value,
       idempotencyKey: submissionKey,
-      overrides: submitOverrides(),
+      overrides: warningOverrides.value,
       supervisorEmail: supervisorEmail || undefined,
     })
     clearServerErrors()
@@ -3587,8 +3533,7 @@ const submitRegistration = async () => {
           : result.warnings
         Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
         await nextTick()
-        warningSummaryRef.value?.scrollIntoView?.({ block: 'center' })
-        warningSummaryRef.value?.focus()
+        warningSummaryRef.value?.focus({ preventScroll: true })
         return
       }
       const fieldErrors = asGroup
@@ -3669,7 +3614,6 @@ const resetRegistration = () => {
   clearServerErrors()
   // The boxes' checks and their confirmations, for the old registration.
   emailChecks.reset()
-  Object.keys(boxOverrides).forEach((key) => delete boxOverrides[key])
   scrollToTop()
 }
 
@@ -3744,8 +3688,10 @@ watch(
   grid-column: 1 / -1;
 }
 
+/* Above Submit, apart from the step's fields as Information to review is. */
 .registration-warnings {
-  margin-block: 1rem;
+  margin-top: 46px;
+  margin-bottom: 36px;
   padding: 1rem;
   border: 1px solid #9c7940;
   background: #fff8e8;
@@ -4992,7 +4938,17 @@ dd {
 }
 
 /* After it, Back and Continue are 36px below it (not the footer's own 46px). */
-.error-summary + .form-footer {
+.error-summary + .form-footer,
+.registration-warnings + .form-footer {
+  margin-top: 0;
+}
+
+/* Both: Information to review a normal gap under Submit's warnings. */
+.registration-warnings:has(+ .error-summary) {
+  margin-bottom: 18px;
+}
+
+.registration-warnings + .error-summary {
   margin-top: 0;
 }
 

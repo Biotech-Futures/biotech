@@ -321,6 +321,11 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountWithGateway({ submit: send })
     await prepareStudent(wrapper)
     await submit(wrapper)
+    // Just above Submit, after the policies: every final tick in one place.
+    const html = wrapper.html()
+    expect(html.indexOf('data-test="policies-agree"')).toBeLessThan(html.indexOf('registration-warnings'))
+    expect(html.indexOf('registration-warnings')).toBeLessThan(html.indexOf('class="form-footer"'))
+    expect(html.indexOf('class="step-content"')).toBeLessThan(html.indexOf('registration-warnings'))
     const checkboxes = wrapper.findAll('.registration-warnings input')
     expect(checkboxes).toHaveLength(2)
     await checkboxes[0]!.setValue(true)
