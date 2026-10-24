@@ -197,15 +197,6 @@
                   (view only)
                 </span>
               </h2>
-
-              <button
-                v-if="meeting.can_manage"
-                class="secondary-button"
-                :disabled="savingSummary"
-                @click="saveSummary"
-              >
-                {{ savingSummary ? 'Saving...' : 'Save Summary' }}
-              </button>
             </div>
 
             <textarea
@@ -213,20 +204,22 @@
               v-model="summaryBody"
               class="note-textarea summary-textarea"
               placeholder="Write the meeting summary..."
+              @blur="saveSummary"
             />
 
+            <p v-if="meeting.can_manage" class="small-message" role="status">
+              {{ savingSummary ? 'Saving...' : (summaryMessage || 'Changes save automatically') }}
+            </p>
+
             <textarea
-              v-else-if="summaryBody"
+              v-if="!meeting.can_manage && summaryBody"
               :value="summaryBody"
               class="note-textarea summary-textarea"
               readonly
               aria-label="Mentor Summary"
             />
 
-            <p
-              v-else
-              class="small-message"
-            >
+            <p v-if="!meeting.can_manage && !summaryBody" class="small-message">
               No summary yet.
             </p>
           </section>
@@ -279,6 +272,10 @@ const noteMessage = ref('')
 const summaryBody = ref('')
 const savingSummary = ref(false)
 const summaryMessage = ref('')
+const summaryLoaded = ref(false)
+let summarySaveTimer: ReturnType<typeof setTimeout> | null = null
+let lastSavedSummary = ''
+let summarySaveInProgress = false
 const editingMeeting = ref(false)
 const savingMeeting = ref(false)
 const meetingMessage = ref('')
@@ -538,12 +535,15 @@ const loadMeeting = async () => {
     meeting.value = await fetchMeetingById(meetingId)
 
     // The note itself arrives over the socket (note.sync), not REST.
+    summaryLoaded.value = false
     try {
       const summary = await fetchMeetingSummary(meetingId)
       summaryBody.value = summary.body || ''
     } catch {
       summaryBody.value = ''
     }
+    lastSavedSummary = summaryBody.value
+    summaryLoaded.value = true
   } catch (error) {
     console.error('Failed to load meeting:', error)
     errorMessage.value = 'Unable to load this meeting.'
@@ -553,29 +553,48 @@ const loadMeeting = async () => {
 }
 
 const saveSummary = async () => {
-  if (!meeting.value?.can_manage) {
-    return
+  if (!meeting.value?.can_manage || !summaryLoaded.value || summarySaveInProgress) return
+  if (summarySaveTimer !== null) {
+    clearTimeout(summarySaveTimer)
+    summarySaveTimer = null
   }
+  if (summaryBody.value === lastSavedSummary) return
 
+  summarySaveInProgress = true
   savingSummary.value = true
   summaryMessage.value = ''
 
   try {
-    const updated = await updateMeetingSummary(
-      meetingId,
-      summaryBody.value,
-      true
-    )
-
-    summaryBody.value = updated.body || ''
-    summaryMessage.value = 'Summary saved.'
+    // Serialize requests so an older response cannot overwrite newer edits.
+    while (summaryBody.value !== lastSavedSummary) {
+      const bodyToSave = summaryBody.value
+      await updateMeetingSummary(meetingId, bodyToSave, true)
+      lastSavedSummary = bodyToSave
+    }
+    summaryMessage.value = 'Changes saved.'
   } catch (error) {
     console.error('Failed to save summary:', error)
     summaryMessage.value = 'Unable to save summary. Please try again.'
   } finally {
+    summarySaveInProgress = false
     savingSummary.value = false
   }
 }
+
+watch(summaryBody, () => {
+  if (!summaryLoaded.value || !meeting.value?.can_manage) return
+
+  summaryMessage.value = ''
+
+  // Schedule one save every second while typing.
+  // Do not reset the timer for each keystroke.
+  if (summarySaveTimer === null && !summarySaveInProgress) {
+    summarySaveTimer = setTimeout(() => {
+      summarySaveTimer = null
+      void saveSummary()
+    }, 1000)
+  }
+})
 
 const toLocalDateTimeInput = (dateString: string) => {
   const date = new Date(dateString)
@@ -721,6 +740,7 @@ onBeforeUnmount(() => {
 
   window.clearTimeout(reconnectTimer)
   window.clearTimeout(flushTimer)
+  if (summarySaveTimer !== null) clearTimeout(summarySaveTimer)
   // Send the last keystrokes that were still waiting on the flush timer.
   flushNoteUpdates()
   // Remove our cursor right away instead of letting it time out (~30s).
