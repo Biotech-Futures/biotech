@@ -182,6 +182,75 @@
           </span>
         </button>
       </div>
+      <!-- A supervisor from an earlier year comes back by confirming their email. -->
+      <p v-if="!invitationToken" class="supervisor-guidance">
+        Supervised in an earlier year?
+        <button type="button" class="supervisor-guidance__action" @click="startReturningSupervisor">
+          Confirm your email
+        </button>
+        to register your students again.
+      </p>
+    </section>
+
+    <!-- A supervisor back for a new year: Start new year deactivated their
+         account, so a code to their email brings it back and signs them in,
+         to register their students. -->
+    <section
+      v-else-if="!journey && selectionStage === 'returningSupervisor'"
+      class="setup-layout"
+      aria-labelledby="returning-supervisor-title"
+    >
+      <button type="button" class="btn btn-outline back-button setup-back" @click="backToRoleSelection">
+        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to Roles
+      </button>
+      <header class="page-header">
+        <h1 id="returning-supervisor-title" class="page-title">Supervising Again</h1>
+      </header>
+      <form class="returning-supervisor" novalidate @submit.prevent="submitReturningSupervisor">
+        <p class="returning-supervisor__intro">
+          Enter the email you supervised with. We'll email you a code: entering it brings your
+          account back and signs you in, to register your students.
+        </p>
+        <RegistrationTextField
+          id="returning-supervisor-email"
+          v-model="returningSupervisor.email"
+          label="Your email"
+          type="email"
+          autocomplete="email"
+          :disabled="returningSupervisor.codeSent"
+          required
+          wide
+        />
+        <RegistrationTextField
+          v-if="returningSupervisor.codeSent"
+          id="returning-supervisor-code"
+          v-model="returningSupervisor.code"
+          label="Code"
+          hint="The 6-digit code in the email we sent you."
+          autocomplete="one-time-code"
+          required
+        />
+        <p v-if="returningSupervisor.codeSent" class="returning-supervisor__note" role="status">
+          If that's a supervisor's email, we've emailed it a code.
+        </p>
+        <div v-if="returningSupervisor.error" class="server-error" role="alert">
+          <span>{{ returningSupervisor.error }}</span>
+        </div>
+        <div class="returning-supervisor__actions">
+          <button type="submit" class="primary-action" :disabled="returningSupervisor.busy">
+            {{ returningSupervisor.codeSent ? 'Confirm' : 'Email Me a Code' }}
+          </button>
+          <button
+            v-if="returningSupervisor.codeSent"
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="returningSupervisor.busy"
+            @click="changeReturningEmail"
+          >
+            Use Another Email
+          </button>
+        </div>
+      </form>
     </section>
 
     <section
@@ -1266,7 +1335,13 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { RouterLink, routerKey } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
+import { SUPERVISOR_REGISTRATION_PATH } from '@/router/supervisorRegistrationRoute'
+import {
+  confirmReturningSupervisor,
+  sendReturningSupervisorCode,
+} from '@/registration/returningSupervisor'
+import { apiErrorFromUnknown } from '@/utils/apiError'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
@@ -1348,7 +1423,8 @@ interface JourneyOption {
 }
 
 type RegistrationRole = 'student' | 'supervisor' | 'mentor'
-type SelectionStage = 'role' | 'pathway'
+// ``returningSupervisor``: a supervisor from an earlier year confirming their email.
+type SelectionStage = 'role' | 'pathway' | 'returningSupervisor'
 
 interface RoleOption {
   value: RegistrationRole
@@ -1797,8 +1873,6 @@ const teamOthers = (index: number) => {
 // their school and state as theirs is typed. None for an admin registering
 // (Management > Registration): theirs aren't their students'.
 const auth = useAuthStore()
-// To the Set password page, once someone registers themselves.
-const router = inject(routerKey, null)
 const supervisorSelf = computed(() => {
   const user = auth.user
   if (!isSupervisorMode.value || !user || !auth.isSupervisor) return { school: '', country: '', state: '' }
@@ -2689,6 +2763,50 @@ const backToRoleSelection = () => {
   scrollToTop()
 }
 
+// A supervisor from an earlier year: their email, then the code emailed to it,
+// which brings their account back and signs them in to register students.
+const router = useRouter()
+const returningSupervisor = reactive({ email: '', code: '', codeSent: false, busy: false, error: '' })
+
+const startReturningSupervisor = () => {
+  Object.assign(returningSupervisor, { email: '', code: '', codeSent: false, busy: false, error: '' })
+  selectionStage.value = 'returningSupervisor'
+  scrollToTop()
+}
+
+const changeReturningEmail = () => {
+  Object.assign(returningSupervisor, { code: '', codeSent: false, error: '' })
+}
+
+const submitReturningSupervisor = async () => {
+  const email = returningSupervisor.email.trim().toLowerCase()
+  const code = returningSupervisor.code.trim()
+  if (!email) {
+    returningSupervisor.error = 'Enter your email.'
+    return
+  }
+  if (returningSupervisor.codeSent && !/^\d{6}$/.test(code)) {
+    returningSupervisor.error = 'Enter the 6-digit code from the email.'
+    return
+  }
+  returningSupervisor.busy = true
+  returningSupervisor.error = ''
+  try {
+    if (!returningSupervisor.codeSent) {
+      await sendReturningSupervisorCode(email)
+      returningSupervisor.codeSent = true
+      return
+    }
+    await confirmReturningSupervisor(email, code)
+    await auth.fetchUserData()
+    await router.push(SUPERVISOR_REGISTRATION_PATH)
+  } catch (error) {
+    returningSupervisor.error = apiErrorFromUnknown(error, "Couldn't reach the server. Try again.").message
+  } finally {
+    returningSupervisor.busy = false
+  }
+}
+
 const changeJourney = () => {
   leaveCsvEditor()
   registeredNote.value = ''
@@ -3531,6 +3649,45 @@ onBeforeUnmount(() => {
 .supervisor-guidance a {
   color: var(--registration-green);
   text-decoration: underline;
+}
+
+/* Confirm your email: a link in the sentence, as the guidance's email is. */
+.supervisor-guidance__action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--registration-green);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.returning-supervisor {
+  max-width: 560px;
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+  border: 1px solid rgba(20, 63, 57, 0.16);
+  border-radius: 8px;
+  background: var(--white);
+}
+
+.returning-supervisor__intro,
+.returning-supervisor__note {
+  margin: 0;
+  color: var(--registration-muted);
+  font-size: 0.9rem;
+}
+
+.returning-supervisor .server-error {
+  margin-bottom: 0;
+}
+
+.returning-supervisor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
 
 .pathway-choices {

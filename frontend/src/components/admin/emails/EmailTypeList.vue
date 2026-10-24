@@ -111,20 +111,17 @@ const query = ref('')
 // Each email's group, with a heading above it, in the order the list shows them.
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
-  // Someone registering themselves, then a supervisor registering students.
+  // Someone registering themselves; then by whom someone else was registered.
   [
     'Self registration',
     ['registration_student', 'registration_group', 'registration_mentor', 'registration_new_supervisor']
   ],
+  ['Registered by student', ['registration_named_supervisor']],
   [
-    'Supervisor registration',
-    [
-      'registration_by_supervisor',
-      'registration_by_admin',
-      'registration_supervisor',
-      'supervisor_registration_status'
-    ]
+    'Registered by supervisor',
+    ['registration_by_supervisor', 'registration_supervisor', 'supervisor_registration_status']
   ],
+  ['Registered by admin', ['registration_by_admin']],
   [
     'Guardians',
     [
@@ -144,10 +141,12 @@ const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [
 // An email not placed in a group yet still gets a heading.
 const groupOf = (key: string) => GROUP_OF.get(key) ?? 'Other'
 
-// Registration's three groups, under a heading of their own.
+// Registration's groups, under a heading of their own.
 const SECTION_OF: Record<string, string> = {
   'Self registration': 'Registration',
-  'Supervisor registration': 'Registration',
+  'Registered by student': 'Registration',
+  'Registered by supervisor': 'Registration',
+  'Registered by admin': 'Registration',
   Guardians: 'Registration'
 }
 const sectionOf = (group: string) => SECTION_OF[group] ?? ''

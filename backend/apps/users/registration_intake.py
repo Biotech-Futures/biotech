@@ -30,11 +30,13 @@ from apps.groups.models import (
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.resources.models import RoleAssignmentHistory
+from apps.submissions.services import current_cohort
 from .models import (
     AreasOfInterest, KnownUniversity, RegistrationInvitation, RegistrationStudent, RegistrationSubmission, RegistrationWindow,
     StudentProfile, StudentSupervisor, SupervisorProfile, User, UserInterest,
 )
 from .profile_images import save_profile_image, validate_profile_image
+from .returning import restart_guardian_permission, returning_student
 from .serializers import (
     REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
     registration_warnings, stored_email_answers,
@@ -281,8 +283,9 @@ class WindowInput(serializers.ModelSerializer):
 
     class Meta:
         model = RegistrationWindow
-        fields = ["year", "opens_at", "closes_at", "updated_at", "set_by"]
-        read_only_fields = ["updated_at"]
+        # ``closed_until_set``: a year Start new year began, closed until its start is set.
+        fields = ["year", "opens_at", "closes_at", "updated_at", "set_by", "closed_until_set"]
+        read_only_fields = ["updated_at", "closed_until_set"]
 
     def get_set_by(self, window):
         from apps.management.services.send_guard import person_name
@@ -299,8 +302,7 @@ class WindowInput(serializers.ModelSerializer):
         # Opening before the challenge starts, closing before submissions close.
         from apps.management.services.date_order import registration_problems
 
-        request = self.context.get("request")
-        problems = registration_problems(opens, closes, self.instance.year, getattr(request, "user", None))
+        problems = registration_problems(opens, closes, self.instance.year)
         if problems:
             raise serializers.ValidationError(problems)
         return data
@@ -418,7 +420,8 @@ def check_previous(key, digest):
 
 
 def current_window(*, lock=False):
-    window, _ = RegistrationWindow.objects.get_or_create(year=timezone.now().year)
+    """The challenge year's registration window, made the first time it's needed."""
+    window, _ = RegistrationWindow.objects.get_or_create(year=current_cohort())
     if lock:
         window = RegistrationWindow.objects.select_for_update().get(pk=window.pk)
     return window
@@ -475,65 +478,125 @@ def resolve_location(student):
     return country, state
 
 
-def save_student(student, supervisor, now, *, registered_by):
-    country, state = resolve_location(student) if student["country"] else (None, None)
-    # Active as soon as they're registered: a student is never Pending.
-    user = User.objects.create_user(
-        email=student["email"], first_name=student["firstName"], last_name=student["lastName"],
-        country=country, state=state,
-        pronouns=student["pronounsOther"] if student["pronouns"] == "Other" else student["pronouns"],
-        account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
-    )
+class SubmissionLookups:
+    """What every student in one submission shares, read once for it rather
+    than once a student, so a thousand-row CSV doesn't repeat each read a
+    thousand times: the student role, the challenge year, the supervisor named,
+    and each place and area of interest by its spelling."""
+
+    def __init__(self):
+        self.role = get_role_by_name(ROLE_STUDENT)
+        self.challenge_year = current_cohort()
+        self._supervisors, self._places, self._interests = {}, {}, {}
+
+    def supervisor(self, email):
+        # Nomination is not a supervisor invitation or a role grant. Only link an
+        # already-provisioned profile; preserve all existing account details.
+        if email not in self._supervisors:
+            self._supervisors[email] = (
+                SupervisorProfile.objects.filter(user__email__iexact=email).first() if email else None
+            )
+        return self._supervisors[email]
+
+    def place(self, student):
+        key = (student["country"], student["state"])
+        if key not in self._places:
+            self._places[key] = resolve_location(student) if student["country"] else (None, None)
+        return self._places[key]
+
+    def interest(self, description):
+        if description not in self._interests:
+            self._interests[description], _ = AreasOfInterest.objects.get_or_create(
+                interest_desc__iexact=description, defaults={"interest_desc": description},
+            )
+        return self._interests[description]
+
+
+def save_student(student, supervisor, now, *, registered_by, lookups=None):
+    lookups = lookups or SubmissionLookups()
+    country, state = lookups.place(student)
+    pronouns = student["pronounsOther"] if student["pronouns"] == "Other" else student["pronouns"]
+    # A student back for a later year gets their account back, with this
+    # form's details (apps.users.returning); anyone else gets a new one.
+    user = returning_student(student["email"])
+    returning = user is not None
+    if returning:
+        user.first_name, user.last_name = student["firstName"], student["lastName"]
+        user.country, user.state, user.pronouns = country, state, pronouns
+        user.activate(save=False)
+        user.save()
+    else:
+        # Active as soon as they're registered: a student is never Pending.
+        user = User.objects.create_user(
+            email=student["email"], first_name=student["firstName"], last_name=student["lastName"],
+            country=country, state=state, pronouns=pronouns,
+            account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
+        )
     RoleAssignmentHistory.objects.create(
-        user=user, role=get_role_by_name(ROLE_STUDENT), valid_from=now,
+        user=user, role=lookups.role, valid_from=now,
         valid_to=now + timedelta(weeks=6),
     )
-    # Nomination is not a supervisor invitation or a role grant. Only link an
-    # already-provisioned profile; preserve all existing account details.
-    sup = (
-        SupervisorProfile.objects.filter(user__email__iexact=supervisor["email"]).first()
-        if supervisor["email"] else None
-    )
+    sup = lookups.supervisor(supervisor["email"])
     guardian = student["guardian"]
     has_guardian = all(guardian.get(field) for field in ("firstName", "lastName", "email"))
-    profile = StudentProfile.objects.create(
-        user=user, supervisor=sup, school_name=student["school"], year_lvl=student["yearLevel"],
-        pg_first_name=guardian.get("firstName", ""), pg_last_name=guardian.get("lastName", ""),
-        pg_email=guardian.get("email", "").lower() or None, parent_guardian_flag=has_guardian,
-        has_join_permission=False, joinperm_responseID=None,
-        registered_by=registered_by,
-    )
+    details = {
+        "supervisor": sup, "school_name": student["school"], "year_lvl": student["yearLevel"],
+        "pg_first_name": guardian.get("firstName", ""), "pg_last_name": guardian.get("lastName", ""),
+        "pg_email": guardian.get("email", "").lower() or None, "parent_guardian_flag": has_guardian,
+        "has_join_permission": False, "joinperm_responseID": None,
+        "registered_by": registered_by,
+    }
+    if returning:
+        # This year's details, and their guardian gives permission again.
+        profile = StudentProfile.objects.get(user=user)
+        for field, value in details.items():
+            setattr(profile, field, value)
+        profile.challenge_year = lookups.challenge_year
+        profile.supervisor_edited_at = None
+        restart_guardian_permission(profile, now)
+        profile.save()
+        # This form's interests replace last year's.
+        UserInterest.objects.filter(user=user).delete()
+    else:
+        profile = StudentProfile.objects.create(user=user, challenge_year=lookups.challenge_year, **details)
     if sup:
-        # A nominated supervisor is the student's teacher or school supervisor.
-        StudentSupervisor.objects.create(
-            student_user=profile, supervisor_user=sup,
-            relationship_type=StudentSupervisor.RelationshipTypeChoices.TEACHER,
-        )
+        # A nominated supervisor is the student's teacher or school supervisor:
+        # maybe already from last year for a returning student, never for a new one.
+        relationship = {"relationship_type": StudentSupervisor.RelationshipTypeChoices.TEACHER}
+        if returning:
+            StudentSupervisor.objects.get_or_create(student_user=profile, supervisor_user=sup, defaults=relationship)
+        else:
+            StudentSupervisor.objects.create(student_user=profile, supervisor_user=sup, **relationship)
+    # Each interest once, though two spellings may name the same one. The
+    # student has none yet (a returning student's were just cleared), so all
+    # are added together.
+    interests = {}
     for description in dict.fromkeys(student["interests"]):
-        interest, _ = AreasOfInterest.objects.get_or_create(
-            interest_desc__iexact=description, defaults={"interest_desc": description},
-        )
-        UserInterest.objects.get_or_create(user=user, interest=interest)
+        interest = lookups.interest(description)
+        interests.setdefault(interest.pk, interest)
+    UserInterest.objects.bulk_create([UserInterest(user=user, interest=interest) for interest in interests.values()])
     return user
 
 
-def create_nominated_supervisor(supervisor, student) -> None:
+def create_nominated_supervisor(supervisor, student) -> User | None:
     """The supervisor a student names, when their email has no account: an
     active account with the supervisor role and a profile at the student's
     school, in the student's country and state, as an admin's student import
     creates one. They sign in with their email the first time, and set a
     password then. An existing supervisor is only linked (``save_student``),
-    unchanged; any other account's email was refused before this."""
+    unchanged; any other account's email was refused before this. The
+    supervisor created, if one was."""
     from apps.admin.services.user import _resolve_supervisor_id
 
     email = (supervisor.get("email") or "").strip()
     if not email or User.objects.filter(email__iexact=email).exists():
-        return
+        return None
     country, state = resolve_location(student) if student["country"] else (None, None)
-    _resolve_supervisor_id(
+    created = _resolve_supervisor_id(
         email, supervisor.get("firstName"), supervisor.get("lastName"), school_name=student["school"],
         country_id=getattr(country, "pk", None), state_id=getattr(state, "pk", None),
     )
+    return User.objects.get(pk=created) if created else None
 
 
 def registering_as_admin(user) -> bool:
@@ -836,10 +899,10 @@ def register(request):
                 provenance[0] = _registered_by(raw["body"].get("RegisteredBy"))
             # A supervisor a student names who has no account yet is created
             # now, so the students are theirs straight away.
-            if named_supervisor:
-                create_nominated_supervisor(supervisor, students[0])
+            new_supervisor = create_nominated_supervisor(supervisor, students[0]) if named_supervisor else None
+            lookups = SubmissionLookups()
             users = [
-                save_student(item, supervisor, now, registered_by=registered_by)
+                save_student(item, supervisor, now, registered_by=registered_by, lookups=lookups)
                 for item, registered_by in zip(students, provenance)
             ]
             actor_user = request.user if actor else None
@@ -886,6 +949,11 @@ def register(request):
             transaction.on_commit(lambda: send_registration_emails(
                 journey, users, supervisor=registering, admin_for=admin_for, group=group,
             ))
+            # A supervisor created for them hears who named them (System Emails).
+            if new_supervisor is not None:
+                from .registration_emails import send_named_supervisor_email
+
+                transaction.on_commit(lambda: send_named_supervisor_email(new_supervisor, users))
             # Each guardian named is sent the consent form ("Approval required")
             # as soon as it's saved, not at the next daily run.
             from .guardian_reminders import email_registered_guardians

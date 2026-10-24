@@ -768,6 +768,47 @@ describe('AdminEmailsPage', () => {
     expect(headings()).toEqual(['Results'])
   })
 
+  it("groups Registration's emails by who registered", async () => {
+    // As the registry lists them.
+    const keys = [
+      'registration_student',
+      'registration_group',
+      'registration_mentor',
+      'registration_new_supervisor',
+      'registration_named_supervisor',
+      'registration_by_supervisor',
+      'registration_supervisor',
+      'supervisor_registration_status',
+      'registration_by_admin',
+      'guardian_details_request'
+    ]
+    vi.mocked(fetchSystemEmailTemplates).mockResolvedValue(keys.map((key) => buildTemplate({ key, name: key })))
+    const wrapper = await mountPage()
+    const items = wrapper.findAll('.email-type-list__items > li').map((item) => item.text().split(' ')[0])
+    expect(items).toEqual([
+      'Registration',
+      'Self',
+      ...keys.slice(0, 4),
+      'Registered',
+      'registration_named_supervisor',
+      'Registered',
+      'registration_by_supervisor',
+      'registration_supervisor',
+      'supervisor_registration_status',
+      'Registered',
+      'registration_by_admin',
+      'Guardians',
+      'guardian_details_request'
+    ])
+    expect(wrapper.findAll('[data-test="email-group"]').map((heading) => heading.text())).toEqual([
+      'Self registration',
+      'Registered by student',
+      'Registered by supervisor',
+      'Registered by admin',
+      'Guardians'
+    ])
+  })
+
   it('keeps emails on when the pause is cancelled', async () => {
     const wrapper = await mountPage()
     const globalSwitch = wrapper.find<HTMLInputElement>('.admin-emails__global input[role="switch"]')

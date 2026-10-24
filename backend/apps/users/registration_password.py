@@ -9,8 +9,10 @@ back with the password they choose.
   csrfToken}``. A mentor isn't signed in (``signedIn: false``): their account
   waits for an admin to activate it.
 
-A token is for one account, for an hour, and only while it has no password:
-once one is set, it's the reset link's to change. It's given only for
+A token is for one account, for an hour from registering, and only while it
+has no password: once one is set, it's the reset link's to change. It's
+signed with when the registration was saved, so an unchanged retry's receipt
+is the same receipt, token and all. It's given only for
 someone registering themselves, never for students a supervisor or admin
 registers.
 """
@@ -40,8 +42,19 @@ SELF_JOURNEYS = {"student_individual", "student_team", "mentor", "supervisor"}
 EXPIRED = "This link to set your password has expired. Sign in with your email to set one."
 
 
-def password_token(user) -> str:
-    return signing.TimestampSigner(salt=SALT).sign(str(user.pk))
+class _RegisteredAtSigner(signing.TimestampSigner):
+    """Signs with when the registration was saved, not now."""
+
+    def __init__(self, registered_at):
+        super().__init__(salt=SALT)
+        self.registered_at = registered_at
+
+    def timestamp(self):
+        return signing.b62_encode(int(self.registered_at.timestamp()))
+
+
+def password_token(user, registered_at) -> str:
+    return _RegisteredAtSigner(registered_at).sign(str(user.pk))
 
 
 def with_password_token(data):
@@ -54,7 +67,7 @@ def with_password_token(data):
     )
     if submission is None or submission.student.has_usable_password():
         return data
-    return {**data, "passwordToken": password_token(submission.student)}
+    return {**data, "passwordToken": password_token(submission.student, submission.created_at)}
 
 
 class RegistrationPasswordView(APIView):

@@ -192,10 +192,12 @@ const routes: RouteRecordRaw[] = [
       { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyTabPage.vue') },
       { path: 'email-nonfinalist', redirect: '/management/notify-finalists' },
       { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') },
+      // When finalist submissions close, then the slides each team handed in.
+      { path: 'finalist-submissions', name: 'management-finalist-submissions', component: () => import('@/views/management/FinalistSubmissionsPage.vue') },
       // The registration dates, then registering students as a supervisor does.
       { path: 'registration', name: 'management-registration', component: () => import('@/views/management/ManagementRegistrationPage.vue') },
       // Late Registration: late links and supervisors after close. Its old
-      // path still leads to it.
+      // path still leads to it (Supervisor Pages Visibility's is on Challenge Start).
       { path: 'late-registration', name: 'management-late-registration', component: () => import('@/views/management/LateRegistrationPage.vue') },
       { path: 'registration-visibility', redirect: '/management/late-registration' },
       // The names registration treats as a university, not a school.

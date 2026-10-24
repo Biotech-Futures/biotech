@@ -47,7 +47,7 @@ class ChallengeStartView(APIView):
                 raise serializers.ValidationError({"starts_at": exc.detail}) from None
         year = current_cohort()
         # After registration opens, and before submissions close.
-        problem = challenge_start_problem(starts_at, year, request.user)
+        problem = challenge_start_problem(starts_at, year)
         if problem:
             raise serializers.ValidationError({"starts_at": problem})
         row = ChallengeStart.for_year(year)

@@ -27,7 +27,9 @@ import { appSelectLabels, appSelectText, openAppSelect, pickAppSelect } from '@/
 import { pickerText, setPicker } from '@/__tests__/appPicker'
 import type { AdminGroupDetail, AdminUser } from '@/utils/adminAPI'
 
-vi.mock('@/utils/adminAPI', () => ({
+vi.mock('@/utils/adminAPI', async (importOriginal) => ({
+  // The real wording said before activating a student from an earlier year.
+  earlierYearMessage: (await importOriginal<typeof import('@/utils/adminAPI')>()).earlierYearMessage,
   createAdminUser: vi.fn(),
   updateAdminUser: vi.fn().mockResolvedValue({ msg: 'ok', data: null }),
   setAdminUserActive: vi.fn(),
@@ -855,6 +857,26 @@ describe('admin user detail: a student edited part by part', () => {
     // Nothing else changed, so nothing else is sent.
     expect(updateAdminUser).not.toHaveBeenCalled()
     expect(wrapper.emitted('updated')).toEqual([[inactive]])
+  })
+
+  it("says first when activating a student from an earlier year makes them this year's", async () => {
+    vi.mocked(setAdminUserActive).mockReset().mockResolvedValue({ msg: 'ok', data: student() })
+    const wrapper = openDetail(student({
+      state: { id: 11, stateName: 'NSW' }, isActive: false, accountStatus: 'deactivated', earlierChallengeYear: 2026
+    }))
+    await editAccount(wrapper)
+
+    await pick(wrapper, 'admin-status-select', 'Active')
+    await wrapper.find('[data-test="admin-account-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(setAdminUserActive).not.toHaveBeenCalled()
+    const dialog = wrapper.get('.admin-modal--confirm')
+    expect(dialog.text()).toContain('Activate for this year?')
+    expect(dialog.text()).toContain("is from the 2026 challenge. Activating them makes them one of this year's students")
+    await dialog.findAll('button').find((b) => b.text() === 'Save')!.trigger('click')
+    await flushPromises()
+    expect(setAdminUserActive).toHaveBeenCalledWith(7, true)
   })
 
   it('rejects an invalid email and saves nothing unchanged', async () => {

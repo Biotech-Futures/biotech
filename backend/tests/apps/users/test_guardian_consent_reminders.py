@@ -112,7 +112,9 @@ class GuardianConsentReminderTests(TestCase):
         consented.save()
         _student("none@example.com", guardian_email=None)
         _student("off@example.com", account_status=User.AccountStatus.SUSPENDED)
-        _student("old@example.com", date_joined=timezone.now() - timedelta(days=400))
+        _, old = _student("old@example.com")
+        old.challenge_year -= 1
+        old.save()
         _, today = _student("today@example.com")
         today.guardian_reminder_sent_at = timezone.now()
         today.save()

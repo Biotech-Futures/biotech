@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from apps.resources.models import Roles
-from apps.users.models import User
+from apps.users.models import RegistrationSubmission, User
 from apps.users.registration_password import MAX_AGE_SECONDS
 from tests.apps.users.test_registration_latelink import RegistrationSetup
 from tests.apps.users.test_registration_mentor import mentor_body
@@ -29,6 +29,13 @@ class RegistrationPasswordTests(RegistrationSetup, TestCase):
 
     def set_password(self, token, password="a-good-password"):
         return self.client.post(PASSWORD, {"token": token, "password": password}, format="json")
+
+    def just_past_the_hour(self, receipt):
+        """A second past the token's hour, counted from when the registration
+        was saved: the time its token is signed with, on the app's clock,
+        which the moved-clock runs move and time.time() doesn't."""
+        registered_at = RegistrationSubmission.objects.get(reference=receipt["reference_code"]).created_at
+        return registered_at.timestamp() + MAX_AGE_SECONDS + 1
 
     def test_a_student_sets_their_password_and_is_signed_in(self):
         receipt = self.registered()
@@ -71,13 +78,29 @@ class RegistrationPasswordTests(RegistrationSetup, TestCase):
         self.assertEqual(again.data["error"], "Your password is already set. Sign in with it.")
         self.assertTrue(User.objects.get(email="jordan.lee@example.com").check_password("a-good-password"))
 
+    def test_a_retry_a_moment_later_gets_the_very_same_token(self):
+        key = "0b3c5a4e-8f61-4d2a-9c7e-5f1a2b3c4d5e"
+        with patch("apps.users.registration_emails.send_system_email"):
+            first = self.submit(key=key)
+            later = time.time() + 5
+            with patch("django.core.signing.time.time", return_value=later):
+                again = self.submit(key=key)
+        self.assertEqual(again.data["passwordToken"], first.data["passwordToken"])
+
+    def test_the_hour_counts_from_registering(self):
+        receipt = self.registered()
+        later = self.just_past_the_hour(receipt)
+        with patch("django.core.signing.time.time", return_value=later):
+            response = self.set_password(receipt["passwordToken"])
+        self.assertEqual(response.status_code, 400)
+
     def test_a_made_up_or_expired_token_is_refused(self):
         receipt = self.registered()
         token = receipt["passwordToken"]
         for bad in ("", "123:abc", token[:-1] + ("A" if token[-1] != "A" else "B")):
             with self.subTest(token=bad):
                 self.assertEqual(self.set_password(bad).status_code, 400)
-        later = time.time() + MAX_AGE_SECONDS + 1
+        later = self.just_past_the_hour(receipt)
         with patch("django.core.signing.time.time", return_value=later):
             response = self.set_password(token)
         self.assertEqual(response.status_code, 400)
@@ -100,7 +123,8 @@ class RegistrationPasswordTests(RegistrationSetup, TestCase):
             first = self.submit(key=key)
             again = self.submit(key=key)
         self.assertEqual(again.status_code, 200)
-        self.assertTrue(again.data["passwordToken"])
+        # The same receipt, token and all, whenever the retry comes.
+        self.assertEqual(again.data, first.data)
         self.assertEqual(self.set_password(first.data["passwordToken"]).status_code, 200)
         with patch("apps.users.registration_emails.send_system_email"):
             third = self.submit(key=key)

@@ -120,8 +120,8 @@ def _without_group(role: str):
     ).values("user_id")
     users = users_with_role(role).exclude(email="").exclude(account_status__in=_GONE).exclude(id__in=in_groups)
     if role == _ROLES.STUDENT:
-        # Last year's students aren't this year's.
-        users = users.filter(date_joined__year=_this_year())
+        # Last year's students aren't this year's, unless they're back for it.
+        users = users.filter(studentprofile__challenge_year=_this_year())
     return users
 
 
@@ -494,6 +494,19 @@ def _registration_supervisor_context(value: str) -> dict:
     return supervisor_context(_user(value))
 
 
+def _named_supervisor_context(value: str) -> dict:
+    """A supervisor's, named by their students (a sample student for one
+    with none)."""
+    from apps.users.registration_emails import named_supervisor_context
+
+    supervisor = _user(value)
+    students = [
+        profile.user for profile in StudentProfile.objects.select_related("user").filter(supervisor__user=supervisor)
+    ][:3]
+    context = named_supervisor_context(supervisor, students)
+    return context if students else {**context, "STUDENT_NAMES": "Jordan Lee"}
+
+
 def _registration_status_context(value: str) -> dict:
     from apps.users.supervisor_status import status_context
 
@@ -511,6 +524,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),
     "registration_mentor": Recipients(_mentors, _registration_context),
     "registration_new_supervisor": Recipients(_supervisors_only, _registration_context),
+    "registration_named_supervisor": Recipients(_supervisors_only, _named_supervisor_context),
     "supervisor_registration_status": Recipients(_supervisors_only, _registration_status_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,

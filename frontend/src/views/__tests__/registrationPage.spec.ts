@@ -1,7 +1,6 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { routerKey } from 'vue-router'
 
 import RegistrationPage from '@/views/RegistrationPage.vue'
 import pageSource from '@/views/RegistrationPage.vue?raw'
@@ -11,6 +10,13 @@ import { REGISTRATION_GATEWAY_KEY, type RegistrationGateway } from '@/registrati
 import { heldRegistrationPassword } from '@/registration/registrationPassword'
 import { setRegistrationState } from '@/composables/useRegistrationOpen'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+
+// Where a supervisor back for a new year goes once signed in.
+const routerPush = vi.hoisted(() => vi.fn())
+vi.mock('vue-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('vue-router')>()),
+  useRouter: () => ({ push: routerPush }),
+}))
 
 // Registration as it is by default: open, with no dates.
 const OPEN = { open_now: true, opens_at: null, closes_at: null, can_register_students: true }
@@ -1245,7 +1251,8 @@ describe('canonical registration intake', () => {
   })
 
   it('takes someone registering themselves to set their password, not the Complete page', async () => {
-    const push = vi.fn()
+    // The page's router: this file's, as useRouter gives it.
+    routerPush.mockReset()
     const submit = vi.fn<RegistrationGateway['submit']>(async () => ({
       ok: true,
       receipt: {
@@ -1260,10 +1267,7 @@ describe('canonical registration intake', () => {
       props: { mode: 'canonical' },
       global: {
         plugins: [createPinia()],
-        provide: {
-          [REGISTRATION_GATEWAY_KEY as symbol]: { submit },
-          [routerKey as symbol]: { push },
-        },
+        provide: { [REGISTRATION_GATEWAY_KEY as symbol]: { submit } },
         stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
       },
     })
@@ -1292,13 +1296,82 @@ describe('canonical registration intake', () => {
       await wrapper.get('form').trigger('submit')
       await flushPromises()
       expect(submit).toHaveBeenCalledOnce()
-      expect(push).toHaveBeenCalledWith('/register/password')
+      expect(routerPush).toHaveBeenCalledWith('/register/password')
       expect(heldRegistrationPassword()).toEqual({ token: 'signed-token', mentor: true })
       expect(wrapper.find('.success-body').exists()).toBe(false)
     } finally {
       wrapper.unmount()
       sessionStorage.clear()
     }
+  })
+
+  describe('a supervisor from an earlier year', () => {
+    const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+    const mockServer = (confirm: () => Response) => {
+      const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
+        const url = String(input)
+        if (url.includes('/services/csrf/')) return answer({ csrfToken: 'token' })
+        if (url.endsWith('/registration/returning-supervisor/')) return answer({ message: 'sent' })
+        if (url.endsWith('/registration/returning-supervisor/confirm/')) return confirm()
+        if (url.includes('/users/me/')) return answer({ id: 7, email: 'sam@school.edu' })
+        return answer({})
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      return fetchMock
+    }
+    const submit = async (wrapper: VueWrapper) => {
+      await wrapper.get('form.returning-supervisor').trigger('submit')
+      await flushPromises()
+    }
+
+    beforeEach(() => routerPush.mockReset())
+
+    it('confirms their email with a code and goes on to register students', async () => {
+      const fetchMock = mockServer(() => answer({ success: true, csrfToken: 'fresh' }))
+      const wrapper = mountPage()
+
+      await clickButton(wrapper, 'Confirm your email')
+      expect(wrapper.get('h1').text()).toBe('Supervising Again')
+      expect(wrapper.find('#returning-supervisor-code').exists()).toBe(false)
+
+      await wrapper.get('#returning-supervisor-email').setValue('Sam@School.edu')
+      await submit(wrapper)
+      const sent = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/returning-supervisor/'))
+      expect(JSON.parse(String(sent?.[1]?.body))).toEqual({ email: 'sam@school.edu' })
+      expect(wrapper.text()).toContain("If that's a supervisor's email, we've emailed it a code.")
+      // The email stays as sent while the code is entered.
+      expect(wrapper.get('#returning-supervisor-email').attributes('disabled')).toBeDefined()
+
+      await wrapper.get('#returning-supervisor-code').setValue('123456')
+      await submit(wrapper)
+      const confirmed = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/confirm/'))
+      expect(JSON.parse(String(confirmed?.[1]?.body))).toEqual({ email: 'sam@school.edu', code: '123456' })
+      expect(routerPush).toHaveBeenCalledWith('/supervisor/registration')
+    })
+
+    it('says so when the code is wrong, and stays to try again', async () => {
+      mockServer(() => answer({ error: 'Invalid or expired code.', code: 'invalid_or_expired_code' }, 400))
+      const wrapper = mountPage()
+
+      await clickButton(wrapper, 'Confirm your email')
+      await wrapper.get('#returning-supervisor-email').setValue('sam@school.edu')
+      await submit(wrapper)
+      // Not six digits: checked before it's sent.
+      await wrapper.get('#returning-supervisor-code').setValue('12')
+      await submit(wrapper)
+      expect(wrapper.get('.server-error').text()).toBe('Enter the 6-digit code from the email.')
+
+      await wrapper.get('#returning-supervisor-code').setValue('654321')
+      await submit(wrapper)
+      expect(wrapper.get('.server-error').text()).toBe('Invalid or expired code.')
+      expect(routerPush).not.toHaveBeenCalled()
+
+      // Another email starts again, and Back returns to the roles.
+      await clickButton(wrapper, 'Use Another Email')
+      expect(wrapper.find('#returning-supervisor-code').exists()).toBe(false)
+      await clickButton(wrapper, 'Back to Roles')
+      expect(wrapper.text()).toContain('Who are you registering as?')
+    })
   })
 
   it('gives every logical radio group a shared native name', async () => {

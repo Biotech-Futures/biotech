@@ -505,8 +505,11 @@ email has no account is **created on the spot**, as an admin's student import
 creates one (`_resolve_supervisor_id`): an active account with no password, the
 supervisor role with no end date, and a profile at the student's school, in the
 student's country and state. The students (all of a group's) are linked to them
-at once, and the supervisor joins the group. They sign in with their email the
-first time, and set a password then. An email belonging to any other account (a
+at once, and the supervisor joins the group. Once the registration is saved
+they're sent **Named as supervisor (to new supervisor)** (the
+`registration_named_supervisor` template, System Emails > Registered by
+student), once per registration, naming every student in it. They sign in
+with their email the first time, and set a password then. An email belonging to any other account (a
 student, mentor or admin) is still refused. Students who named a supervisor
 before this, with no account then, are linked when that supervisor registers
 themselves (see [Supervisor registration](#supervisor-registration)). Guardian
@@ -518,7 +521,9 @@ Before deployment:
    with the normal `manage.py migrate` deployment step.
 2. Configure the **registration** year's opening/closing timestamps via the
    management endpoint. Unconfigured/null boundaries deliberately retain the
-   legacy open default; task/challenge deadlines do not close registration.
+   legacy open default, except in a year Start new year began (Management >
+   New Year), which stays closed until its opening date is set;
+   task/challenge deadlines do not close registration.
 3. Keep a stable production `SECRET_KEY`, correctly configured session/CSRF
    origins, frontend base URL and shared throttle cache. The gateway's two
    custom headers are included in the CORS allowlist.

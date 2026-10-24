@@ -188,6 +188,26 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="registration_named_supervisor",
+        name="Named as supervisor (to new supervisor)",
+        description=(
+            "Sent to the supervisor a student names when registering, if that email had no account: "
+            "one is created for them. Once per registration, naming every student in it."
+        ),
+        default_subject="{{ brand_name }}: You've been named as a supervisor",
+        default_template="emails/registration_named_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("student_names", "The students who named them", "Jordan Lee and Alex Kim", "STUDENT_NAMES"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "students_url", "Link to the supervisor's Students page",
+                "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="registration_by_supervisor",
         name="Registered by supervisor (to student)",
         description=(
@@ -199,22 +219,6 @@ EMAIL_TYPES = (
         merge_tags=(
             _FIRST_NAME,
             MergeTag("supervisor_name", "The supervisor who registered them", "Sam Lee", "SUPERVISOR_NAME"),
-            MergeTag("year", "Competition year", "2026", "YEAR"),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
-        key="registration_by_admin",
-        name="Registered by admin (to student)",
-        description=(
-            "Sent to each student an admin registers on Management > Registration: one student, "
-            "a group, or an uploaded file. Names the supervisor the admin chose."
-        ),
-        default_subject="{{ brand_name }}: Registration",
-        default_template="emails/registration_by_admin.html",
-        merge_tags=(
-            _FIRST_NAME,
-            MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
             *_BRAND_TAGS,
         ),
@@ -232,7 +236,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
             MergeTag(
-                "students_url", "Link to the supervisor's My Students",
+                "students_url", "Link to the supervisor's Students page",
                 "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
             ),
             *_BRAND_TAGS,
@@ -264,9 +268,25 @@ EMAIL_TYPES = (
                 "CHALLENGE_START",
             ),
             MergeTag(
-                "students_url", "Link to the supervisor's My Students",
+                "students_url", "Link to the supervisor's Students page",
                 "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
             ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_admin",
+        name="Registered by admin (to student)",
+        description=(
+            "Sent to each student an admin registers on Management > Registration: one student, "
+            "a group, or an uploaded file. Names the supervisor the admin chose."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_admin.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
             *_BRAND_TAGS,
         ),
     ),

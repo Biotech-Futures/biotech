@@ -104,6 +104,28 @@ class ChallengeStart(models.Model):
         return cls.objects.get_or_create(year=year)[0]
 
 
+class ChallengeYear(models.Model):
+    """A challenge year Start new year moved the platform on to (Management >
+    New Year): the newest is the year in progress, from the moment it's
+    pressed, even months before that year begins. Until it's first pressed
+    the year comes from the submission deadline (see ``current_cohort``).
+    Who pressed it, when, and how much it changed."""
+
+    year = models.PositiveSmallIntegerField(unique=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    started_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+    # What it changed, as the page's summary lists it, e.g. {"accounts": 412}.
+    counts = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "challenge_year"
+
+    def __str__(self):
+        return f"Challenge year {self.year}"
+
+
 class SupervisorPagesSetting(SingletonModel):
     """When students, mentors and supervisors start seeing Home, Groups,
     Events, Announcements and Resources (Management > Challenge Start > Pages
@@ -226,7 +248,7 @@ class FinalistEmailSettings(SingletonModel):
 
 
 class PresentationSettings(SingletonModel):
-    """Whether finalists see this year's presentation times to give their
+    """Whether finalists see the presentation times to give their
     availability. Off until the times are final, so teams only ever pick
     from the real ones."""
 
@@ -239,21 +261,18 @@ class PresentationSettings(SingletonModel):
 class PresentationSlot(models.Model):
     """A time finalists can present at the Symposium, on the Symposium date
     set on Notify Finalists. Admins set them on the Finalist Presentation
-    tab; each year has its own, since the times change year to year. Each
-    finalist team ticks every slot it can make."""
+    tab; they carry on from year to year until changed there. Each finalist
+    team ticks every slot it can make."""
 
-    year = models.PositiveSmallIntegerField()
     starts_at = models.TimeField()
     ends_at = models.TimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "presentation_slot"
-        ordering = ["year", "starts_at", "ends_at"]
+        ordering = ["starts_at", "ends_at"]
         constraints = [
-            models.UniqueConstraint(
-                fields=["year", "starts_at", "ends_at"], name="uniq_presentation_slot_per_year"
-            ),
+            models.UniqueConstraint(fields=["starts_at", "ends_at"], name="uniq_presentation_slot"),
             models.CheckConstraint(
                 condition=models.Q(ends_at__gt=models.F("starts_at")),
                 name="presentation_slot_ends_after_it_starts",
@@ -261,7 +280,7 @@ class PresentationSlot(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.year} {self.starts_at:%H:%M}-{self.ends_at:%H:%M}"
+        return f"{self.starts_at:%H:%M}-{self.ends_at:%H:%M}"
 
 
 class PresentationAllocation(models.Model):

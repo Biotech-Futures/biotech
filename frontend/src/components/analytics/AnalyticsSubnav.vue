@@ -50,7 +50,7 @@ const navItems = [
   padding: 10px 16px;
   border-left: 3px solid transparent;
   border-radius: 8px 0 0 8px;
-  color: var(--btf-teal);
+  color: var(--analytics-ui-text, var(--btf-teal));
   font-size: 15px;
   font-weight: 400;
   text-decoration: none;
@@ -59,8 +59,8 @@ const navItems = [
 
 .analytics-subnav-link:hover,
 .analytics-subnav-link.active {
-  background: color-mix(in srgb, var(--btf-light-green) 45%, var(--btf-white));
-  color: var(--btf-dark-green);
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 45%, var(--analytics-ui-surface, var(--btf-white)));
+  color: var(--analytics-ui-accent, var(--btf-dark-green));
   border-left-color: var(--btf-dark-green);
 }
 

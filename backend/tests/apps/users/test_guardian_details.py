@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from django.core import mail
 from django.core.management import call_command
+from django.db.models import F
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
@@ -99,7 +100,7 @@ class GuardianDetailsEmailTests(TestCase):
 
     def test_skips_students_from_an_earlier_year(self):
         user = self._student("ana@example.com")
-        User.objects.filter(pk=user.pk).update(date_joined=timezone.now() - timedelta(days=400))
+        StudentProfile.objects.filter(user=user).update(challenge_year=F("challenge_year") - 1)
 
         self.assertEqual(send_due()["sent"], 0)
 

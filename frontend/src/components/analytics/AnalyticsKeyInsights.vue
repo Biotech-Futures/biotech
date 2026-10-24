@@ -114,13 +114,13 @@ function hideInfoTooltip() {
 
 .key-insights-heading h2 {
   margin: 0;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 18px;
 }
 
 .key-insights-subtitle {
   margin: 5px 0 0 28px;
-  color: #687a76;
+  color: var(--analytics-ui-muted, #687a76);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -129,7 +129,7 @@ function hideInfoTooltip() {
   position: relative;
   display: inline-flex;
   flex: 0 0 auto;
-  color: #39687b;
+  color: var(--analytics-ui-secondary, #39687b);
   padding: 0;
   border: 0;
   background: transparent;
@@ -162,7 +162,7 @@ function hideInfoTooltip() {
   align-items: center;
   min-width: 0;
   padding: 10px 0;
-  border-top: 1px solid #e7eeeb;
+  border-top: 1px solid var(--analytics-ui-border, #e7eeeb);
 }
 
 .key-insights-content--two-columns .key-insights-list {
@@ -173,7 +173,7 @@ function hideInfoTooltip() {
 .key-insights-row strong {
   min-width: 44px;
   padding-left: 8px;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 20px;
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -193,7 +193,7 @@ function hideInfoTooltip() {
 .key-insights-copy span,
 .key-insights-copy small {
   display: block;
-  color: #536762;
+  color: var(--analytics-ui-muted, #536762);
   font-size: 14px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -201,7 +201,7 @@ function hideInfoTooltip() {
 
 .key-insights-copy small {
   margin-top: 3px;
-  color: #71817d;
+  color: var(--analytics-ui-muted, #71817d);
   font-size: 13px;
 }
 

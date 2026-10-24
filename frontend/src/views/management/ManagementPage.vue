@@ -91,7 +91,8 @@ const sections: ManagementSection[] = [
     icon: 'fa-chalkboard-user',
     pages: [
       { label: 'Notify Finalists', to: '/management/notify-finalists' },
-      { label: 'Finalist Presentation', to: '/management/finalist-presentation' }
+      { label: 'Finalist Presentation', to: '/management/finalist-presentation' },
+      { label: 'Finalist Submissions', to: '/management/finalist-submissions' }
     ]
   },
   {
