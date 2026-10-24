@@ -68,7 +68,7 @@
           @click="replaceDialogOpen = true"
         >
           <i class="fas fa-sync-alt" aria-hidden="true"></i>
-          Replace Inactive Mentors
+          Replace Idle Mentors
           <span class="admin-mentors__badge">{{ inactiveGroups.length }}</span>
         </button>
       </template>

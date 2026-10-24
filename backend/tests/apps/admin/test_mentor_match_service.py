@@ -1,7 +1,9 @@
 """Tests for admin mentor match service."""
+from datetime import timedelta
 from unittest import mock
 
 from django.test import TestCase
+from django.utils import timezone
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
@@ -17,6 +19,7 @@ from apps.users.models import (
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.matching_runtime.models import MatchRun
+from apps.chat.models import Messages
 
 STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
 MENTOR_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
@@ -372,3 +375,71 @@ class RecommendReplacementTests(TestCase):
 
     def test_recommend_students_group_not_found(self):
         self.assertIsNone(recommend_students_for_group(999999)["data"])
+
+
+class IdleMentorsAreNotRecommendedTests(TestCase):
+    """A mentor who has gone quiet is not offered a group.
+
+    "Quiet" is measured against the admin's own threshold, which arrives with
+    the request. Never having messaged only counts once they have been
+    registered longer than that - a new mentor has had no chance to post, and
+    a mentor with no group has nowhere to.
+    """
+
+    def setUp(self):
+        self.group = Groups.objects.create(group_name="Needs a mentor")
+        self.student = User.objects.create_user(
+            email="idle-student@example.com", first_name="Sam", password="pw",
+        )
+        GroupMembership.objects.create(
+            user=self.student, group=self.group,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+
+    def _mentor(self, email, *, joined_days_ago, last_message_days_ago=None):
+        user = User.objects.create_user(email=email, first_name=email[:4], password="pw")
+        User.objects.filter(pk=user.pk).update(
+            date_joined=timezone.now() - timedelta(days=joined_days_ago)
+        )
+        MentorProfile.objects.create(user=user, institution="Uni", mentor_reason="Help")
+        if last_message_days_ago is not None:
+            message = Messages.objects.create(
+                group=self.group, sender_user=user, message_text="hello",
+            )
+            Messages.objects.filter(pk=message.pk).update(
+                sent_at=timezone.now() - timedelta(days=last_message_days_ago)
+            )
+        return user
+
+    def _suggested_ids(self, idle_days=30):
+        result = recommend_mentors_for_group(self.group.id, idle_days)
+        return {item["mentorUserId"] for item in result["data"]["suggestions"]}
+
+    def test_a_mentor_who_spoke_recently_is_recommended(self):
+        recent = self._mentor("recent@example.com", joined_days_ago=200, last_message_days_ago=3)
+
+        self.assertIn(recent.id, self._suggested_ids())
+
+    def test_a_mentor_who_has_gone_quiet_is_not(self):
+        quiet = self._mentor("quiet@example.com", joined_days_ago=200, last_message_days_ago=90)
+
+        self.assertNotIn(quiet.id, self._suggested_ids())
+
+    def test_a_newly_registered_mentor_is_still_recommended(self):
+        # They have never posted, and never could: a mentor with no group has
+        # nowhere to. Excluding them would be a deadlock.
+        fresh = self._mentor("fresh@example.com", joined_days_ago=2)
+
+        self.assertIn(fresh.id, self._suggested_ids())
+
+    def test_a_long_registered_mentor_who_never_posted_is_not(self):
+        silent = self._mentor("silent@example.com", joined_days_ago=200)
+
+        self.assertNotIn(silent.id, self._suggested_ids())
+
+    def test_the_admins_own_threshold_decides(self):
+        mentor = self._mentor("tuned@example.com", joined_days_ago=200, last_message_days_ago=45)
+
+        # Quiet for 45 days: idle at the default 30, not yet at 60.
+        self.assertNotIn(mentor.id, self._suggested_ids(30))
+        self.assertIn(mentor.id, self._suggested_ids(60))

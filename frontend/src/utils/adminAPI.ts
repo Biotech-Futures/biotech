@@ -1631,7 +1631,7 @@ export const fetchUnmatchedGroups = () =>
 export const fetchMentorMatchMatchedGroups = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<unknown>>(`/mentor-match/matched-groups/${buildAdminQuery(params)}`)
 
-// --- Typed mentor-match surfaces (Replace Inactive Mentors) -----------------
+// --- Typed mentor-match surfaces (Replace Idle Mentors) ---------------------
 
 export interface MentorListItem {
   mentorId: number
@@ -1739,10 +1739,15 @@ export interface MentorReplaceSuggestionsData {
   suggestions: MentorReplaceSuggestion[]
 }
 
-/** Scored replacement mentors for one group (GET /mentor-match/replace-suggestions/). */
-export const fetchMentorReplaceSuggestions = (groupId: number) =>
+/**
+ * Scored replacement mentors for one group (GET /mentor-match/replace-suggestions/).
+ * `idleDays` is this admin's own "idle after" setting: a mentor who has gone
+ * quiet for that long is not offered as a replacement.
+ */
+export const fetchMentorReplaceSuggestions = (groupId: number, idleDays?: number) =>
   adminGet<AdminEnvelope<MentorReplaceSuggestionsData>>(
-    `/mentor-match/replace-suggestions/?groupId=${groupId}`
+    `/mentor-match/replace-suggestions/?groupId=${groupId}` +
+      (idleDays ? `&idleDays=${idleDays}` : '')
   ).then((env) => env.data)
 
 // --- System emails ----------------------------------------------------------

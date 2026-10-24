@@ -144,7 +144,7 @@ export function useAdminMentorsView() {
       }
     }
     // Only active accounts are listed: a deactivated mentor is managed from the
-    // Users page. Their groups still surface under "Replace Inactive Mentors",
+    // Users page. Their groups still surface under "Replace Idle Mentors",
     // which reads the unfiltered list below.
     const visible = mentors.value.filter((mentor) => mentor.isActive)
     return [...visible].sort((a, b) => comparators[sortState.value.key](a, b) * direction)

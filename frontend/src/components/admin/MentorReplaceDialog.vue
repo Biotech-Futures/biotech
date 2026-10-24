@@ -1,7 +1,7 @@
 <template>
   <FormSheet
     :model-value="open"
-    title="Replace Inactive Mentors"
+    title="Replace Idle Mentors"
     :description="description"
     width="min(100vw, 600px)"
     @update:model-value="onDismiss"
@@ -185,7 +185,11 @@ const loadSuggestions = async () => {
   error.value = ''
   try {
     const results = await Promise.all(
-      props.inactiveGroups.map((group) => fetchMentorReplaceSuggestions(group.groupId))
+      // The admin's own threshold decides who counts as idle, so it travels
+      // with the request: a quiet mentor is not offered as a replacement.
+      props.inactiveGroups.map((group) =>
+        fetchMentorReplaceSuggestions(group.groupId, idleDays.value)
+      )
     )
     const next = new Map<number, MentorReplaceSuggestion[]>()
     results.forEach((data) => next.set(data.groupId, data.suggestions))

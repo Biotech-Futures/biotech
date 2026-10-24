@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Any, Optional, Set
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRef
 from django.db.models.functions import Concat
 from django.utils import timezone
@@ -79,8 +79,39 @@ def _median(values: List[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2
 
 
-def _build_mentor_sources() -> List[Dict[str, Any]]:
-    """All active mentors as algorithm 'mentor sources', with their current load."""
+#: What the Mentors page starts from, for a caller that names no threshold.
+#: Mirrors DEFAULT_IDLE_DAYS in frontend/src/utils/mentorFormat.ts.
+DEFAULT_IDLE_DAYS = 30
+
+
+def _idle_mentor_ids(mentor_ids: List[int], idle_days: int) -> set:
+    """Of ``mentor_ids``, those who should not be recommended.
+
+    Idle is "has not spoken lately": no message within ``idle_days``. Never
+    having messaged only counts against a mentor once they have been registered
+    longer than that - a mentor who joined this week has had no chance to, and
+    excluding them would be a deadlock, since a mentor with no group has
+    nowhere to post.
+    """
+    if not mentor_ids:
+        return set()
+
+    cutoff = timezone.now() - timedelta(days=idle_days)
+    spoke_recently = set(
+        Messages.objects
+        .filter(sender_user_id__in=mentor_ids, sent_at__gte=cutoff)
+        .values_list('sender_user_id', flat=True)
+    )
+    joined_recently = set(
+        User.objects
+        .filter(id__in=mentor_ids, date_joined__gte=cutoff)
+        .values_list('id', flat=True)
+    )
+    return set(mentor_ids) - spoke_recently - joined_recently
+
+
+def _build_mentor_sources(idle_days: int = DEFAULT_IDLE_DAYS) -> List[Dict[str, Any]]:
+    """Active, non-idle mentors as algorithm 'mentor sources', with their load."""
     accepted_count_rows = (
         GroupMembership.objects
         .filter(left_at__isnull=True, user__mentorprofile__isnull=False)
@@ -104,6 +135,13 @@ def _build_mentor_sources() -> List[Dict[str, Any]]:
         )
     )
     mentor_ids = [m['mentor_id'] for m in mentor_rows]
+
+    # Quiet mentors are not offered fresh groups: assigning to someone who has
+    # stopped answering is how a group ends up without support.
+    idle_ids = _idle_mentor_ids(mentor_ids, idle_days)
+    if idle_ids:
+        mentor_rows = [m for m in mentor_rows if m['mentor_id'] not in idle_ids]
+        mentor_ids = [m['mentor_id'] for m in mentor_rows]
 
     mentor_interest_rows = (
         UserInterest.objects
@@ -155,7 +193,7 @@ def _build_group_source(group) -> Dict[str, Any]:
     }
 
 
-def recommend_mentors_for_group(group_id: int) -> Dict[str, Any]:
+def recommend_mentors_for_group(group_id: int, idle_days: int = DEFAULT_IDLE_DAYS) -> Dict[str, Any]:
     """Rank replacement mentors for one group (even one that already has a mentor).
 
     Reuses the same scoring as auto-matching, but for a single group that the auto
@@ -175,7 +213,7 @@ def recommend_mentors_for_group(group_id: int) -> Dict[str, Any]:
 
     group_source = _build_group_source(group)
     suggestions = []
-    for mentor in _build_mentor_sources():
+    for mentor in _build_mentor_sources(idle_days):
         if mentor['mentorId'] in current_mentor_ids:
             continue
         score, breakdown, reason = score_mentor_for_group(mentor, group_source)
@@ -204,7 +242,8 @@ def recommend_mentors_for_group(group_id: int) -> Dict[str, Any]:
     }
 
 
-def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, Any]]:
+def match_mentor(admin_user_id: str, mode: str = 'balanced',
+                 idle_days: int = DEFAULT_IDLE_DAYS) -> List[Dict[str, Any]]:
     """
     Run mentor matching algorithm for groups without mentors.
     
@@ -300,7 +339,7 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         for g in groups_without_mentor
     ]
     
-    mentor_sources = _build_mentor_sources()
+    mentor_sources = _build_mentor_sources(idle_days)
 
     # Run matching algorithm using the same data shape as admin/apps/server/src/algorithm/mentor.ts.
     recommendations = match_mentors(group_sources, mentor_sources, mode)

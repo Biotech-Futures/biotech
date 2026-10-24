@@ -195,18 +195,18 @@ describe('MatchedGroupsPanel', () => {
     expect(wrapper.text()).toContain('1/4')
     expect(wrapper.text()).toContain('BTF2')
     expect(wrapper.text()).toContain('1 to replace')
-    const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
     expect(replaceInactiveButton).toBeDefined()
   })
 
-  it('disables the "Replace Inactive Mentors" button when no mentor needs replacing', async () => {
+  it('disables the "Replace Idle Mentors" button when no mentor needs replacing', async () => {
     const fetchMock = fetchMockFor([activeGroup])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(MatchedGroupsPanel)
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('to replace')
-    const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
     expect(replaceInactiveButton).toBeDefined()
     expect(replaceInactiveButton!.attributes('disabled')).toBeDefined()
   })
@@ -232,7 +232,7 @@ describe('MatchedGroupsPanel', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('1 to replace')
-    const button = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    const button = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
     expect(button!.attributes('disabled')).toBeUndefined()
   })
 
@@ -414,7 +414,7 @@ describe('MatchedGroupsPanel', () => {
     wrapper = mount(MatchedGroupsPanel)
     await flushPromises()
 
-    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
     await bulkButton!.trigger('click')
     await flushPromises()
 
@@ -445,13 +445,13 @@ describe('MatchedGroupsPanel', () => {
     expect(body.notifyIncoming).toBe(true)
   })
 
-  it('replaces an inactive mentor via the bulk "Replace Inactive Mentors" dialog', async () => {
+  it('replaces an inactive mentor via the bulk "Replace Idle Mentors" dialog', async () => {
     const fetchMock = fetchMockFor([activeGroup, inactiveGroup])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(MatchedGroupsPanel)
     await flushPromises()
 
-    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
     expect(bulkButton).toBeDefined()
     await bulkButton!.trigger('click')
     await flushPromises()

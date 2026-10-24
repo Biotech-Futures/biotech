@@ -49,7 +49,7 @@
             :title="inactiveCount === 0 ? 'No matched mentors need replacing' : undefined"
             @click="bulkDialogOpen = true"
           >
-            <i class="fas fa-rotate" aria-hidden="true"></i> Replace Inactive Mentors
+            <i class="fas fa-rotate" aria-hidden="true"></i> Replace Idle Mentors
           </button>
         </template>
         <template #cell-group="{ row }">
