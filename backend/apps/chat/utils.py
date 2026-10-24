@@ -34,6 +34,13 @@ def sanitize_message_text(text: str | None) -> str:
     return "".join(part if i % 2 else sanitize_text(part) for i, part in enumerate(parts))
 
 
+def message_contains_blacklisted(text: str | None) -> bool:
+    """``contains_blacklisted`` for a chat message, with the same carve-out
+    as ``sanitize_message_text``: only the text around its ``<@123>`` mention
+    tokens is read, so a mention can never get a message refused."""
+    return any(contains_blacklisted(part) for part in _MENTION_TOKEN_RE.split(text or "")[::2])
+
+
 def parse_mentions(text: str) -> tuple[set[int], bool]:
     """Extract mentions from ``text``.
 

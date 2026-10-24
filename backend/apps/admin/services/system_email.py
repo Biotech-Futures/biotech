@@ -98,7 +98,14 @@ def _render_content_block(template_name: str, context: dict) -> str:
     template = get_template(template_name).template
     for node in template.nodelist:
         if isinstance(node, ExtendsNode) and "content" in node.blocks:
-            html = node.blocks["content"].nodelist.render(Context(context))
+            # Bound to its template, as rendering the whole template would
+            # bind it: an {% include %} in the block finds the engine through
+            # the context's template, and unbound it fails, taking the whole
+            # System Emails list down with it. The ticket emails' content
+            # blocks include their shared ticket box and button.
+            block_context = Context(context)
+            with block_context.bind_template(template):
+                html = node.blocks["content"].nodelist.render(block_context)
             return textwrap.dedent(html).strip()
     return template.render(Context(context)).strip()
 

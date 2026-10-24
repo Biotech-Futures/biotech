@@ -463,7 +463,8 @@ def query_group_messages(
     # Get total count
     total = Messages.objects.filter(
         group_id=gid,
-        deleted_at__isnull=True
+        deleted_at__isnull=True,
+        is_suppressed=False,
     ).count()
     
     # Fetch paginated messages
@@ -471,7 +472,8 @@ def query_group_messages(
         Messages.objects
         .filter(
             group_id=gid,
-            deleted_at__isnull=True
+            deleted_at__isnull=True,
+            is_suppressed=False,
         )
         .select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
         .prefetch_related("attachments")
@@ -773,6 +775,7 @@ def remove_group_message(group_id: str, message_id: int, initiated_by=None) -> d
             id=message_id,
             group_id=gid,
             deleted_at__isnull=True,
+            is_suppressed=False,
         )
     except Messages.DoesNotExist:
         return {"msg": "Group message not found", "data": None}
