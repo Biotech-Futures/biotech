@@ -5,7 +5,8 @@ why), that a background send notes itself too, that a failed guardian
 consent request is still noted after its rollback, that only the latest
 sends that missed someone are kept, and how the Log names people: by group,
 as a guardian of their student, or by address alone. A Management bulk email
-shows its last run instead.
+shows its last run instead; a queued job (an announcement, a reminder) keeps
+only counts in its run, so it shows its own log like the rest.
 """
 import smtplib
 from datetime import timedelta
@@ -195,6 +196,28 @@ class EmailLogTests(TestCase):
         self.assertEqual(entry["lastSentAt"], started.isoformat())
         self.assertEqual(entry["lastSentBy"], "Ada Admin")
         self.assertEqual(entry["missed"], [{"at": started.isoformat(), "people": [missed]}])
+
+    def test_a_queued_email_shows_who_its_sends_missed_not_its_run(self):
+        # An announcement goes as a queued job, whose run keeps only counts.
+        EmailSendRun.objects.create(
+            key="announcement", started_at=timezone.now() - timedelta(hours=1), started_by=self.admin, failed=1,
+        )
+        note_send("announcement", missed={"jin@example.com": "lost the mail server connection"}, by=self.admin)
+
+        entry = _entry("announcement")
+        log = SystemEmailLog.objects.get(key="announcement")
+        # When its send finished, and who sent it; who it missed, and why.
+        self.assertEqual((entry["lastSentAt"], entry["lastSentBy"]), (log.last_sent_at.isoformat(), "Ada Admin"))
+        self.assertEqual(
+            entry["missed"][0]["people"],
+            [{"who": "jin@example.com (BTF06, Jin Fischer)", "reason": "lost the mail server connection"}],
+        )
+
+    def test_a_queued_email_whose_run_emailed_nobody_is_not_emailed_yet(self):
+        EmailSendRun.objects.create(key="rsvp_reminder", started_at=timezone.now())
+
+        entry = _entry("rsvp_reminder")
+        self.assertEqual((entry["lastSentAt"], entry["missed"]), (None, []))
 
     def test_admins_read_the_log_and_nobody_else_does(self):
         client = APIClient()

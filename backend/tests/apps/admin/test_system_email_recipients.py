@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core import mail
+from django.db.models import F
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
@@ -89,10 +90,8 @@ class SystemEmailRecipientsTests(TestCase):
             self.btf10, "student",
         )
         # Last year's student, never put in a group.
-        _role(
-            _person("past@example.com", "Pia", "Past", date_joined=timezone.now() - timedelta(days=400)),
-            "student",
-        )
+        past = _student("past@example.com", "Pia", "Past", None)
+        StudentProfile.objects.filter(user=past).update(challenge_year=F("challenge_year") - 1)
 
         submission = Submission.objects.create(group=self.btf2, answers={"q_answers": "Answers."})
         submission.snapshot(self.ben)
@@ -205,6 +204,7 @@ class SystemEmailRecipientsTests(TestCase):
     def test_every_email_lists_and_fills_its_recipients_details(self):
         group_emails = {
             "submission_confirmation", "submission_reminder", "finalist_notification",
+            "finalist_submission_confirmation", "finalist_submission_reminder",
             "nonfinalist_invitation", "nonsubmission_notice", "results_team",
         }
         for key, recipients in RECIPIENTS.items():

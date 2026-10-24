@@ -3,13 +3,14 @@ The waitlist promotion and finalist emails go through the shared system email pa
 Run with: python manage.py test tests.apps.services.test_promotion_and_finalist_emails
 """
 
+import smtplib
 from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest import mock
 
 from django.core import mail
 from django.test import TestCase, override_settings
 
-from apps.events.models import Events
+from apps.events.models import EventRsvp, Events
 from apps.events.promotion_email import notify_waitlist_promoted
 from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
@@ -43,8 +44,15 @@ class WaitlistPromotionEmailTests(TestCase):
         self.user = User.objects.create_user(
             email="promoted@example.com", password="x", first_name="Ada", timezone="Australia/Sydney",
         )
+        # Promotion emails stop once an event ends, and START is a fixed date.
+        clock = mock.patch("django.utils.timezone.now", return_value=START - timedelta(days=1))
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def _send(self, event):
+        EventRsvp.objects.create(
+            event=event, user=self.user, rsvp_status="accepted", responded_at=START,
+        )
         notify_waitlist_promoted(event_id=event.id, user_id=self.user.id)
 
     def test_unedited_email_keeps_subject_and_plain_text_and_gains_branded_html(self):
@@ -103,7 +111,9 @@ class WaitlistPromotionEmailTests(TestCase):
 
     def test_send_failure_is_logged_not_raised(self):
         event = _event(location="Great Hall")
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("smtp down")), \
+        # Turned away by the mail server (one it can't reach is kept to send later).
+        rejected = smtplib.SMTPDataError(554, b"Message rejected")
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=rejected), \
                 self.assertLogs("apps.events.promotion_email", level="ERROR"):
             self._send(event)  # must not raise: the promotion already happened
 

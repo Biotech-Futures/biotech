@@ -4,23 +4,27 @@ Three go to the requester, and each carries the same three things, because a
 ticket update that does not say them leaves the requester guessing: where the
 ticket stands, whose move it is next, and roughly when to expect a reply.
 
-Two go to the support inbox, not to any one agent. DEC-009 had said support
+Three go to the support inbox, not to any one agent. DEC-009 had said support
 gets nothing, since agents work from the queue; the client asked at the
 8 October meeting for "emails to go to our support inbox to say like there is
-a new inquiry" (C-17) and for a regular count of what is still open (C-18).
-They go to one shared address, TICKET_SUPPORT_INBOX, so DEC-009's point still
-holds for the agents themselves.
+a new inquiry" (C-17) and for a regular count of what is still open (C-18),
+and on 20 October for one when the AI screening flags a message. They go to
+one shared address, TICKET_SUPPORT_INBOX, so DEC-009's point still holds for
+the agents themselves.
+
+All six go through System Emails (_send_system): the support inbox's at the
+client's request of 20 October, the requester's at Jinqi's of 22 October.
 """
 
 import logging
 from email.utils import parseaddr
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
+from django.utils.safestring import mark_safe
 
-from apps.services.email_branding import attach_inline_logo, brand_context
-from apps.services.mailer import send_async
+from apps.services.email_branding import brand_context
+from apps.services.system_email import SENT, SKIPPED, send_system_email, sender_for
 
 from ..models import TicketCategory, TicketPriority, TicketStatus
 
@@ -106,56 +110,75 @@ def _context(ticket, **extra):
         **extra,
     }
     ctx["SIGN_OFF"] = _sign_off(ctx)
+    ctx["STATUS_PILL"] = _status_pill(ticket.status)
     return ctx
 
 
-def _send(*, to, template, subject, kind, text_body, ctx, on_failure=None) -> None:
-    html_body = render_to_string(f"emails/{template}", ctx)
-    msg = EmailMultiAlternatives(
-        subject=subject.format(**ctx),
-        body=text_body.format(**ctx),
-        # support@ and not DEFAULT_FROM_EMAIL (info@): the client asked for
-        # enquiry mail to come from the support address. See TICKET_FROM_EMAIL
-        # in settings.py for why the same SMTP login can send as it.
-        from_email=settings.TICKET_FROM_EMAIL,
-        to=[to],
+def _status_pill(status) -> str:
+    """The status as the coloured pill the emails show, finished here and not
+    in the template; _ticket_status_pill.html says why."""
+    return mark_safe(render_to_string("emails/_ticket_status_pill.html", {
+        "STATUS_KEY": status,
+        "STATUS_LABEL": TicketStatus(status).label,
+    }).strip())
+
+
+def _send_system(key, to, ctx, text_body, on_failure=None) -> str:
+    """One ticket email, sent through System Emails.
+
+    Since 20 and 22 October all six are on it (apps.services.email_registry),
+    which reverses DEC-042. So they go the way every system email goes
+    (apps.services.system_email): switched off there, or paused for the whole
+    site, they are not sent; wording an admin saves there is what goes out,
+    else the template file; the mailbox picked there sends it, "support"
+    (support@) unless changed, which is the address the client asked enquiry
+    mail to come from; and each send is noted in its Log.
+
+    ``text_body`` is the plain-text half for when the wording is the template
+    file's; saved wording brings its own. ``on_failure`` is called if the send
+    is a miss (E3's note on the ticket). Returns SENT (handed to the mail
+    pool), SKIPPED (switched off) or FAILED.
+    """
+    # The footer asks the reader to add the sending address to their address
+    # book, so it has to name the mailbox System Emails will really send from.
+    ctx = {**ctx, "SENDER_EMAIL": sender_for(key).address}
+    return send_system_email(
+        key,
+        to,
+        ctx,
+        default_text=text_body.format(**ctx),
+        background=True,
+        on_failure=on_failure,
     )
-    msg.attach_alternative(html_body, "text/html")
-    attach_inline_logo(msg)
-    send_async(msg, kind=kind, on_failure=on_failure)
 
 
-def _dispatch(ticket, *, template, subject, kind, text_body, context=None, on_failure=None, to=None) -> bool:
+def _dispatch(ticket, *, key, text_body, context=None, on_failure=None) -> bool:
+    """One of the three to the requester. True if it was handed to the mail pool."""
     # These all run after the transaction commits, so re-read: the email must
     # describe the ticket that exists, not the one the caller was holding.
     try:
         ticket.refresh_from_db()
     except ticket.__class__.DoesNotExist:
-        logger.info("ticket_email.skipped kind=%s reason=ticket_gone", kind)
+        logger.info("ticket_email.skipped kind=%s reason=ticket_gone", key)
         return False
 
-    # The requester, unless the email is for the support inbox.
-    to = to or _recipient(ticket)
+    to = _recipient(ticket)
     if not to:
         logger.info(
             "ticket_email.skipped kind=%s ticket=%s reason=no_recipient",
-            kind, ticket.ticket_number,
+            key, ticket.ticket_number,
         )
         return False
 
     ctx = _context(ticket, **(context or {}))
-    _send(to=to, template=template, subject=subject, kind=kind, text_body=text_body,
-          ctx=ctx, on_failure=on_failure)
-    return True
+    return _send_system(key, to, ctx, text_body, on_failure=on_failure) == SENT
 
 
 def send_ticket_submitted(ticket) -> bool:
     """E1. Sent once, when the ticket is created."""
     return _dispatch(
         ticket,
-        template="ticket_submitted.html",
-        subject="{BRAND_CONNECT}: we have your enquiry ({TICKET_NUMBER})",
-        kind="ticket_submitted",
+        key="ticket_submitted",
         text_body=(
             "Hi {GREETING_NAME},\n\n"
             "Thanks for getting in touch.\n\n"
@@ -222,15 +245,19 @@ def send_ticket_reply(ticket, *, asked_for_information=False) -> bool:
             "{TICKET_URL}\n\n"
             "If you reply, we usually come back within {EXPECTED_REPLY}.\n"
         )
+    flags = {
+        "WAITING_ON_REQUESTER": waiting_on_requester,
+        "ASKED_FOR_INFORMATION": waiting_on_requester and asked_for_information,
+    }
+    # The HTML half's next step, picked here for the reason in
+    # _ticket_reply_next_step.html.
+    next_step = mark_safe(render_to_string(
+        "emails/_ticket_reply_next_step.html", {**flags, "EXPECTED_REPLY": EXPECTED_REPLY},
+    ).strip())
     return _dispatch(
         ticket,
-        template="ticket_reply.html",
-        subject="{BRAND_CONNECT}: an update on your enquiry ({TICKET_NUMBER})",
-        kind="ticket_reply",
-        context={
-            "WAITING_ON_REQUESTER": waiting_on_requester,
-            "ASKED_FOR_INFORMATION": waiting_on_requester and asked_for_information,
-        },
+        key="ticket_reply",
+        context={**flags, "NEXT_STEP": next_step},
         text_body=(
             "Hi {GREETING_NAME},\n\n"
             "There is a new reply on your enquiry {TICKET_NUMBER}.\n\n"
@@ -254,9 +281,7 @@ def send_ticket_resolved(ticket) -> bool:
     recipient = _recipient(ticket)
     return _dispatch(
         ticket,
-        template="ticket_resolved.html",
-        subject="{BRAND_CONNECT}: your enquiry is resolved ({TICKET_NUMBER})",
-        kind="ticket_resolved",
+        key="ticket_resolved",
         text_body=(
             "Hi {GREETING_NAME},\n\n"
             "Your enquiry {TICKET_NUMBER} has been marked as resolved.\n\n"
@@ -337,6 +362,51 @@ def _name(user) -> str:
     return name or user.email
 
 
+def _send_to_support(key, ctx, text_body) -> str:
+    """One of the support inbox's three; see _send_system."""
+    return _send_system(key, settings.TICKET_SUPPORT_INBOX, ctx, text_body)
+
+
+def _fresh(ticket, key):
+    """The ticket as committed, or None if it has gone since.
+
+    These run after the transaction commits, so re-read: the email must
+    describe the ticket that exists, not the one the caller was holding.
+    """
+    try:
+        ticket.refresh_from_db()
+    except ticket.__class__.DoesNotExist:
+        logger.info("ticket_email.skipped kind=%s reason=ticket_gone", key)
+        return None
+    return ticket
+
+
+def _support_ticket_context(ticket, **extra) -> dict:
+    """What the two emails about one enquiry say about it.
+
+    Whether anybody has it is worked out here and handed over as a finished
+    sentence and a finished line, rather than left to an {% if %} in the
+    template. System Emails pre-fills its editor from the template with each
+    tag standing in for its value, an {% if %} on a tag is always true there,
+    and so the "nobody has it yet" wording would be missing from anything
+    saved from the editor.
+    """
+    assignee = ticket.assignee
+    return _context(
+        ticket,
+        ASSIGNEE_LINE=f"Assigned to {_name(assignee)}" if assignee else "Unassigned",
+        ASSIGNMENT=(
+            f"It is assigned to {_name(assignee)}."
+            if assignee
+            else "It is not assigned to anyone yet."
+        ),
+        CATEGORY_LABEL=TicketCategory(ticket.category).label,
+        PRIORITY_LABEL=TicketPriority(ticket.priority).label,
+        CTA_URL=_support_queue_url(ticket),
+        **extra,
+    )
+
+
 def send_new_ticket_to_support(ticket) -> bool:
     """E4. Sent to the support inbox when someone raises an enquiry (C-17).
 
@@ -346,28 +416,20 @@ def send_new_ticket_to_support(ticket) -> bool:
     hold anything about them, and a copy sitting in a shared mailbox is a copy
     outside the platform's own access rules; the button is one click from it.
 
-    Only for enquiries raised in the portal. Message screening's tickets have
-    their own path (handoff.py) and are not "someone submits a ticket", which
-    is how the client put it.
+    Only for enquiries raised in the portal. Message screening's tickets send
+    E6 instead (send_flagged_message_to_support).
     """
+    if _fresh(ticket, "ticket_new_for_support") is None:
+        return False
     requester = ticket.created_by
-    assignee = ticket.assignee
-    return _dispatch(
+    ctx = _support_ticket_context(
         ticket,
-        to=settings.TICKET_SUPPORT_INBOX,
-        template="ticket_new_for_support.html",
-        subject="{BRAND_CONNECT}: a new enquiry has come in ({TICKET_NUMBER})",
-        kind="ticket_new_for_support",
-        context={
-            "REQUESTER_NAME": _name(requester) if requester else "Someone",
-            "ASSIGNEE_NAME": _name(assignee) if assignee else "",
-            "ASSIGNEE_LINE": f"Assigned to {_name(assignee)}" if assignee else "Unassigned",
-            "CATEGORY_LABEL": TicketCategory(ticket.category).label,
-            "URGENCY_WORDS": URGENCY_WORDS.get(ticket.priority, ""),
-            "PRIORITY_LABEL": TicketPriority(ticket.priority).label,
-            "CTA_LABEL": "Open in the support queue",
-            "CTA_URL": _support_queue_url(ticket),
-        },
+        REQUESTER_NAME=_name(requester) if requester else "Someone",
+        URGENCY_WORDS=URGENCY_WORDS.get(ticket.priority, ""),
+    )
+    return _send_to_support(
+        "ticket_new_for_support",
+        ctx,
         text_body=(
             "Hi support team,\n\n"
             "A new enquiry has come in: {TICKET_NUMBER}.\n\n"
@@ -379,16 +441,44 @@ def send_new_ticket_to_support(ticket) -> bool:
             "Open it in the support queue: {CTA_URL}\n\n"
             "This is an automatic message from {BRAND_CONNECT}.\n"
         ),
-    )
+    ) == SENT
 
 
-# The summary's three statuses, in the queue's order, with the designer's
-# line for each (M-28).
-DIGEST_ROWS = (
-    (TicketStatus.OPEN, "Nobody has picked it up yet"),
-    (TicketStatus.IN_PROGRESS, "Someone is working on it"),
-    (TicketStatus.PENDING_USER, "Waiting on the requester"),
-)
+def send_flagged_message_to_support(ticket) -> bool:
+    """E6. Sent to the support inbox when the AI screening flags a chat
+    message and opens an enquiry for it.
+
+    The client, on 20 October: "Please do cause an email to be triggered from
+    the AI screening flags as well". handoff.create_ticket_from_screening
+    calls it once the screening batch commits, so a batch that rolls back
+    mails nobody.
+
+    E4's layout with the screener in place of a requester, and, for E4's
+    reason and more, not the message: a flagged chat message and who wrote it
+    are a child's own words, and they stay in the enquiry, behind the queue's
+    access rules. The subject the hand-off writes names the kind of message
+    and the group, so the inbox can tell one flag from another.
+    """
+    if _fresh(ticket, "ticket_flagged_for_support") is None:
+        return False
+    ctx = _support_ticket_context(ticket)
+    return _send_to_support(
+        "ticket_flagged_for_support",
+        ctx,
+        text_body=(
+            "Hi support team,\n\n"
+            "A chat message was flagged: {TICKET_NUMBER}.\n\n"
+            "The AI screening flagged a message in a group chat and opened an enquiry "
+            "for it. {ASSIGNMENT}\n"
+            "Category: {CATEGORY_LABEL}\n"
+            "Priority: {PRIORITY_LABEL}\n"
+            "Subject: {TICKET_SUBJECT}\n\n"
+            "The message itself is not in this email. It is in the enquiry, with who "
+            "sent it and why it was flagged.\n\n"
+            "Open it in the support queue: {CTA_URL}\n\n"
+            "This is an automatic message from {BRAND_CONNECT}.\n"
+        ),
+    ) == SENT
 
 
 def _sydney_date(now) -> str:
@@ -403,14 +493,21 @@ def send_open_tickets_digest(now=None) -> dict:
     """E5. The morning count of enquiries still open, to the support inbox.
 
     The client asked for "maybe like a daily digest or something, where you
-    have like 'this is the number of inquiries open'" (C-18); Jinqi settled on
-    every day (DEC-051). The designer's M-28 lays it out: open, in progress,
-    pending user, and how many of those are overdue, which is the queue's own
-    Overdue rule (services/queue.overdue_condition).
+    have like 'this is the number of inquiries open'" (C-18), and on 20
+    October said when: "9am Sydney time" and "Daily everyday (weekends
+    included)". The time is the schedule's (.github/workflows/ticket-digest.yml);
+    this sends whenever it is called.
 
-    Skipped when nothing is open: his copy says the summary comes "while
-    enquiries are open", and a daily "0 open" is mail somebody learns to
-    ignore. Counted when it is sent, not stored, so a run that comes late or
+    It goes on a morning with nothing open as well, with zeros in it. It used
+    to be skipped then, so that a daily "0 open" would not become mail
+    somebody learns to ignore; Jinqi settled on 21 October that it goes every
+    day ("没有也要发"), which is how "daily everyday" reads too.
+
+    The designer's M-28 lays it out: open, in progress, pending user, and how
+    many of those are overdue, which is the queue's own Overdue rule
+    (services/queue.overdue_condition). Each row is its own number in the
+    template rather than a loop, so wording saved on System Emails keeps the
+    table. Counted when it is sent, not stored, so a run that comes late or
     twice says what is true at that moment.
     """
     from django.db.models import Count, Q
@@ -423,47 +520,42 @@ def send_open_tickets_digest(now=None) -> dict:
     counts = still_open.aggregate(
         total=Count("pk"),
         overdue=Count("pk", filter=overdue_condition(now)),
-        **{
-            str(status): Count("pk", filter=Q(status=status))
-            for status, _ in DIGEST_ROWS
-        },
+        open=Count("pk", filter=Q(status=TicketStatus.OPEN)),
+        in_progress=Count("pk", filter=Q(status=TicketStatus.IN_PROGRESS)),
+        pending_user=Count("pk", filter=Q(status=TicketStatus.PENDING_USER)),
     )
-    if not counts["total"]:
-        logger.info("ticket_email.skipped kind=ticket_digest reason=nothing_open")
-        return {"sent": False, "open": 0}
-
     total = counts["total"]
+    if total == 0:
+        headline = "No enquiries are open"
+    else:
+        headline = f"{total} enquir{'y is' if total == 1 else 'ies are'} still open"
     ctx = {
         **brand_context(),
-        "SENDER_EMAIL": parseaddr(settings.TICKET_FROM_EMAIL)[1],
         "OPEN_TOTAL": total,
-        "HEADLINE": f"{total} enquir{'y is' if total == 1 else 'ies are'} still open",
+        "HEADLINE": headline,
         "TODAY": _sydney_date(now),
-        "ROWS": [
-            {"label": TicketStatus(status).label, "hint": hint, "count": counts[str(status)]}
-            for status, hint in DIGEST_ROWS
-        ],
+        "OPEN_COUNT": counts["open"],
+        "IN_PROGRESS_COUNT": counts["in_progress"],
+        "PENDING_USER_COUNT": counts["pending_user"],
         "OVERDUE": counts["overdue"],
         "CTA_URL": _support_queue_url(),
     }
-    rows_text = "".join(
-        f"{row['label']}: {row['count']} ({row['hint']})\n" for row in ctx["ROWS"]
-    )
-    _send(
-        to=settings.TICKET_SUPPORT_INBOX,
-        template="ticket_digest.html",
-        subject="{BRAND_CONNECT}: {HEADLINE}",
-        kind="ticket_digest",
-        ctx=ctx,
+    result = _send_to_support(
+        "ticket_digest",
+        ctx,
         text_body=(
             "Hi support team,\n\n"
-            "{HEADLINE}. Here is where the support queue stands this morning, "
-            "{TODAY}.\n\n"
-            + rows_text.replace("{", "{{").replace("}", "}}")
-            + "Of these, overdue: {OVERDUE} (longer than its priority allows)\n\n"
-            "We send this summary every morning while enquiries are open.\n\n"
+            "{HEADLINE}. Here is where the support queue stands this morning, {TODAY}.\n\n"
+            "Open: {OPEN_COUNT} (Nobody has picked it up yet)\n"
+            "In progress: {IN_PROGRESS_COUNT} (Someone is working on it)\n"
+            "Pending user: {PENDING_USER_COUNT} (Waiting on the requester)\n"
+            "Of these, overdue: {OVERDUE} (longer than its priority allows)\n\n"
+            "We send this summary every morning, weekends included.\n\n"
             "Open the support queue: {CTA_URL}\n\n"
             "This is an automatic message from {BRAND_CONNECT}.\n"
         ),
     )
-    return {"sent": True, "open": total, "overdue": counts["overdue"]}
+    outcome = {"sent": result == SENT, "open": total, "overdue": counts["overdue"]}
+    if result == SKIPPED:
+        outcome["reason"] = "switched_off"
+    return outcome

@@ -105,7 +105,7 @@ const tooltipStyle = computed(() => {
 }
 
 .chart-tooltip small {
-  color: #dce3e0;
+  color: var(--analytics-ui-muted, #dce3e0);
   font-size: 10px;
   line-height: 1.3;
 }

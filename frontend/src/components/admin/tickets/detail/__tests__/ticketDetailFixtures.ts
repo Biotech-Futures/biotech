@@ -1,6 +1,7 @@
 import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { vi } from 'vitest'
 
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 import { ApiError, apiErrorFromResponse } from '@/utils/apiError'
 import * as agentAPI from '@/utils/ticketAgentAPI'
 import type {
@@ -208,13 +209,28 @@ export function resetPanelTests() {
 }
 
 /** The text of the option a native select is showing. */
-export function shownOption(select: { element: Element }): string {
-  const element = select.element as HTMLSelectElement
-  return element.options[element.selectedIndex]?.text ?? ''
+// The four triage controls are the platform's AppSelect since the 2026-10-22
+// client meeting (C-29), which hands its aria-label to the text field inside.
+
+/** A triage control's field, by its name: "Change status" and so on. */
+export const triageField = (name: string) => `input[role="combobox"][aria-label="${name}"]`
+
+/** What a triage control shows: the chosen choice's words. */
+export function shownChoice(panel: Pick<Panel, 'page'>, name: string): string {
+  return appSelectText(panel.page, triageField(name))
 }
 
-export function optionTexts(select: { element: Element }): string[] {
-  return Array.from((select.element as HTMLSelectElement).options).map((option) => option.text)
+/** What a triage control offers, in order, opening its list to read it.
+ *  Rows that cannot be picked are in it too, as they are on screen. */
+export function offeredChoices(panel: Pick<Panel, 'page'>, name: string): Promise<string[]> {
+  return appSelectLabels(panel.page, triageField(name))
+}
+
+/** Picks the choice with these words, as a click on it does, and lets the
+ *  patch it sends settle. */
+export async function pickChoice(panel: Pick<Panel, 'page'>, name: string, label: string): Promise<void> {
+  await pickAppSelect(panel.page, triageField(name), label)
+  await flushPromises()
 }
 
 /** A promise that never settles: a request still in flight. */

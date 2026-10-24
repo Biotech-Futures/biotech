@@ -1,29 +1,50 @@
 <template>
   <section class="ticket-audit" aria-labelledby="ticket-audit-title">
     <header class="ticket-audit__head">
-      <!-- An h2: the section shell above (TicketsSection.vue) holds the
-           page's only h1, and this names the tab inside it. -->
-      <h2 id="ticket-audit-title" class="ticket-audit__title">Ticket audit</h2>
-      <p class="ticket-audit__subtitle">
-        Every recorded action, including deletions. A deleted ticket keeps its record here after it
-        has left the queue.
-      </p>
+      <div>
+        <!-- An h2: the section shell above (TicketsSection.vue) holds the
+             page's only h1, and this names the tab inside it. -->
+        <h2 id="ticket-audit-title" class="ticket-audit__title">Ticket audit</h2>
+        <p class="ticket-audit__subtitle">
+          Every recorded action, including deletions. A deleted ticket keeps its record here after it
+          has left the queue.
+        </p>
+      </div>
+      <!-- Client item C-26 (Will, 2026-10-22): "Could you add an export to
+           that, if we needed to export that to, like, an Excel?", pointing at
+           the queue's own (C-09). Every row the filters below match, not
+           only the page on screen, as the queue's does. aria-disabled while
+           it runs, not disabled: disabling the button just pressed drops
+           keyboard focus to the top of the document. -->
+      <button
+        type="button"
+        class="ticket-audit__export btn btn-outline btn-sm"
+        :aria-disabled="exporting ? 'true' : undefined"
+        @click="exportAudit"
+      >
+        <TicketIcon name="sheet" />
+        <span>{{ exporting ? 'Exporting…' : 'Export to Excel' }}</span>
+      </button>
     </header>
 
-    <div class="ticket-audit__filters">
-      <select v-model="actionChoice" class="ticket-audit__filter" aria-label="Filter by action">
-        <option value="">Any action</option>
-        <option v-for="option in TICKET_AUDIT_ACTIONS" :key="option.value" :value="option.value">
-          {{ option.label }}
-        </option>
-      </select>
+    <p v-if="exportError" class="ticket-audit__export-error" role="alert">{{ exportError }}</p>
 
-      <select v-model="actorChoice" class="ticket-audit__filter" aria-label="Filter by who did it">
-        <option value="">Anyone</option>
-        <option v-for="person in options" :key="person.id" :value="String(person.id)">
-          {{ person.name }}
-        </option>
-      </select>
+    <!-- The platform's own dropdowns (AppSelect) since the 2026-10-22 client
+         meeting (C-29). -->
+    <div class="ticket-audit__filters">
+      <AppSelect
+        v-model="actionChoice"
+        class="ticket-audit__filter"
+        aria-label="Filter by action"
+        :options="actionOptions"
+      />
+
+      <AppSelect
+        v-model="actorChoice"
+        class="ticket-audit__filter"
+        aria-label="Filter by who did it"
+        :options="actorChoices"
+      />
     </div>
 
     <!-- Replaces the table and its footer, as it did in React. tabindex so
@@ -58,13 +79,21 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import '@/components/support/ticketControls.css'
 
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
+import TicketIcon from '@/components/support/TicketIcon.vue'
 import AuditPager from '@/components/admin/tickets/audit/AuditPager.vue'
 import TicketAuditTable from '@/components/admin/tickets/audit/TicketAuditTable.vue'
 import { actorOptions, type AuditActor } from '@/components/admin/tickets/audit/auditRows'
 import { logApiError } from '@/utils/apiError'
-import { fetchAssignees, fetchTicketAudit, wasRefused } from '@/utils/ticketAgentAPI'
+import {
+  exportTicketAudit,
+  fetchAssignees,
+  fetchTicketAudit,
+  saveTicketExport,
+  ticketRefusalReason,
+  wasRefused
+} from '@/utils/ticketAgentAPI'
 import {
   TICKET_AUDIT_ACTIONS,
   type AssigneeOption,
@@ -91,13 +120,20 @@ const rows = computed(() => audit.value?.items ?? [])
 const options = computed(() => actorOptions(people.value, rows.value, actor.value))
 const actorId = computed(() => actor.value?.id ?? null)
 
-// No sentinel value for "any": a native select holds "" happily. React needed
+// No sentinel value for "any": "" is a value a choice can hold. React needed
 // `__any__` because its Select could not, and that value must never reach the
 // server, which would filter on it and answer nothing.
+const actionOptions: AppSelectOption[] = [{ value: '', label: 'Any action' }, ...TICKET_AUDIT_ACTIONS]
+
+const actorChoices = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'Anyone' },
+  ...options.value.map((person) => ({ value: String(person.id), label: person.name }))
+])
+
 const actionChoice = computed({
   get: () => action.value,
-  set: (value: string) => {
-    action.value = value
+  set: (value: AppSelectValue) => {
+    action.value = value === null ? '' : String(value)
     // Page 3 of the old filter is rarely page 3 of the new one.
     page.value = 1
   }
@@ -106,12 +142,38 @@ const actionChoice = computed({
 // The selection is held as {id, name}, not just an id: see actorOptions.
 const actorChoice = computed({
   get: () => (actor.value ? String(actor.value.id) : ''),
-  set: (value: string) => {
+  set: (value: AppSelectValue) => {
+    const picked = value === null ? '' : String(value)
     actor.value =
-      value === '' ? null : (options.value.find((person) => String(person.id) === value) ?? null)
+      picked === '' ? null : (options.value.find((person) => String(person.id) === picked) ?? null)
     page.value = 1
   }
 })
+
+const exporting = ref(false)
+const exportError = ref('')
+
+/** The filtered log as an Excel file. A fresh look at everything that matches
+ *  now, so the page and its size stay out of it, as the queue's export
+ *  leaves its walk out. A press while one is running is ignored. */
+async function exportAudit() {
+  if (exporting.value) return
+  exporting.value = true
+  exportError.value = ''
+  try {
+    saveTicketExport(
+      await exportTicketAudit({
+        action: action.value,
+        actor: actorId.value === null ? '' : String(actorId.value)
+      })
+    )
+  } catch (error) {
+    logApiError('Ticket audit export', error)
+    exportError.value = ticketRefusalReason(error) ?? 'Could not export the audit log. Please try again.'
+  } finally {
+    exporting.value = false
+  }
+}
 
 function changePageSize(size: number) {
   limit.value = size
@@ -286,39 +348,85 @@ onMounted(async () => {
   margin-bottom: -0.125rem;
 }
 
-/* The thin chevron from ticketControls.css in place of the browser's. */
+/* The boxes. AppSelect draws the chevron and the list. */
 .ticket-audit__filter {
   width: 200px;
   max-width: 100%;
   height: 2.5rem;
-  padding: 0.25rem 2.25rem 0.25rem 0.75rem;
+  padding: 0.25rem 0.75rem;
   border: 1px solid var(--audit-edge);
   border-radius: 8px;
   background: var(--white);
-  background-image: var(--ticket-select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 0.9rem center;
-  appearance: none;
   color: var(--teal);
   font: inherit;
   font-size: 0.9rem;
 }
 
+/* The title on the left, the export on the right, as on the queue. */
+.ticket-audit__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+/* The queue's export button (TicketQueuePage.vue), for the same reasons:
+   white with a brand green edge, 6.03:1; mint in dark, where --dark-green is
+   3.02:1 on the ground. */
+.ticket-audit__export {
+  min-height: 2.5rem;
+  padding: 0 1.15rem;
+  gap: 0.7rem;
+  border: 1px solid var(--dark-green);
+  border-radius: 8px;
+  background-color: var(--white);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+:root[data-theme='dark'] .ticket-audit__export,
+:root[data-theme='dark'] .ticket-audit__export:hover {
+  border-color: var(--mint-green);
+  color: var(--mint-green);
+}
+
+.ticket-audit__export[aria-disabled='true'],
+.ticket-audit__export[aria-disabled='true']:hover {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background-color: var(--white);
+  border-color: var(--dark-green);
+  transform: none;
+  box-shadow: none;
+}
+
+.ticket-audit__export-error {
+  margin: 0;
+  color: var(--audit-danger);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* An alert icon and the sentence in the danger red. It had a 4px bar down its
+   left until the client called that side bar an "AI UI" look at the
+   2026-10-22 meeting (C-25); the designer had every one like it go. */
 .ticket-audit__error {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   margin: 0;
   padding: 0.75rem 1rem;
-  border-left: 4px solid var(--audit-danger);
   border-radius: 6px;
   color: var(--audit-danger);
 }
 
 /* The global focus ring is --dark-green, which the dark theme does not
    redefine: 2.79:1 on the dark surface, under the 3:1 a focus indicator
-   needs. --mint-green is 6.13:1 there. */
-:root[data-theme='dark'] .ticket-audit__filter:focus-visible,
+   needs. --mint-green is 6.13:1 there. The filters are AppSelects, which
+   ring their box when the field inside has focus. */
+:root[data-theme='dark'] .ticket-audit__filter:has(:focus-visible),
+:root[data-theme='dark'] .ticket-audit__export:focus-visible,
 :root[data-theme='dark'] .ticket-audit__error:focus-visible {
   outline-color: var(--mint-green);
 }

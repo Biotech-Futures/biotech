@@ -7,6 +7,8 @@ import {
   type UserListFilters,
   fetchAdminUsers,
   deleteAdminUser,
+  EARLIER_YEAR_BULK_NOTE,
+  earlierYearMessage,
   setAdminUserActive,
   bulkSetUsersActive,
   bulkDeleteUsers,
@@ -364,7 +366,8 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
   }
 
   // -- Single status toggle --------------------------------------------------
-  const singleToggle = ref({ open: false, userId: 0, message: '' })
+  // Deactivating, or activating a student from an earlier year: confirmed first.
+  const singleToggle = ref({ open: false, userId: 0, active: false, message: '' })
 
   const onToggleActive = (user: AdminUser) => {
     // Deactivating locks someone out, so confirm it; reactivating is non-destructive.
@@ -372,8 +375,14 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
       singleToggle.value = {
         open: true,
         userId: user.id,
+        active: false,
         message: `${userName(user)} will no longer be able to sign in. You can reactivate them at any time.`
       }
+      return
+    }
+    const earlier = earlierYearMessage(user)
+    if (earlier) {
+      singleToggle.value = { open: true, userId: user.id, active: true, message: earlier }
       return
     }
     void runActiveChange(user.id, true)
@@ -395,8 +404,8 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
 
   const runSingleToggle = async () => {
     if (!singleToggle.value.userId) return
-    const ok = await runActiveChange(singleToggle.value.userId, false)
-    if (ok) singleToggle.value = { open: false, userId: 0, message: '' }
+    const ok = await runActiveChange(singleToggle.value.userId, singleToggle.value.active)
+    if (ok) singleToggle.value = { open: false, userId: 0, active: false, message: '' }
   }
 
   // -- Single delete ---------------------------------------------------------
@@ -452,7 +461,7 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
       confirmLabel: isActive ? 'Activate' : 'Deactivate',
       title: `${isActive ? 'Activate' : 'Deactivate'} ${bulkCount.value} ${pluralNoun.value}?`,
       message: isActive
-        ? 'The selected users will be able to sign in again.'
+        ? `The selected users will be able to sign in again. ${EARLIER_YEAR_BULK_NOTE}`
         : 'The selected users will no longer be able to sign in. You can reactivate them at any time.'
     }
   }

@@ -71,25 +71,15 @@
       @row-click="openResourceDetail(toResource($event).id)"
     >
       <template #filters>
-        <label class="resource-filter">
-          <span class="resource-filter-label">Label</span>
-          <select v-model="selectedLabelId" aria-label="Filter by label">
-            <option value="">All labels</option>
-            <option v-for="label in labels" :key="label.id" :value="String(label.id)">
-              {{ label.name }} ({{ label.resource_count ?? 0 }})
-            </option>
-          </select>
+        <label class="table-filter-field">
+          <span class="table-filter-label">Label</span>
+          <AppSelect v-model="selectedLabelId" class="table-filter" aria-label="Filter by label" :options="labelFilterOptions" />
           <span v-if="getFieldError('label_id')" class="field-error">{{ getFieldError('label_id') }}</span>
         </label>
 
-        <label class="resource-filter">
-          <span class="resource-filter-label">Type</span>
-          <select v-model="selectedType" aria-label="Filter by type">
-            <option value="">All types</option>
-            <option v-for="type in resourceTypes" :key="type.id" :value="type.type_name">
-              {{ formatTypeName(type.type_name) }}
-            </option>
-          </select>
+        <label class="table-filter-field">
+          <span class="table-filter-label">Type</span>
+          <AppSelect v-model="selectedType" class="table-filter" aria-label="Filter by type" :options="typeFilterOptions" />
         </label>
 
       </template>
@@ -183,6 +173,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminResourceBatchAccessModal from '@/components/admin/resources/AdminResourceBatchAccessModal.vue'
@@ -202,6 +193,7 @@ import {
 } from '../utils/resourcesAPI'
 import { ApiError } from '../utils/apiError'
 import { formatDayMonth } from '../utils/date'
+import { resourceFileIcon } from '../utils/resource'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -242,6 +234,15 @@ const fieldErrors = ref<Record<string, string[]>>({})
 
 const searchQuery = ref('')
 const selectedType = ref('')
+// The Label and Type filters' choices.
+const labelFilterOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'All labels' },
+  ...labels.value.map((label) => ({ value: String(label.id), label: `${label.name} (${label.resource_count ?? 0})` }))
+])
+const typeFilterOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'All types' },
+  ...resourceTypes.value.map((type) => ({ value: type.type_name, label: formatTypeName(type.type_name) }))
+])
 // Seeded from ?label= so another page can link straight to one shelf of the
 // library. The Support Centre uses this to send someone to the help articles
 // for the topic they clicked, instead of dropping them in the full list to
@@ -369,16 +370,8 @@ const getResourceKindLabel = (kind: ResourceKind): string => {
   return labelsByKind[kind] || formatTypeName(kind)
 }
 
-const getResourceIcon = (resource: Resource): string => {
-  const mimeType = resource.file_mime_type?.toLowerCase() || ''
-  if (resource.kind === 'page') return 'fas fa-globe'
-  if (resource.kind === 'attachment') return 'fas fa-paperclip'
-  if (mimeType.includes('pdf')) return 'fas fa-file-pdf'
-  if (mimeType.startsWith('image/')) return 'fas fa-file-image'
-  if (mimeType.startsWith('video/')) return 'fas fa-file-video'
-  if (mimeType.startsWith('audio/')) return 'fas fa-file-audio'
-  return 'fas fa-file-alt'
-}
+// As Release Resources draws it (utils/resource).
+const getResourceIcon = (resource: Resource): string => resourceFileIcon(resource)
 
 const formatFileSize = (value?: number | null): string => {
   if (!Number.isFinite(value || 0) || !value || value <= 0) return '-'
@@ -562,32 +555,6 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   border-left: 4px solid var(--danger);
   flex-direction: column;
-}
-
-/* Label and the other filters, in the table's search card, drawn like Search. */
-.resource-filter {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.resource-filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.resource-filter select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 .field-error {

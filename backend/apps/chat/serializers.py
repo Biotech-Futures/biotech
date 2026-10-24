@@ -21,16 +21,20 @@ from .models import (
 )
 from .rbac import chat_recipients_qs
 from .services.storage import stored_chat_file
-from .utils import contains_blacklisted
+from .utils import message_contains_blacklisted
 
 
 BLOCKED_MESSAGE_ERROR = "This message contains blocked content and was not sent."
 
 
 def validate_chat_message_text(value: str, *, strip: bool = False) -> str:
-    """Reject configured sensitive words before anything is persisted."""
+    """Reject configured sensitive words before anything is persisted.
+
+    Only the text around ``<@123>`` mention tokens is read: the filter reads
+    "@" and digits as letters, so a message mentioning user 555 would be
+    refused for "@55" (main's mention fix, e950c8bc, made for its masking)."""
     text = (value or "").strip() if strip else (value or "")
-    if contains_blacklisted(text):
+    if message_contains_blacklisted(text):
         raise serializers.ValidationError(BLOCKED_MESSAGE_ERROR)
     return text
 

@@ -10,6 +10,16 @@ from apps.services.email_registry import (
 from apps.services.system_email import clean_email_body, senders
 
 
+class AdminTaskListQuerySerializer(serializers.Serializer):
+    page = serializers.IntegerField(min_value=1, max_value=2_147_483_647, default=1)
+    # Covers the 10000 the frontend sends for an "All entries" page size.
+    limit = serializers.IntegerField(min_value=1, max_value=10_000, default=10)
+
+
+class AdminTaskToggleSerializer(serializers.Serializer):
+    completed = serializers.BooleanField()
+
+
 class BulkUserRowSerializer(serializers.Serializer):
     """Shape-only guard for one row of the bulk user import.
 

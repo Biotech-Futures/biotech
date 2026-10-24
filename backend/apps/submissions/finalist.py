@@ -1,6 +1,6 @@
-"""Rules for the finalist round: who is a finalist, when slides are due, and
-the times its students can present. The due date is shown, not enforced:
-the round stays open for now."""
+"""Rules for the finalist round: who is a finalist, when slides are due, when
+the round closes, and the times its students can present. The due date is
+shown, not enforced; the closing time, once one's set, is."""
 from __future__ import annotations
 
 from datetime import datetime, time
@@ -9,9 +9,8 @@ from django.apps import apps
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import FinalistEntry
+from .models import FinalistDeadline, FinalistEntry
 from .serializers import submitter_name
-from .services import current_cohort
 
 
 def is_finalist_group(group_id: int) -> bool:
@@ -31,6 +30,19 @@ def slides_due_at() -> datetime | None:
     return datetime.combine(day, time(23, 59), tzinfo=SYMPOSIUM_TZ)
 
 
+def finalist_deadline() -> FinalistDeadline | None:
+    """When finalist submissions close (Management > Finalist Submissions):
+    the newest active row; None while the round stays open."""
+    return FinalistDeadline.objects.filter(is_active=True).select_related("set_by").order_by("-created_at").first()
+
+
+def finalist_round_open(now=None) -> bool:
+    """Whether finalist teams can still change and submit their entries: up
+    to the closing time, if one's set."""
+    deadline = finalist_deadline()
+    return deadline is None or (now or timezone.now()) <= deadline.closes_at
+
+
 # --- the times, set on Management > Finalist Presentation ------------------------
 
 
@@ -41,9 +53,9 @@ def times_shown() -> bool:
 
 
 def presentation_times():
-    """This year's presentation times, earliest first."""
+    """The presentation times, earliest first."""
     PresentationSlot = apps.get_model("management", "PresentationSlot")
-    return PresentationSlot.objects.filter(year=current_cohort())
+    return PresentationSlot.objects.all()
 
 
 def _clock(value) -> str:
@@ -71,10 +83,10 @@ def team_answer(group_id: int):
 
 
 def team_time_ids(answer) -> list[int]:
-    """The times the team can make, of this year's."""
+    """The times the team can make."""
     if answer is None:
         return []
-    return sorted(answer.slots.filter(year=current_cohort()).values_list("id", flat=True))
+    return sorted(answer.slots.values_list("id", flat=True))
 
 
 def submit_team_times(user, group, slot_ids: list[int]) -> None:
@@ -89,10 +101,10 @@ def submit_team_times(user, group, slot_ids: list[int]) -> None:
 
 
 def team_has_availability(group_id: int) -> bool:
-    """The team has submitted at least one of this year's times."""
+    """The team has submitted at least one of the times."""
     PresentationAvailability = apps.get_model("management", "PresentationAvailability")
     return PresentationAvailability.objects.filter(
-        group_id=group_id, submitted_at__isnull=False, slots__year=current_cohort()
+        group_id=group_id, submitted_at__isnull=False, slots__isnull=False
     ).exists()
 
 

@@ -77,7 +77,7 @@ const CARDS: {
     label: 'Unassigned',
     // Resolved tickets have no owner either, but nobody has to pick them up.
     hint: 'Still needs somebody to pick it up',
-    filter: { assignee: UNASSIGNED }
+    filter: { assignee: [UNASSIGNED] }
   },
   {
     key: 'open',
@@ -87,13 +87,13 @@ const CARDS: {
     // legitimately holds answered work too. What is true of all of them is
     // that nobody owns it.
     hint: 'Nobody has picked it up yet',
-    filter: { status: 'open' }
+    filter: { status: ['open'] }
   },
   {
     key: 'pendingUser',
     label: 'Pending user',
     hint: 'Waiting on the requester',
-    filter: { status: 'pending_user' }
+    filter: { status: ['pending_user'] }
   },
   {
     key: 'overdue',
@@ -102,7 +102,7 @@ const CARDS: {
     // 2026-09-04. The clock restarts every time the requester writes back, so
     // a ticket support has already answered lands here again once it sits.
     hint: 'Waiting on support for longer than its priority allows',
-    filter: { status: OVERDUE }
+    filter: { status: [OVERDUE] }
   }
 ]
 </script>

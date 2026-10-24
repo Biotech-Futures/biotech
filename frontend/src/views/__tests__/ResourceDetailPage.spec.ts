@@ -3,10 +3,11 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import ResourceDetailPage from '@/views/ResourceDetailPage.vue'
 import AdminRecordedSessionFields from '@/components/admin/resources/AdminRecordedSessionFields.vue'
 import * as resourcesApi from '@/utils/resourcesAPI'
+import { useRoute } from 'vue-router'
 
 const mockPush = vi.fn()
 vi.mock('vue-router', () => ({
-  useRoute: vi.fn(() => ({ params: { id: '201' }, name: 'resource-detail' })),
+  useRoute: vi.fn(() => ({ params: { id: '201' }, name: 'resource-detail', query: {} })),
   useRouter: vi.fn(() => ({ push: mockPush }))
 }))
 
@@ -19,6 +20,30 @@ describe('ResourceDetailPage & Recorded Session', () => {
       wrapper = null
     }
     vi.restoreAllMocks()
+  })
+
+  it('goes back to the library, or to Release Resources when opened from there', async () => {
+    vi.spyOn(resourcesApi, 'fetchResource').mockResolvedValue({ id: 201, name: 'Guide', kind: 'page' } as never)
+    vi.spyOn(resourcesApi, 'fetchResourceAccess').mockResolvedValue(null as never)
+
+    wrapper = mount(ResourceDetailPage)
+    await flushPromises()
+    expect(wrapper.get('.back-button').text()).toBe('Back to resources')
+    await wrapper.get('.back-button').trigger('click')
+    expect(mockPush).toHaveBeenLastCalledWith({ name: 'resources' })
+    wrapper.unmount()
+
+    vi.mocked(useRoute).mockReturnValueOnce({
+      params: { id: '201' }, name: 'resource-detail', query: { from: 'release-resources' },
+    } as never)
+    wrapper = mount(ResourceDetailPage)
+    await flushPromises()
+    expect(wrapper.get('.back-button').text()).toBe('Back to Release Resources')
+    await wrapper.get('.back-button').trigger('click')
+    // At its row there, which Release Resources brings into view.
+    expect(mockPush).toHaveBeenLastCalledWith({
+      name: 'management-challenge-start', query: { resource: '201' }, hash: '#release-resources',
+    })
   })
 
   it('renders regular resource without slides download button when has_slides is false', async () => {

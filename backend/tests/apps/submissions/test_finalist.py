@@ -4,8 +4,10 @@ availability, and the submitted slides land in that tab's table."""
 import io
 import tempfile
 import zipfile
-from datetime import time
+from datetime import date, time
+from unittest.mock import patch
 
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -15,8 +17,16 @@ from rest_framework.test import APIClient
 from apps.common.storage import reset_managed_storage_caches
 from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
-from apps.management.models import FinalistSlides, PresentationAvailability, PresentationSettings, PresentationSlot
+from apps.management.models import (
+    FinalistEmailSettings,
+    FinalistSlides,
+    PresentationAvailability,
+    PresentationSettings,
+    PresentationSlot,
+)
 from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.services.models import SystemEmailTemplate
+from apps.submissions.emails import finalist_confirmation_context
 from apps.submissions.models import FinalistEntry
 from apps.submissions.services import current_cohort
 from apps.users.models import User
@@ -71,10 +81,9 @@ class FinalistTests(TestCase):
         )
 
         FinalistFlag.objects.create(group=self.group, notified=True)
-        # This year's times, as set on Management > Finalist Presentation.
-        year = current_cohort()
-        self.morning = PresentationSlot.objects.create(year=year, starts_at=time(10), ends_at=time(11))
-        self.noon = PresentationSlot.objects.create(year=year, starts_at=time(11, 40), ends_at=time(12, 30))
+        # The times, as set on Management > Finalist Presentation.
+        self.morning = PresentationSlot.objects.create(starts_at=time(10), ends_at=time(11))
+        self.noon = PresentationSlot.objects.create(starts_at=time(11, 40), ends_at=time(12, 30))
         # Shown to finalists, as Management turns them on once they're final.
         PresentationSettings.objects.create(times_shown=True)
 
@@ -161,6 +170,116 @@ class FinalistTests(TestCase):
         entry = self._client(self.student).get(self.url).data["entry"]
         self.assertEqual(entry["submitted_by_name"], "BIOTech Futures")
         self.assertEqual(entry["availability_submitted_by_name"], "BIOTech Futures")
+
+    # Confirmation email, as regular submissions send one
+
+    def _emailed(self, submit=None):
+        with self.settings(AUTH_EMAIL_DISPATCH_SYNC=True, FRONTEND_BASE_URL="https://example.org"):
+            (submit or self._submitted_by_team)()
+        return mail.outbox
+
+    def test_submitting_emails_the_team_its_slides_and_chosen_times(self):
+        outbox = self._emailed()
+
+        self.assertEqual(len(outbox), 1)
+        message = outbox[0]
+        self.assertEqual(message.subject, "BIOTech Futures: Presentation received for BTF-FINAL")
+        self.assertEqual(message.to, ["student@test.local"])
+        self.assertEqual(sorted(message.cc), ["mentor@test.local", "supervisor@test.local"])
+        slides = FinalistEntry.objects.get(group=self.group).submitted_presentation["name"]
+        self.assertTrue(message.body.startswith("Hi Group BTF-FINAL,"))
+        self.assertIn(slides, message.body)
+        self.assertIn("10:00 - 11:00", message.body)
+        self.assertNotIn("11:40 - 12:30", message.body)
+        html = message.alternatives[0][0]
+        self.assertIn("10:00 - 11:00", html)
+        self.assertIn(f"https://example.org/#/groups/{self.group.id}/finalist", html)
+
+    def test_the_email_gives_the_symposium_day_and_when_slides_are_due(self):
+        details = FinalistEmailSettings.load()
+        details.symposium_date = date(2026, 10, 23)
+        details.slides_due = date(2026, 10, 16)
+        details.save()
+
+        body = self._emailed()[0].body
+
+        self.assertIn("10:00 - 11:00 AEDT", body)
+        self.assertIn("All times are on the symposium day, Friday, 23 October 2026, in Sydney time (AEDT, UTC+11).", body)
+        self.assertIn("are due on Friday, 16 October 2026", body)
+
+    def test_times_carry_the_clock_sydney_keeps_on_the_symposium_day(self):
+        from apps.submissions.emails import sydney_clock
+
+        self.assertEqual(sydney_clock(date(2026, 10, 23)), ("AEDT", "UTC+11"))
+        self.assertEqual(sydney_clock(date(2026, 6, 19)), ("AEST", "UTC+10"))
+
+    def test_resubmitting_sends_the_email_again(self):
+        def submit_twice():
+            client = self._ready()
+            client.post(self.submit_url, {}, format="json")
+            client.post(self.reopen_url, {}, format="json")
+            client.post(self.submit_url, {}, format="json")
+
+        self.assertEqual(len(self._emailed(submit_twice)), 2)
+
+    def test_an_admin_submitting_shows_as_biotech_futures(self):
+        def by_admin():
+            self._ready(self._client(self.admin)).post(self.submit_url, {}, format="json")
+
+        self._emailed(by_admin)
+
+        context = finalist_confirmation_context(FinalistEntry.objects.get(group=self.group))
+        self.assertEqual(context["SUBMITTED_BY"], "BIOTech Futures")
+
+    def test_without_the_times_released_the_email_leaves_them_out(self):
+        PresentationSettings.objects.update(times_shown=False)
+
+        def slides_only():
+            client = self._client(self.student)
+            client.post(self.file_url, {"file": _pdf()}, format="multipart")
+            client.post(self.submit_url, {}, format="json")
+
+        body = self._emailed(slides_only)[0].body
+
+        self.assertNotIn("TIMES YOU SELECTED", body)
+        self.assertIn("Presentation Slides", body)
+        self.assertNotIn("Times you selected", mail.outbox[0].alternatives[0][0])
+
+    def test_switched_off_sends_nothing_and_the_submission_still_goes_in(self):
+        SystemEmailTemplate.objects.create(key="finalist_submission_confirmation", is_enabled=False)
+
+        self.assertEqual(self._emailed(), [])
+        self.assertTrue(FinalistEntry.objects.get(group=self.group).is_submitted)
+
+    def test_a_failed_email_does_not_fail_the_submission(self):
+        with patch("apps.submissions.emails.render_to_string", side_effect=OSError("boom")):
+            self.assertEqual(self._emailed(), [])
+
+        self.assertTrue(FinalistEntry.objects.get(group=self.group).is_submitted)
+
+    def test_an_edited_email_shows_the_sections_styled_as_the_default_one(self):
+        SystemEmailTemplate.objects.create(
+            key="finalist_submission_confirmation",
+            subject="Slides in, {{ group_name }}",
+            body_html="<p>Thanks {{ group_name }}.</p>{{ presentation }}{{ selected_times }}",
+        )
+
+        html = self._emailed()[0].alternatives[0][0]
+
+        self.assertIn("<p>Thanks BTF-FINAL.</p>", html)
+        self.assertNotIn("<ul>", html)
+        for text in ("Presentation", "Presentation Slides", "Submitted", "Times you selected", "10:00 - 11:00"):
+            self.assertIn(text, html)
+        self.assertIn("background:#f4f7f5", html)
+
+    def test_the_sections_escape_what_they_show(self):
+        from apps.submissions.email_sections import presentation_section, times_section
+
+        html = presentation_section([{"label": "Slides", "submitted": True, "status": "Submitted", "detail": "<b>x</b>.pdf"}])
+
+        self.assertIn("&lt;b&gt;x&lt;/b&gt;.pdf", html)
+        self.assertNotIn("<b>x</b>", html)
+        self.assertEqual(times_section([], "Friday, 23 October 2026"), "")
 
     def test_an_admin_changes_a_submitted_entry_without_reopening_it(self):
         entry = self._submitted_by_team()
@@ -258,10 +377,8 @@ class FinalistTests(TestCase):
         self.assertEqual((entry["available_session_ids"], entry["availability_submitted_at"]), ([self.morning.id], None))
         self.assertEqual(client.post(self.submit_url, {}, format="json").data["code"], "availability_required")
 
-    def test_a_time_from_another_year_cannot_be_chosen(self):
-        old = PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))
-
-        response = self._client(self.student).put(self.url, {"session_ids": [old.id]}, format="json")
+    def test_a_time_that_isnt_listed_cannot_be_chosen(self):
+        response = self._client(self.student).put(self.url, {"session_ids": [99999]}, format="json")
 
         self.assertEqual(response.status_code, 400)
 
@@ -285,8 +402,10 @@ class FinalistTests(TestCase):
 
         self.assertEqual(response.data["code"], "availability_required")
 
-    def test_only_this_years_times_are_offered(self):
-        PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))
+    def test_the_times_carry_on_into_a_new_year(self):
+        from apps.management.models import ChallengeYear
+
+        ChallengeYear.objects.create(year=current_cohort() + 1)
 
         labels = [s["label"] for s in self._client(self.student).get(self.url).data["sessions"]]
         self.assertEqual(labels, ["10:00 – 11:00", "11:40 – 12:30"])
@@ -423,8 +542,8 @@ class FinalistTests(TestCase):
             reverse("management:presentation-slides-file", kwargs={"group_id": self.group.id})
         )
         self.assertEqual(opened.status_code, 200)
+        # Read to the end, the test client has closed it.
         self.assertEqual(b"".join(opened.streaming_content), b"%PDF-1.7\nslides\n%%EOF\n")
-        opened.close()
 
     def test_a_submitted_entry_cannot_be_edited_until_reopened(self):
         client = self._ready()
@@ -477,3 +596,70 @@ class FinalistTests(TestCase):
         self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 200)
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
         self.assertEqual(client.post(self.reopen_url, {}, format="json").status_code, 200)
+
+    # Closed at the time set on Management > Finalist Submissions
+    def _close(self, minutes):
+        from datetime import timedelta
+
+        from apps.submissions.models import FinalistDeadline
+
+        return FinalistDeadline.objects.create(closes_at=timezone.now() + timedelta(minutes=minutes), set_by=self.admin)
+
+    def test_the_team_sees_when_finalist_submissions_close(self):
+        later = self._close(60)
+        deadline = self._client(self.student).get(self.url).data["deadline"]
+        self.assertEqual((deadline["closes_at"], deadline["is_open"]), (later.closes_at, True))
+
+    def test_after_closing_the_team_changes_and_submits_nothing(self):
+        client = self._ready()
+        client.post(self.submit_url, {}, format="json")
+        self._close(-1)
+        self.assertFalse(client.get(self.url).data["deadline"]["is_open"])
+        attempts = {
+            "times": lambda: client.put(self.url, {"session_ids": [self.noon.id]}, format="json"),
+            "upload": lambda: client.post(self.file_url, {"file": _pdf("new.pdf")}, format="multipart"),
+            "remove": lambda: client.delete(self.file_url),
+            "reopen": lambda: client.post(self.reopen_url, {}, format="json"),
+            "submit": lambda: client.post(self.submit_url, {}, format="json"),
+        }
+        for name, attempt in attempts.items():
+            with self.subTest(name):
+                response = attempt()
+                self.assertEqual(response.status_code, 403, response.data)
+                # The page's own word for it, so it shows the entry closed.
+                self.assertEqual(response.data["code"], "submissions_closed")
+        self.assertEqual(FinalistEntry.objects.get(group=self.group).presentation["name"], "deck.pdf")
+
+    def test_an_admin_still_acts_for_the_team_after_closing(self):
+        self._close(-1)
+        client = self._client(self.admin)
+        self.assertEqual(client.put(self.url, {"session_ids": [self.morning.id]}, format="json").status_code, 200)
+        self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 200)
+        self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
+
+    def test_moving_the_time_later_opens_it_again(self):
+        self._close(-1)
+        client = self._client(self.student)
+        self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 403)
+        admin = self._client(self.admin)
+        url = reverse("management:finalist-submissions-close")
+        from datetime import timedelta
+
+        later = (timezone.now() + timedelta(days=1)).isoformat()
+        response = admin.post(url, {"closes_at": later}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["close"]["is_open"])
+        self.assertEqual(response.data["close"]["set_by"], "A Admin")
+        self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 200)
+
+    def test_only_admins_see_or_set_the_closing_time(self):
+        url = reverse("management:finalist-submissions-close")
+        self.assertEqual(self._client(self.admin).get(url).data, {"close": None})
+        for user in (self.student, self.supervisor):
+            with self.subTest(user=user.email):
+                client = self._client(user)
+                self.assertEqual(client.get(url).status_code, 403)
+                self.assertEqual(
+                    client.post(url, {"closes_at": timezone.now().isoformat()}, format="json").status_code, 403,
+                )
+        self.assertEqual(self._client(self.admin).post(url, {}, format="json").status_code, 400)

@@ -123,7 +123,9 @@ class MailApiTests(SimpleTestCase):
     def test_it_lists_the_mailboxes_signed_in_with_the_key(self, get):
         get.return_value = self.response(body={"data": {"mailboxes": [{"resourceId": "mb1", "address": "Info@X.org"}]}})
         self.assertEqual(hostinger_mail.mailboxes(), [{"id": "mb1", "address": "info@x.org"}])
-        self.assertEqual(get.call_args.kwargs["headers"], {"Authorization": "Bearer test-key"})
+        self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "Bearer test-key")
+        # By name: Cloudflare turns away requests' own User-Agent with a 403.
+        self.assertNotIn("python-requests", get.call_args.kwargs["headers"]["User-Agent"])
 
     @patch("apps.services.hostinger_mail.requests.get")
     def test_it_pages_through_the_inbox_newest_first(self, get):
@@ -224,6 +226,22 @@ class CheckBouncesTests(TestCase):
         self.assertFalse(SystemEmailLog.objects.exists())
         self.assertTrue(EmailDelivery.objects.exists())
 
+    def test_a_bounce_marks_the_recipient_of_that_send_as_not_delivered(self):
+        from apps.services.email_metrics import record_email_delivery
+        from apps.services.models import EmailDeliveryRecipient
+
+        record_email_delivery(
+            "finalist_notification", source_mailbox=self.ours, attempted=2, delivered=2, failed=0,
+            recipients=["amy@example.com", "bo@example.com"], started_at=self.now - timedelta(hours=1),
+        )
+        check_bounces(self.now)
+
+        rows = {row.email: (row.status, row.reason) for row in EmailDeliveryRecipient.objects.all()}
+        self.assertEqual(rows, {
+            "amy@example.com": ("failed", "bounced: no such mailbox"),
+            "bo@example.com": ("delivered", ""),
+        })
+
     def test_a_bounce_matching_no_email_is_skipped(self):
         self.api.source.return_value = report(("someone@else.example", "failed", "5.1.1", "x"), subject="Hello there")
         result = check_bounces(self.now)
@@ -290,10 +308,64 @@ class TriggerTests(TestCase):
         self.assertEqual(self.post().json(), {"status": SWITCHED_OFF})
         self.thread.assert_not_called()
 
+    # The thread closes its own connection, and run here that is the test's.
+    @patch("apps.management.services.bounce_check.close_old_connections")
     @patch("apps.management.services.bounce_check.check_bounces", side_effect=MailApiError("The Mail API answered 401."))
-    def test_a_failed_check_lets_the_next_one_run(self, check):
+    def test_a_failed_check_lets_the_next_one_run(self, check, close_connections):
         cache.add(RUNNING, True)
         with self.assertLogs("apps.management.services.bounce_check", level="ERROR"):
             _run_check()
         self.assertIsNone(cache.get(RUNNING))
 
+
+
+@override_settings(HOSTINGER_MAIL_API_KEY="test-key")
+class MailApiStateTests(TestCase):
+    """Failed Sending Emails says, at its top, when bounced emails can't be
+    checked: no key, a key Hostinger refuses, or a check that couldn't get
+    through. A check that can clears it."""
+
+    URL = "/api/v1/admin/email-log/mail-api/"
+
+    def _check(self, **mailboxes):
+        from apps.management.services.bounce_check import check_bounces
+
+        with patch.object(hostinger_mail, "mailboxes", **mailboxes):
+            check_bounces()
+
+    def _state(self):
+        from apps.services.email_log import mail_api_state
+
+        return mail_api_state()
+
+    def test_a_refused_key_is_said_until_a_check_gets_through(self):
+        with self.assertRaises(MailApiError):
+            self._check(side_effect=MailApiError("The Mail API answered 403.", status=403))
+        state = self._state()
+        self.assertEqual((state["problem"], state["status"]), ("rejected", 403))
+        self.assertIsNotNone(state["at"])
+
+        self._check(return_value=[])
+        self.assertEqual(self._state(), {"problem": "", "at": None, "status": None})
+
+    def test_a_check_that_couldnt_get_through_is_said_with_no_status(self):
+        with self.assertRaises(MailApiError):
+            self._check(side_effect=MailApiError("Couldn't reach the Mail API (ConnectTimeout)."))
+        self.assertEqual((self._state()["problem"], self._state()["status"]), ("failed", None))
+
+    @override_settings(HOSTINGER_MAIL_API_KEY="")
+    def test_no_key_is_said_too(self):
+        self.assertEqual(self._state()["problem"], "unset")
+
+    def test_admins_read_it_and_nobody_else_does(self):
+        from apps.users.models import User
+        from apps.users.models.admin_scope import AdminScope
+
+        admin = User.objects.create_user(email="admin@example.com", password="x")
+        AdminScope.objects.create(user=admin)
+        client = APIClient()
+        client.force_authenticate(admin)
+        self.assertEqual(client.get(self.URL).json()["data"]["problem"], "")
+        member = APIClient()
+        member.force_authenticate(User.objects.create_user(email="member@example.com", password="x"))
+        self.assertEqual(member.get(self.URL).status_code, 403)

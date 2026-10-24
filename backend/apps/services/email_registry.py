@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from apps.submissions.email_sections import GREEN, RED, presentation_section, section_html, times_section
+
 
 # ``{{ tag_name }}`` with optional inner spaces. Lowercase snake_case only, so
 # Django-style ``{{ settings.SECRET_KEY }}`` or ``{{ User }}`` never match a tag.
@@ -69,7 +71,68 @@ _BRAND_TAGS = (
 # apps.submissions.emails.to_and_cc and apps.management.services.delivery).
 _GROUP_TO_AND_CC = "Each group gets one email: its students in To, and its mentors and supervisors in CC."
 
+# The finalist confirmation's sections, built as the email builds them.
+_SAMPLE_PRESENTATION = presentation_section(
+    [{"label": "Presentation Slides", "submitted": True, "status": "Submitted", "detail": "2026_BTF01_Slides.pptx"}]
+)
+_SAMPLE_TIMES = times_section(["09:30 - 10:00 AEDT", "11:40 - 12:30 AEDT"], "Friday, 23 October 2026", "AEDT, UTC+11")
+_SAMPLE_REMINDER = section_html(
+    "Submission components",
+    [
+        {"label": "Presentation Slides", "status": "Uploaded", "detail": "2026_BTF01_Slides.pptx", "colour": GREEN},
+        {"label": "Availability", "status": "Not submitted", "colour": RED},
+    ],
+    "Both are required: submit your availability, then press Submit.",
+)
+
 _FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Name")
+
+# The ticket emails' tags (apps.tickets.services.emails). Everything they
+# say about an enquiry is a tag, the "is it assigned" sentence included, so
+# wording saved on System Emails keeps every part of them.
+_TICKET_NUMBER = MergeTag("ticket_number", "Enquiry number", "SUP-2026-00027", "TICKET_NUMBER")
+_TICKET_SUBJECT = MergeTag(
+    "ticket_subject", "Enquiry subject", "Where do I upload the science report", "TICKET_SUBJECT"
+)
+_TICKET_STATUS = MergeTag("status", "Where the enquiry stands", "Open", "STATUS_LABEL")
+_TICKET_ASSIGNEE = MergeTag(
+    "assignee", 'Who has it: "Assigned to" and a name, or "Unassigned"', "Unassigned", "ASSIGNEE_LINE"
+)
+_TICKET_ASSIGNMENT = MergeTag(
+    "assignment", "Whether anyone has it yet, as a sentence", "It is not assigned to anyone yet.", "ASSIGNMENT"
+)
+_TICKET_CATEGORY = MergeTag("category", "Enquiry category", "General Question", "CATEGORY_LABEL")
+_TICKET_PRIORITY = MergeTag("priority", "Priority in the support queue", "Normal", "PRIORITY_LABEL")
+_TICKET_QUEUE_LINK = MergeTag(
+    "queue_link",
+    "Link that opens the enquiry in the support queue",
+    "https://mentoring.biotechfutures.org/#/admin/tickets?ticket=27",
+    "CTA_URL",
+)
+_TO_THE_SUPPORT_INBOX = "Goes to the support team's shared inbox (support@ unless set otherwise), not to a person."
+
+
+def _status_pill(label, colours, tick=False):
+    """A sample of the coloured status label the ticket emails show."""
+    mark = '<span aria-hidden="true">&#10003;&nbsp;</span>' if tick else ""
+    return f'<span style="display:inline-block; padding:3px 12px; {colours} border-radius:999px; font-weight:700;">{mark}{label}</span>'
+
+
+# The pill is built by the code and arrives finished, so its colour follows
+# the status in saved wording too (apps/tickets/templates/emails/_ticket_status_pill.html).
+_TICKET_STATUS_PILL = MergeTag(
+    "status_pill", "Where the enquiry stands, as the coloured label the emails show",
+    _status_pill("Open", "background:#D3ECE0; color:#017151;"), "STATUS_PILL", html=True,
+)
+# The three to whoever raised the enquiry: a student, a mentor or a supervisor.
+_REQUESTER_GREETING = MergeTag(
+    "greeting_name", 'First name of whoever raised it, or "there" if the account has none', "Ava", "GREETING_NAME"
+)
+_EXPECTED_REPLY = MergeTag("expected_reply", "How soon we usually reply", "one business day", "EXPECTED_REPLY")
+_TICKET_LINK = MergeTag(
+    "ticket_link", "Link to the enquiry in their Support Centre",
+    "https://mentoring.biotechfutures.org/#/support/tickets/27", "TICKET_URL",
+)
 
 
 EMAIL_TYPES = (
@@ -143,6 +206,67 @@ EMAIL_TYPES = (
         merge_tags=(
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("group_code", "The group's code, for teammates to join", "482913", "GROUP_CODE"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_mentor",
+        name="Registration confirmation (to mentor)",
+        description="Sent to a mentor once they register on the registration page.",
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_mentor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_new_supervisor",
+        name="Registration confirmation (to new supervisor)",
+        description="Sent to a supervisor once they register on the registration page.",
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_new_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_named_supervisor",
+        name="Named as supervisor (to new supervisor)",
+        description=(
+            "Sent to the supervisor a student names when registering, if that email had no account: "
+            "one is created for them. Once per registration, naming every student in it."
+        ),
+        default_subject="{{ brand_name }}: You've been named as a supervisor",
+        default_template="emails/registration_named_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("student_names", "The students who named them", "Jordan Lee and Alex Kim", "STUDENT_NAMES"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "students_url", "Link to the supervisor's Students page",
+                "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_supervisor",
+        name="Registered by supervisor (to student)",
+        description=(
+            "Sent to each student a supervisor registers: one student, a group, or an uploaded "
+            "file. Not sent when an admin registers students."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor who registered them", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
             *_BRAND_TAGS,
         ),
     ),
@@ -159,7 +283,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
             MergeTag(
-                "students_url", "Link to the supervisor's My Students",
+                "students_url", "Link to the supervisor's Students page",
                 "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
             ),
             *_BRAND_TAGS,
@@ -169,7 +293,7 @@ EMAIL_TYPES = (
         key="supervisor_registration_status",
         name="Registration status (to supervisor)",
         description=(
-            "Sent daily to each supervisor with a student whose permission form isn't signed yet: "
+            "Sent weekly to each supervisor with a student whose permission form isn't signed yet: "
             "how many of their students are complete, waiting for a signature, or waiting for "
             "guardian details. Stops once all their students are complete."
         ),
@@ -191,9 +315,25 @@ EMAIL_TYPES = (
                 "CHALLENGE_START",
             ),
             MergeTag(
-                "students_url", "Link to the supervisor's My Students",
+                "students_url", "Link to the supervisor's Students page",
                 "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
             ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_admin",
+        name="Registered by admin (to student)",
+        description=(
+            "Sent to each student an admin registers on Management > Registration: one student, "
+            "a group, or an uploaded file. Names the supervisor the admin chose."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_admin.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
             *_BRAND_TAGS,
         ),
     ),
@@ -237,8 +377,9 @@ EMAIL_TYPES = (
         name="Guardian consent sent (to student)",
         description=(
             "Sent to a student when their parent or guardian is first emailed the consent form "
-            "by an admin or the daily run, asking them to remind their guardian. A student who "
-            "added the guardian themselves gets Guardian details received instead."
+            "at registration, by an admin or by the daily run, asking them to remind their "
+            "guardian. A student who added the guardian on their profile gets Guardian details "
+            "received instead."
         ),
         default_subject="Parent/Guardian Action Required - Permission Form",
         default_template="emails/guardian_consent_student_notice.html",
@@ -252,8 +393,9 @@ EMAIL_TYPES = (
         key="guardian_consent_request",
         name="Guardian consent request (to guardian)",
         description=(
-            "Sent to a student's parent or guardian with the consent form: when the student adds "
-            "them, when the student or an admin sends it, and every day until they sign."
+            "Sent to a student's parent or guardian with the consent form: once the student is "
+            "registered or adds them, when the student or an admin sends it, and every day until "
+            "they sign."
         ),
         default_subject="Action Required: Sign parent/guardian permission form",
         default_template="emails/guardian_consent_request.html",
@@ -389,6 +531,41 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="finalist_submission_confirmation",
+        delivery=_GROUP_TO_AND_CC,
+        name="Finalist submission confirmation",
+        description="Sent to a finalist team when they submit their presentation.",
+        default_subject="{{ brand_name }}: Presentation received for {{ group_name }}",
+        default_template="emails/finalist_submission_confirmation.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("submitted_by", "Who submitted the presentation", "Alex Chen", "SUBMITTED_BY"),
+            MergeTag("slides_due", "Slides due date", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag("finalist_url", "Link to the finalist page", "https://biotechfutures.org/#/groups/12/finalist", "FINALIST_URL"),
+            MergeTag("presentation", "The slides received, as a styled section", _SAMPLE_PRESENTATION, "PRESENTATION_SECTION", html=True),
+            MergeTag("selected_times", "The times the team selected, as a styled section", _SAMPLE_TIMES, "TIMES_SECTION", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="finalist_submission_reminder",
+        delivery=_GROUP_TO_AND_CC,
+        name="Finalist submission reminder",
+        description="Daily reminder in the final week before slides are due, until a finalist team submits.",
+        default_subject="{{ brand_name }}: Presentation reminder for {{ group_name }}",
+        default_template="emails/finalist_submission_reminder.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("slides_due", "Slides due date", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag("finalist_url", "Link to the finalist page", "https://biotechfutures.org/#/groups/12/finalist", "FINALIST_URL"),
+            MergeTag("submission_components", "Where the slides and times stand, as a styled section", _SAMPLE_REMINDER, "COMPONENTS_SECTION", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="finalist_notification",
         delivery=_GROUP_TO_AND_CC,
         name="Finalist notification",
@@ -477,6 +654,176 @@ EMAIL_TYPES = (
         merge_tags=(
             MergeTag("supervisor_name", "Supervisor's name", "Dr Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    # The ticket system's six (apps.tickets.services.emails): three to whoever
+    # raised the enquiry, three to the support inbox. The client asked on
+    # 20 October for the support inbox's to be on System Emails ("Please
+    # ensure this email is integrated into the Systems email feature"), and
+    # Jinqi on 22 October for the requester's too.
+    EmailType(
+        key="ticket_submitted",
+        name="Enquiry received (to the requester)",
+        description=(
+            "Sent to the student, mentor or supervisor who raised an enquiry, as soon as it is in: its "
+            "number, that it is with the support team, and when to expect a reply."
+        ),
+        default_subject="{{ brand_connect }}: we have your enquiry ({{ ticket_number }})",
+        default_template="emails/ticket_submitted.html",
+        default_sender="support",
+        merge_tags=(
+            _REQUESTER_GREETING,
+            _TICKET_NUMBER,
+            _TICKET_SUBJECT,
+            _TICKET_STATUS,
+            _TICKET_STATUS_PILL,
+            _EXPECTED_REPLY,
+            _TICKET_LINK,
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="ticket_reply",
+        name="Reply to an enquiry (to the requester)",
+        description=(
+            "Sent to whoever raised an enquiry when support replies on it. It never names who "
+            "replied. What it says comes next depends on whether the reply asked them for something."
+        ),
+        default_subject="{{ brand_connect }}: an update on your enquiry ({{ ticket_number }})",
+        default_template="emails/ticket_reply.html",
+        default_sender="support",
+        merge_tags=(
+            _REQUESTER_GREETING,
+            _TICKET_NUMBER,
+            _TICKET_SUBJECT,
+            _TICKET_STATUS,
+            MergeTag(
+                "status_pill", "Where the enquiry stands, as the coloured label the emails show",
+                _status_pill("Pending user", "background:#FFF4D2; color:#7A5600;"), "STATUS_PILL", html=True,
+            ),
+            MergeTag(
+                "next_step",
+                "What happens next: whether the enquiry is waiting on their answer",
+                '<p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">'
+                "We have asked you for some more information. The enquiry is waiting on your answer, "
+                "so nothing further will happen until you reply.</p>",
+                "NEXT_STEP",
+                html=True,
+            ),
+            _EXPECTED_REPLY,
+            _TICKET_LINK,
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="ticket_resolved",
+        name="Enquiry resolved (to the requester)",
+        description=(
+            "Sent to whoever raised an enquiry when it is resolved. If it cannot be delivered, a note "
+            "goes onto the enquiry so support can follow up."
+        ),
+        default_subject="{{ brand_connect }}: your enquiry is resolved ({{ ticket_number }})",
+        default_template="emails/ticket_resolved.html",
+        default_sender="support",
+        merge_tags=(
+            _REQUESTER_GREETING,
+            _TICKET_NUMBER,
+            _TICKET_SUBJECT,
+            MergeTag("status", "Where the enquiry stands", "Resolved", "STATUS_LABEL"),
+            MergeTag(
+                "status_pill", "Where the enquiry stands, as the coloured label the emails show",
+                _status_pill("Resolved", "background:#E6E8E9; color:#4F575C;", tick=True), "STATUS_PILL", html=True,
+            ),
+            _EXPECTED_REPLY,
+            _TICKET_LINK,
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="ticket_new_for_support",
+        name="New enquiry (to the support inbox)",
+        description=(
+            "Sent to the support inbox when someone raises an enquiry in the Support Centre: who "
+            "raised it, its category and urgency, and a link to it in the queue. The message itself "
+            "is left out, since most people raising enquiries are students."
+        ),
+        default_subject="{{ brand_connect }}: a new enquiry has come in ({{ ticket_number }})",
+        default_template="emails/ticket_new_for_support.html",
+        default_sender="support",
+        delivery=_TO_THE_SUPPORT_INBOX,
+        merge_tags=(
+            MergeTag("requester_name", "Who raised it", "Ava Nguyen", "REQUESTER_NAME"),
+            _TICKET_NUMBER,
+            _TICKET_SUBJECT,
+            _TICKET_STATUS,
+            _TICKET_STATUS_PILL,
+            _TICKET_ASSIGNEE,
+            _TICKET_ASSIGNMENT,
+            _TICKET_CATEGORY,
+            MergeTag(
+                "urgency", 'How urgent the requester said it is, e.g. "I can keep working"',
+                "I can keep working", "URGENCY_WORDS",
+            ),
+            _TICKET_PRIORITY,
+            _TICKET_QUEUE_LINK,
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="ticket_flagged_for_support",
+        name="Flagged chat message (to the support inbox)",
+        description=(
+            "Sent to the support inbox when the AI screening flags a chat message and opens an "
+            "enquiry for it. The flagged message is left out; it is in the enquiry."
+        ),
+        default_subject="{{ brand_connect }}: a chat message was flagged ({{ ticket_number }})",
+        default_template="emails/ticket_flagged_for_support.html",
+        default_sender="support",
+        delivery=_TO_THE_SUPPORT_INBOX,
+        merge_tags=(
+            _TICKET_NUMBER,
+            MergeTag(
+                "ticket_subject", "Enquiry subject, with the kind of message and the group",
+                'AI screening: personal_contact — group "Team Photosynthesis"', "TICKET_SUBJECT",
+            ),
+            _TICKET_STATUS,
+            _TICKET_STATUS_PILL,
+            _TICKET_ASSIGNEE,
+            _TICKET_ASSIGNMENT,
+            MergeTag("category", "Enquiry category", "Flagged content", "CATEGORY_LABEL"),
+            MergeTag("priority", "Priority in the support queue", "High", "PRIORITY_LABEL"),
+            _TICKET_QUEUE_LINK,
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="ticket_digest",
+        name="Open enquiries summary (to the support inbox)",
+        description=(
+            "Sent to the support inbox at 9am Sydney time every day, weekends included: how many "
+            "enquiries are open, in progress and waiting on the requester, and how many of those "
+            "are overdue. It goes on a day with none open as well."
+        ),
+        default_subject="{{ brand_connect }}: {{ headline }}",
+        default_template="emails/ticket_digest.html",
+        default_sender="support",
+        delivery=_TO_THE_SUPPORT_INBOX,
+        merge_tags=(
+            MergeTag(
+                "headline", 'The count as a sentence, e.g. "4 enquiries are still open"',
+                "4 enquiries are still open", "HEADLINE",
+            ),
+            MergeTag("today", "The day it is sent, in Sydney", "Tuesday 20 October 2026", "TODAY"),
+            MergeTag("open_total", "Enquiries not yet resolved", "4", "OPEN_TOTAL"),
+            MergeTag("open_count", "Open: nobody has picked it up yet", "2", "OPEN_COUNT"),
+            MergeTag("in_progress_count", "In progress: someone is working on it", "1", "IN_PROGRESS_COUNT"),
+            MergeTag("pending_user_count", "Pending user: waiting on the requester", "1", "PENDING_USER_COUNT"),
+            MergeTag("overdue", "Of those not resolved, how many are overdue", "1", "OVERDUE"),
+            MergeTag(
+                "queue_link", "Link to the support queue",
+                "https://mentoring.biotechfutures.org/#/admin/tickets", "CTA_URL",
+            ),
             *_BRAND_TAGS,
         ),
     ),

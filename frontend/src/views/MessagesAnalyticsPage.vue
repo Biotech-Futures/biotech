@@ -19,10 +19,11 @@
 
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="loading || !!loadError || (contentMode === 'users' && (!sourceAvailable('users') || !sourceAvailable('groups'))) || !availableYears.length || userGroupCountsUnavailable || userRecentGroupCountsUnavailable || exporting" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu
+            :options="exportOptions"
+            :disabled="loading || !!loadError || !availableYears.length || !periodDateRange().start"
+            @select="exportCsv"
+          />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -463,90 +464,6 @@
       </article>
 
       <div class="right-stack">
-        <article class="analytics-card active-groups-card">
-          <div class="card-heading ranking-heading">
-            <div>
-              <h2>Top 5 Most Active {{ contentMode === 'groups' ? 'Groups' : 'Users' }}</h2>
-              <p>
-                {{ contentMode === 'groups' ? 'Groups' : 'Users' }} with the highest number of messages across all recorded dates.
-              </p>
-            </div>
-          </div>
-
-          <ol class="ranking-list">
-            <li
-              v-for="(item, index) in mostActiveRankingItems"
-              :key="item.id ?? `${contentMode}-${item.name}`"
-              class="interactive-chart-row"
-              @mouseenter="showTooltip($event, item.name, `${item.value.toLocaleString()} messages`, contentMode === 'users' ? `${userGroupName(item.id)} · Rank #${index + 1}` : `Rank #${index + 1}`)"
-              @mousemove="moveTooltip"
-              @mouseleave="hideTooltip"
-            >
-              <span class="rank-number">{{ index + 1 }}</span>
-              <span class="rank-name">
-                <span class="user-name-line">
-                  <span>{{ item.name }}</span>
-                  <span
-                    v-if="contentMode === 'users'"
-                    class="role-circle"
-                    :class="`role-circle-${roleClass(roleForItem(item))}`"
-                    :title="roleForItem(item)"
-                  >
-                    {{ roleBadgeText(roleForItem(item)) }}
-                  </span>
-                </span>
-                <small v-if="contentMode === 'users'">{{ userGroupName(item.id) }}</small>
-              </span>
-              <div class="rank-track">
-                <span :style="{ width: `${barWidth(item.value, rankingMaxMessages)}%` }"></span>
-              </div>
-              <strong>{{ item.value.toLocaleString() }}</strong>
-            </li>
-          </ol>
-        </article>
-
-        <article class="analytics-card least-groups-card">
-          <div class="card-heading">
-            <div>
-              <h2>Bottom 5 Least Active {{ contentMode === 'groups' ? 'Groups' : 'Users' }}</h2>
-              <p>
-                {{ contentMode === 'groups' ? 'Groups' : 'Users' }} with the lowest number of messages across all recorded dates.
-              </p>
-            </div>
-          </div>
-
-          <ol class="ranking-list least-ranking-list">
-            <li
-              v-for="(item, index) in leastActiveRankingItems"
-              :key="item.id ?? `${contentMode}-${item.name}`"
-              class="interactive-chart-row"
-              @mouseenter="showTooltip($event, item.name, `${item.value.toLocaleString()} messages`, contentMode === 'users' ? `${userGroupName(item.id)} · Bottom rank #${index + 1}` : `Bottom rank #${index + 1}`)"
-              @mousemove="moveTooltip"
-              @mouseleave="hideTooltip"
-            >
-              <span class="rank-number">{{ index + 1 }}</span>
-              <span class="rank-name">
-                <span class="user-name-line">
-                  <span>{{ item.name }}</span>
-                  <span
-                    v-if="contentMode === 'users'"
-                    class="role-circle"
-                    :class="`role-circle-${roleClass(roleForItem(item))}`"
-                    :title="roleForItem(item)"
-                  >
-                    {{ roleBadgeText(roleForItem(item)) }}
-                  </span>
-                </span>
-                <small v-if="contentMode === 'users'">{{ userGroupName(item.id) }}</small>
-              </span>
-              <div class="rank-track least-rank-track">
-                <span :style="{ width: `${barWidth(item.value, rankingMaxMessages)}%` }"></span>
-              </div>
-              <strong>{{ item.value.toLocaleString() }}</strong>
-            </li>
-          </ol>
-        </article>
-
         <article class="analytics-card insights-card">
           <AnalyticsKeyInsights
             :items="messageInsightItems"
@@ -583,11 +500,25 @@ import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { MessagesAnalyticsYear } from '@/types/analytics'
 import {
   buildMessagesAnalytics,
+  groupActivityForRange,
   loadMessagesAnalyticsBundle,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
-import { fetchGroupActivity, type GroupActivityResponse } from '@/utils/liveAnalyticsApi'
-import { downloadReportCsv } from '@/utils/reportExport'
+import type { GroupActivityResponse } from '@/utils/liveAnalyticsApi'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const availableYears = ref<number[]>([])
 const selectedYear = ref(0)
@@ -609,7 +540,6 @@ const baseBundle = ref<CoreAnalyticsBundle | null>(null)
 const currentActivity = ref<GroupActivityResponse | null>(null)
 const recentActivity = ref<GroupActivityResponse | null>(null)
 const loading = ref(true)
-const exporting = ref(false)
 const exportError = ref('')
 let initializing = false
 
@@ -689,7 +619,8 @@ async function initializeMessages(force = false, preserveFilters = false) {
       const end = new Date(`${datasetAnchorDay.value}T00:00:00Z`)
       const start = new Date(end)
       start.setUTCDate(start.getUTCDate() - 6)
-      recentActivity.value = await fetchGroupActivity(
+      recentActivity.value = await groupActivityForRange(
+        bundle.groupActivity,
         start.toISOString().slice(0, 10),
         datasetAnchorDay.value,
       )
@@ -857,7 +788,8 @@ async function refreshMessageData(preserveData = false) {
   const { start, end } = periodDateRange()
   if (!preserveData) loading.value = true
   try {
-  const activity = await fetchGroupActivity(start, end)
+  // Derived from the loaded full-range data, so changing dates needs no request.
+  const activity = await groupActivityForRange(baseBundle.value.groupActivity, start, end)
   if (version !== refreshVersion) return
   currentActivity.value = activity
   loadError.value = ''
@@ -1023,20 +955,6 @@ const mostActiveGroup = computed(() => visibleGroups.value[0] ?? { name: '—', 
 const leastActiveGroups = computed(() =>
   [...visibleGroups.value].sort((a, b) => a.value - b.value).slice(0, 5),
 )
-const mostActiveRankingItems = computed(() => {
-  const source = contentMode.value === 'groups' ? allTimeVisibleGroups.value : allTimeVisibleUsers.value
-  return [...source].sort((a, b) => b.value - a.value).slice(0, 5)
-})
-
-const leastActiveRankingItems = computed(() => {
-  const source = contentMode.value === 'groups' ? allTimeVisibleGroups.value : allTimeVisibleUsers.value
-  return [...source].sort((a, b) => a.value - b.value).slice(0, 5)
-})
-
-const rankingMaxMessages = computed(() =>
-  Math.max(...mostActiveRankingItems.value.map((item) => item.value), 1),
-)
-
 function roleClass(role: string | undefined) {
   return (role || 'Unavailable').toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
@@ -1121,7 +1039,7 @@ const maxBreakdownMessages = computed(() =>
 const timeSeries = computed(() => {
   const activity = currentActivity.value
   const range = periodDateRange()
-  if (!activity || !range.start || !range.end) return { labels: [] as string[], values: [] as number[] }
+  if (!activity || !range.start || !range.end) return { keys: [] as string[], labels: [] as string[], values: [] as number[] }
 
   const rows = selectedGroupId.value === 'all'
     ? activity.messages_by_day.map((row) => ({ date: row.date, value: row.message_count }))
@@ -1167,6 +1085,7 @@ const timeSeries = computed(() => {
     if (bucket) bucket.value += row.value
   }
   return {
+    keys: [...buckets.keys()],
     labels: [...buckets.values()].map((bucket) => bucket.label),
     values: [...buckets.values()].map((bucket) => bucket.value),
   }
@@ -1349,27 +1268,86 @@ function resetFilters() {
   detailsSortDirection.value = 'desc'
 }
 
-async function exportCsv() {
-  const range = periodDateRange()
-  if (!range.start || !range.end) return
-  const params = new URLSearchParams({
-    report: 'messages', start_date: range.start, end_date: range.end,
-    interval: interval.value, mode: contentMode.value,
-    search: detailsSearch.value.trim(), sort_by: effectiveDetailsSortKey.value,
-    sort_order: detailsSortDirection.value, show_all_details: String(showAllMessageDetails.value),
-  })
-  if (selectedGroupId.value !== 'all') params.set('group_id', String(selectedGroupId.value))
-  if (contentMode.value === 'users') params.set('user_role', selectedUserRole.value)
-  if (datasetAnchorDay.value) params.set('anchor_date', datasetAnchorDay.value)
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(params, 'messages')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
+const exportOptions = computed<ExportOption[]>(() => [
+  SUMMARY_OPTION,
+  {
+    ...DETAILS_OPTION,
+    description: contentMode.value === 'groups'
+      ? 'One row per group in the details table, with its filters'
+      : 'One row per user in the details table, with its filters',
+    disabled: contentMode.value === 'users' && (!sourceAvailable('users') || !sourceAvailable('groups')),
+  },
+])
+
+function messagesSummary() {
+  const { start, end } = periodDateRange()
+  const previous = previousPeriodMetrics.value
+  const rows: SummaryRow[] = [
+    figure('Messages', 'Messages (all time)', totalMessages.value, 'messages'),
+    figure('Messages', 'Messages in the period', periodTotal.value, 'messages'),
+    figure('Messages', 'Messages in the same period last year', previous.messages, 'messages'),
+    figure('Messages', 'Groups with messages', groupsWithMessages.value, 'groups'),
+    figure('Messages', 'Groups with messages last year', previous.groupsWithMessages, 'groups'),
+    figure('Messages', 'Group coverage', groupCoverage.value, '%', `Of ${data.value.totalGroups} groups`),
+    figure('Messages', 'Average per group', averagePerGroup.value, 'messages', 'Groups with messages'),
+    figure('Messages', 'Average per group last year', previous.averagePerGroup, 'messages'),
+    figure('Messages', 'Most active group', mostActiveGroup.value.name, '', `${mostActiveGroup.value.value} messages`),
+    figure('Messages', 'Least active group', leastActiveGroup.value.name, '', `${leastActiveGroup.value.value} messages`),
+    ...messageInsightItems.value.map((item) => figure('Key insights', item.text, item.value)),
+    ...timeSeries.value.keys.map((key, index) =>
+      figure(`Messages over time (${chartPeriodName.value})`, key, timeSeries.value.values[index] ?? 0, 'messages'),
+    ),
+    ...breakdownItems.value.map((item) =>
+      figure(contentMode.value === 'groups' ? 'Messages by group' : 'Messages by user', item.name, item.value, 'messages'),
+    ),
+  ]
+  return {
+    fileName: exportFileName('messages', 'summary', `${start} to ${end}`),
+    csv: summaryCsv({
+      page: 'Messages',
+      covers: `${start} to ${end} (UTC)`,
+      filters: [
+        ['View', contentMode.value],
+        ['Group', selectedGroupLabel.value],
+        ['Trend interval', interval.value],
+        ...(contentMode.value === 'users' ? [['Role', selectedUserRole.value] as [string, string]] : []),
+      ],
+      dataAsOf: datasetAnchorDay.value,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
   }
+}
+
+function messagesDetails() {
+  const { start, end } = periodDateRange()
+  const scope = showAllMessageDetails.value ? 'all dates' : `${start} to ${end}`
+  if (contentMode.value === 'groups') {
+    return {
+      fileName: exportFileName('messages', 'details', `groups ${scope}`),
+      csv: detailsCsv(
+        ['Group ID', 'Group', 'Messages', 'Average per Day', 'Messages (Last 7 Days)', 'Share of Messages (%)'],
+        filteredSortedTableGroups.value.map((group) => [group.id, group.name, group.value, group.avgPerDay, group.last7Days, group.share]),
+      ),
+    }
+  }
+  return {
+    fileName: exportFileName('messages', 'details', `users ${scope}`),
+    csv: detailsCsv(
+      ['User ID', 'User', 'Role', 'Groups', 'Messages', 'Messages (Last 7 Days)'],
+      filteredSortedTableUsers.value.map((user) => [
+        user.id,
+        user.name,
+        roleForItem(user),
+        userGroupName(user.id).replace(/^Group (—|unavailable)$/, ''),
+        user.value,
+        user.last7Days,
+      ]),
+    ),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? messagesSummary : messagesDetails)
 }
 </script>
 
@@ -1380,7 +1358,7 @@ async function exportCsv() {
 
 
 .message-value-label {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 11px;
   font-weight: 700;
   pointer-events: none;
@@ -1410,7 +1388,7 @@ async function exportCsv() {
 <style scoped>
 .filter-scope-note {
   margin: -6px 0 18px;
-  color: #5b6f69;
+  color: var(--analytics-ui-muted, #5b6f69);
   font-size: 0.875rem;
   line-height: 1.45;
 }
@@ -1418,8 +1396,8 @@ async function exportCsv() {
 .messages-analytics-page {
   min-height: 100%;
   padding: 28px 32px 40px;
-  background: #f7faf9;
-  color: #153f3c;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #153f3c);
 }
 
 .page-heading {
@@ -1435,22 +1413,22 @@ async function exportCsv() {
   align-items: center;
   gap: 8px;
   margin-bottom: 18px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
 .breadcrumb a {
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   text-decoration: none;
 }
 
 .breadcrumb a:hover {
-  color: #08765d;
+  color: var(--analytics-ui-accent, #08765d);
   text-decoration: underline;
 }
 
 .breadcrumb-separator {
-  color: #9aaaa7;
+  color: var(--analytics-ui-muted, #9aaaa7);
 }
 
 
@@ -1463,7 +1441,7 @@ async function exportCsv() {
 
 .title-line h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -1471,7 +1449,7 @@ async function exportCsv() {
 
 .heading-copy p {
   margin: 7px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -1480,10 +1458,10 @@ async function exportCsv() {
   min-height: 30px;
   align-items: center;
   padding: 0 10px;
-  border: 1px solid #f0d487;
+  border: 1px solid var(--analytics-ui-control-border, #f0d487);
   border-radius: 999px;
-  background: #fff7df;
-  color: #916700;
+  background: var(--analytics-ui-soft, #fff7df);
+  color: var(--analytics-ui-warning, #916700);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1500,7 +1478,7 @@ async function exportCsv() {
 .export-button {
   height: 46px;
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1511,12 +1489,12 @@ async function exportCsv() {
   gap: 9px;
   width: 120px;
   padding: 0 13px;
-  border: 1px solid #9fd8c7;
-  color: #017151;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .year-control i {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .year-control select {
@@ -1537,8 +1515,8 @@ async function exportCsv() {
   gap: 8px;
   width: 142px;
   padding: 0 16px;
-  border: 1px solid #9fd8c7;
-  color: #017151;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
+  color: var(--analytics-ui-accent, #017151);
   cursor: pointer;
   transition:
     background-color 0.2s ease,
@@ -1546,8 +1524,8 @@ async function exportCsv() {
 }
 
 .export-button:hover {
-  background: #ecf8f4;
-  border-color: #74c9b3;
+  background: var(--analytics-ui-selected, #ecf8f4);
+  border-color: var(--analytics-ui-control-border, #74c9b3);
 }
 
 .kpi-grid {
@@ -1560,9 +1538,9 @@ async function exportCsv() {
 .kpi-card,
 .filter-card,
 .analytics-card {
-  border: 1px solid #e1e9e6;
+  border: 1px solid var(--analytics-ui-border, #e1e9e6);
   border-radius: 12px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 8px 22px rgba(16, 32, 27, 0.035);
 }
 
@@ -1583,11 +1561,11 @@ async function exportCsv() {
   border-radius: 10px;
 }
 
-.kpi-icon.blue { background: color-mix(in srgb, #39687B 14%, white); color: #39687B; }
-.kpi-icon.purple { background: color-mix(in srgb, #5EA99E 14%, white); color: #5EA99E; }
-.kpi-icon.teal { background: color-mix(in srgb, #BAD7B8 55%, white); color: #017151; }
-.kpi-icon.orange { background: color-mix(in srgb, #F1E5A6 55%, white); color: #174243; }
-.kpi-icon.red { background: color-mix(in srgb, #BAD7B8 45%, white); color: #5EA99E; }
+.kpi-icon.blue { background: color-mix(in srgb, #39687B 14%, var(--analytics-ui-surface, white)); color: var(--analytics-ui-secondary, #39687B); }
+.kpi-icon.purple { background: color-mix(in srgb, #5EA99E 14%, var(--analytics-ui-surface, white)); color: var(--analytics-ui-muted, #5EA99E); }
+.kpi-icon.teal { background: color-mix(in srgb, var(--analytics-ui-soft, #BAD7B8) 55%, var(--analytics-ui-surface, white)); color: var(--analytics-ui-accent, #017151); }
+.kpi-icon.orange { background: color-mix(in srgb, var(--analytics-ui-warning-bg, #F1E5A6) 55%, var(--analytics-ui-surface, white)); color: var(--analytics-ui-text, #174243); }
+.kpi-icon.red { background: color-mix(in srgb, var(--analytics-ui-soft, #BAD7B8) 45%, var(--analytics-ui-surface, white)); color: var(--analytics-ui-muted, #5EA99E); }
 
 .kpi-card > div {
   min-width: 0;
@@ -1599,7 +1577,7 @@ async function exportCsv() {
 .kpi-label {
   display: flex;
   align-items: flex-start;
-  color: #516966;
+  color: var(--analytics-ui-muted, #516966);
   font-size: 12px;
   font-weight: 700;
   line-height: 17px;
@@ -1609,7 +1587,7 @@ async function exportCsv() {
   display: flex;
   align-items: center;
   margin: 0;
-  color: #12261f;
+  color: var(--analytics-ui-accent, #12261f);
   font-size: 30px;
   line-height: 38px;
   white-space: nowrap;
@@ -1663,14 +1641,14 @@ async function exportCsv() {
   align-items: center;
   justify-content: flex-start;
   padding-top: 0;
-  color: #748783;
+  color: var(--analytics-ui-muted, #748783);
   line-height: 1.05;
 }
 
 .group-name-kpi > small.group-message-count strong {
   display: block;
   margin: 0;
-  color: #12261f;
+  color: var(--analytics-ui-accent, #12261f);
   font-size: 18px;
   line-height: 20px;
   white-space: nowrap;
@@ -1687,7 +1665,7 @@ async function exportCsv() {
   align-items: flex-start;
   margin: 0;
   padding-top: 5px;
-  color: #748783;
+  color: var(--analytics-ui-muted, #748783);
   font-size: 11px;
   line-height: 15px;
 }
@@ -1707,7 +1685,7 @@ async function exportCsv() {
 }
 
 .filter-card label span {
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1718,10 +1696,10 @@ async function exportCsv() {
   box-sizing: border-box;
   width: 100%;
   padding: 0 34px 0 11px;
-  border: 1px solid #dbe5e2;
+  border: 1px solid var(--analytics-ui-border, #dbe5e2);
   border-radius: 8px;
-  background: #fff;
-  color: #234844;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-text, #234844);
   font-size: 13px;
 }
 
@@ -1729,10 +1707,10 @@ async function exportCsv() {
   height: 38px;
   margin-left: auto;
   padding: 0 13px;
-  border: 1px solid #d7dff2;
+  border: 1px solid var(--analytics-ui-border, #d7dff2);
   border-radius: 8px;
-  background: #fff;
-  color: #39687B;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-secondary, #39687B);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -1765,7 +1743,6 @@ async function exportCsv() {
   min-height: 0;
 }
 
-.active-groups-card,
 .insights-card {
   min-height: 0;
 }
@@ -1785,22 +1762,22 @@ async function exportCsv() {
 
 .card-heading h2 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 18px;
   font-weight: 800;
 }
 
 .card-heading p {
   margin: 4px 0 0;
-  color: #71827f;
+  color: var(--analytics-ui-muted, #71827f);
   font-size: 12px;
 }
 
 .period-pill {
   padding: 6px 9px;
-  border: 1px solid #e0e7e5;
+  border: 1px solid var(--analytics-ui-border, #e0e7e5);
   border-radius: 8px;
-  color: #526864;
+  color: var(--analytics-ui-muted, #526864);
   font-size: 11px;
   font-weight: 700;
 }
@@ -1817,7 +1794,7 @@ async function exportCsv() {
 }
 
 .grid-line {
-  stroke: #e7eeec;
+  stroke: var(--analytics-ui-border, #e7eeec);
   stroke-width: 1;
 }
 
@@ -1835,7 +1812,7 @@ async function exportCsv() {
 
 .message-dot {
   fill: #39687B;
-  stroke: #fff;
+  stroke: var(--analytics-ui-surface, #fff);
   stroke-width: 2;
 }
 
@@ -1847,7 +1824,7 @@ async function exportCsv() {
 
 .chart-labels span {
   min-width: 0;
-  color: #71827f;
+  color: var(--analytics-ui-muted, #71827f);
   font-size: 10px;
   text-align: center;
 }
@@ -1872,15 +1849,15 @@ async function exportCsv() {
   height: 22px;
   place-items: center;
   border-radius: 50%;
-  background: #f2f4f8;
-  color: #647270;
+  background: var(--analytics-ui-soft, #f2f4f8);
+  color: var(--analytics-ui-muted, #647270);
   font-size: 10px;
   font-weight: 800;
 }
 
 .row-name {
   overflow: hidden;
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 12px;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -1891,7 +1868,7 @@ async function exportCsv() {
   height: 12px;
   overflow: hidden;
   border-radius: 3px;
-  background: #f0f2f4;
+  background: var(--analytics-ui-soft, #f0f2f4);
 }
 
 .horizontal-fill {
@@ -1905,7 +1882,7 @@ async function exportCsv() {
 .teal-fill { background: #017151; }
 
 .horizontal-row strong {
-  color: #314e49;
+  color: var(--analytics-ui-text, #314e49);
   font-size: 11px;
   text-align: right;
 }
@@ -1931,152 +1908,21 @@ table {
 th,
 td {
   padding: 9px 10px;
-  border-bottom: 1px solid #edf1ef;
-  color: #425e59;
+  border-bottom: 1px solid var(--analytics-ui-border, #edf1ef);
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 12px;
   text-align: left;
 }
 
 th {
-  background: #edf6fa;
-  color: #174243;
+  background: var(--analytics-ui-soft, #edf6fa);
+  color: var(--analytics-ui-text, #174243);
   font-size: 11px;
   font-weight: 800;
 }
 
 tbody tr:hover {
-  background: #f7fbfa;
-}
-
-.ranking-list {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.ranking-list li {
-  display: grid;
-  grid-template-columns: 28px 85px minmax(80px, 1fr) 54px;
-  align-items: center;
-  gap: 9px;
-  border-radius: 8px;
-  padding: 5px;
-}
-
-
-.ranking-heading {
-  align-items: flex-start;
-}
-
-.ranking-toggle {
-  flex: 0 0 auto;
-}
-
-.ranking-controls {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.ranking-role-filter {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px;
-  max-width: 250px;
-  color: #58706d;
-  font-size: 10px;
-}
-
-.ranking-role-filter > span {
-  font-weight: 700;
-  color: #174243;
-}
-
-.ranking-role-filter label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.ranking-role-filter input {
-  width: 12px;
-  height: 12px;
-  accent-color: #017151;
-}
-
-.ranking-list li {
-  grid-template-columns: 28px minmax(74px, 0.8fr) minmax(72px, 1.35fr) 46px;
-}
-
-.rank-name {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  overflow: hidden;
-}
-
-.rank-name > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rank-name small {
-  color: #7a8f8b;
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1.15;
-  white-space: nowrap;
-}
-.rank-number {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 6px;
-  background: #f4f5f8;
-  color: #647270;
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.rank-name {
-  color: #425e59;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.rank-track {
-  height: 12px;
-  overflow: hidden;
-  border-radius: 3px;
-  background: #eff2f1;
-}
-
-.rank-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: #174243;
-}
-
-.least-rank-track span {
-  background: #BAD7B8;
-}
-
-.ranking-list strong {
-  color: #314e49;
-  font-size: 11px;
-  text-align: right;
+  background: var(--analytics-ui-surface, #f7fbfa);
 }
 
 .insight-list {
@@ -2107,18 +1953,18 @@ tbody tr:hover {
 
 .insight-row p {
   margin: 0;
-  color: #60736f;
+  color: var(--analytics-ui-muted, #60736f);
   font-size: 11px;
 }
 
-.blue-insight { background: color-mix(in srgb, #39687B 10%, white); }
-.blue-insight .insight-icon, .blue-insight strong { color: #39687B; }
-.purple-insight { background: color-mix(in srgb, #5EA99E 12%, white); }
-.purple-insight .insight-icon, .purple-insight strong { color: #5EA99E; }
-.orange-insight { background: color-mix(in srgb, #F1E5A6 55%, white); }
-.orange-insight .insight-icon, .orange-insight strong { color: #174243; }
-.teal-insight { background: color-mix(in srgb, #BAD7B8 35%, white); }
-.teal-insight .insight-icon, .teal-insight strong { color: #017151; }
+.blue-insight { background: color-mix(in srgb, #39687B 10%, var(--analytics-ui-surface, white)); }
+.blue-insight .insight-icon, .blue-insight strong { color: var(--analytics-ui-secondary, #39687B); }
+.purple-insight { background: color-mix(in srgb, #5EA99E 12%, var(--analytics-ui-surface, white)); }
+.purple-insight .insight-icon, .purple-insight strong { color: var(--analytics-ui-muted, #5EA99E); }
+.orange-insight { background: color-mix(in srgb, var(--analytics-ui-warning-bg, #F1E5A6) 55%, var(--analytics-ui-surface, white)); }
+.orange-insight .insight-icon, .orange-insight strong { color: var(--analytics-ui-text, #174243); }
+.teal-insight { background: color-mix(in srgb, var(--analytics-ui-soft, #BAD7B8) 35%, var(--analytics-ui-surface, white)); }
+.teal-insight .insight-icon, .teal-insight strong { color: var(--analytics-ui-accent, #017151); }
 
 .interactive-chart-mark,
 .interactive-chart-row,
@@ -2219,9 +2065,9 @@ tbody tr:hover {
   flex: 0 0 auto;
   gap: 3px;
   padding: 3px;
-  border: 1px solid #e0e8e5;
+  border: 1px solid var(--analytics-ui-border, #e0e8e5);
   border-radius: 8px;
-  background: #f7faf9;
+  background: var(--analytics-ui-surface, #f7faf9);
 }
 
 .breakdown-toggle button {
@@ -2230,25 +2076,25 @@ tbody tr:hover {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #627572;
+  color: var(--analytics-ui-muted, #627572);
   font-size: 10px;
   font-weight: 800;
   cursor: pointer;
 }
 
 .breakdown-toggle button.active {
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   box-shadow: 0 1px 3px rgba(30, 55, 50, 0.09);
 }
 
 .mini-period-control select {
   height: 34px;
   padding: 0 28px 0 10px;
-  border: 1px solid #dfe7e4;
+  border: 1px solid var(--analytics-ui-border, #dfe7e4);
   border-radius: 8px;
-  background: #fff;
-  color: #475f5a;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-muted, #475f5a);
   font-size: 11px;
   font-weight: 700;
 }
@@ -2289,19 +2135,19 @@ tbody tr:hover {
   flex-direction: column;
   justify-content: space-between;
   padding: 2px 0 24px;
-  color: #7a8984;
+  color: var(--analytics-ui-muted, #7a8984);
   font-size: 10px;
   line-height: 1;
   text-align: right;
 }
 
 .y-axis-line {
-  border-left: 1px solid #d9e2df;
+  border-left: 1px solid var(--analytics-ui-border, #d9e2df);
   padding-left: 8px;
 }
 
 .y-axis-title {
-  color: #667975;
+  color: var(--analytics-ui-muted, #667975);
   font-size: 10px;
   font-weight: 700;
   text-align: center;
@@ -2321,7 +2167,7 @@ tbody tr:hover {
 
 .breakdown-card .horizontal-bars::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: #d5deda;
+  background: var(--analytics-ui-soft, #d5deda);
 }
 
 .breakdown-card .horizontal-bars::-webkit-scrollbar-track {
@@ -2334,20 +2180,10 @@ tbody tr:hover {
 .message-dot { fill: #39687B !important; }
 .purple-fill { background: #5EA99E !important; }
 .teal-fill { background: #017151 !important; }
-.rank-track span { background: #5EA99E !important; }
-.least-rank-track span { background: #5EA99E !important; }
 
 /* Visual refinements */
 .messages-analytics-page .message-area {
   fill: rgba(186, 215, 184, 0.28) !important;
-}
-
-.messages-analytics-page .rank-track span {
-  background: #5EA99E !important;
-}
-
-.messages-analytics-page .least-rank-track span {
-  background: #5EA99E !important;
 }
 
 .chart-range-summary {
@@ -2358,14 +2194,14 @@ tbody tr:hover {
   justify-content: center;
   gap: 2px;
   padding: 8px 12px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 10px;
-  background: #ffffff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #174243);
 }
 
 .chart-range-summary span {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   font-weight: 700;
 }
@@ -2407,10 +2243,10 @@ tbody tr:hover {
   align-items: center;
   gap: 7px;
   padding: 0 10px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #fff;
-  color: #425e59;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
@@ -2429,15 +2265,15 @@ tbody tr:hover {
   width: 34px;
   height: 34px;
   place-items: center;
-  border: 1px solid #d7e3e0;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0);
   border-radius: 9px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   cursor: pointer;
 }
 
 .message-sort-button:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .details-search {
@@ -2449,7 +2285,7 @@ tbody tr:hover {
 .details-search i {
   position: absolute;
   left: 10px;
-  color: #5EA99E;
+  color: var(--analytics-ui-muted, #5EA99E);
   font-size: 11px;
   pointer-events: none;
 }
@@ -2458,10 +2294,10 @@ tbody tr:hover {
   width: 170px;
   height: 34px;
   padding: 0 10px 0 29px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #ffffff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #174243);
   font-size: 11px;
 }
 
@@ -2535,14 +2371,14 @@ tbody tr:hover {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font: inherit;
   font-weight: 800;
   cursor: pointer;
 }
 
 .table-sort-button i {
-  color: #5EA99E;
+  color: var(--analytics-ui-muted, #5EA99E);
   font-size: 10px;
 }
 
@@ -2582,9 +2418,9 @@ tbody tr:hover {
 }
 
 /*
- * Let the natural Top 5 + Bottom 5 + Key Insights stack set this row's height.
- * Size containment stops a long user table from making the grid row grow; the
- * table then scrolls inside the details card while both columns stay aligned.
+ * The details card sets this row's height. Size containment stops a long user
+ * table from making the grid row grow; the table then scrolls inside the card
+ * and Key Insights stretches to match it.
  */
 .lower-grid {
   align-items: stretch !important;
@@ -2593,7 +2429,7 @@ tbody tr:hover {
 .details-card {
   display: flex;
   height: 100% !important;
-  min-height: 0 !important;
+  min-height: 480px !important;
   flex-direction: column;
   overflow: hidden !important;
   contain: size;
@@ -2614,13 +2450,8 @@ tbody tr:hover {
 }
 
 .right-stack {
-  align-self: start;
-  height: auto;
-  grid-template-rows: auto auto auto !important;
-}
-
-.right-stack > .analytics-card:last-child {
-  height: auto;
+  align-self: stretch;
+  grid-template-rows: minmax(0, 1fr) !important;
 }
 
 
@@ -2652,23 +2483,23 @@ tbody tr:hover {
 }
 
 .role-circle-mentor {
-  background: #dff1e6;
-  color: #017151;
+  background: var(--analytics-ui-soft, #dff1e6);
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .role-circle-student {
-  background: #e3edf2;
-  color: #39687b;
+  background: var(--analytics-ui-soft, #e3edf2);
+  color: var(--analytics-ui-secondary, #39687b);
 }
 
 .role-circle-supervisor {
-  background: #eee8f8;
-  color: #6848a8;
+  background: var(--analytics-ui-soft, #eee8f8);
+  color: var(--analytics-ui-secondary, #6848a8);
 }
 
 .role-circle-user {
-  background: #eef3f3;
-  color: #52615c;
+  background: var(--analytics-ui-soft, #eef3f3);
+  color: var(--analytics-ui-muted, #52615c);
 }
 
 .user-row-name {
@@ -2686,7 +2517,7 @@ tbody tr:hover {
 
 .user-row-name small,
 .details-user-cell small {
-  color: #7a8f8b;
+  color: var(--analytics-ui-muted, #7a8f8b);
   font-size: 9px;
   font-weight: 600;
   line-height: 1.15;
@@ -2701,7 +2532,7 @@ tbody tr:hover {
 }
 
 .details-user-cell strong {
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-weight: 600;
 }
 
@@ -2720,17 +2551,17 @@ tbody tr:hover {
 
 .role-pill.role-student {
   background: rgba(57, 104, 123, 0.14);
-  color: #39687B;
+  color: var(--analytics-ui-secondary, #39687B);
 }
 
 .role-pill.role-mentor {
   background: rgba(94, 169, 158, 0.18);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .role-pill.role-supervisor {
   background: rgba(94, 169, 158, 0.16);
-  color: #2f7f76;
+  color: var(--analytics-ui-muted, #2f7f76);
 }
 
 
@@ -2745,7 +2576,7 @@ tbody tr:hover {
   top: 84px !important;
   z-index: 100 !important;
   isolation: isolate;
-  background: #ffffff !important;
+  background: var(--analytics-ui-page, #ffffff) !important;
   box-shadow: 0 8px 18px rgba(23, 66, 67, 0.10) !important;
 }
 
@@ -2754,7 +2585,7 @@ tbody tr:hover {
   position: absolute;
   inset: -2px 0 auto;
   height: 2px;
-  background: #f7faf9;
+  background: var(--analytics-ui-page, #f7faf9);
   pointer-events: none;
 }
 
@@ -2801,17 +2632,17 @@ tbody tr:hover {
 
 .messages-analytics-page .role-circle-student {
   background: rgba(57, 104, 123, 0.14);
-  color: #39687B;
+  color: var(--analytics-ui-secondary, #39687B);
 }
 
 .messages-analytics-page .role-circle-mentor {
   background: rgba(94, 169, 158, 0.18);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .messages-analytics-page .role-circle-supervisor {
   background: rgba(94, 169, 158, 0.16);
-  color: #2f7f76;
+  color: var(--analytics-ui-muted, #2f7f76);
 }
 
 
@@ -2829,8 +2660,7 @@ tbody tr:hover {
 
 
 .messages-analytics-page .horizontal-row.interactive-chart-row,
-.messages-analytics-page .message-details-table tbody tr.interactive-chart-row,
-.messages-analytics-page .ranking-list > li.interactive-chart-row {
+.messages-analytics-page .message-details-table tbody tr.interactive-chart-row {
   cursor: default;
 }
 
@@ -2846,9 +2676,9 @@ tbody tr:hover {
   gap: 12px !important;
   align-items: end !important;
   padding: 16px !important;
-  border: 1px solid #d7e3df !important;
+  border: 1px solid var(--analytics-ui-border, #d7e3df) !important;
   border-radius: 14px !important;
-  background: #fff !important;
+  background: var(--analytics-ui-page, #fff) !important;
 }
 
 .messages-analytics-page .sticky-filter-card.is-user-view {
@@ -2872,7 +2702,7 @@ tbody tr:hover {
 }
 
 .messages-analytics-page .sticky-filter-card label > span {
-  color: #425e59 !important;
+  color: var(--analytics-ui-muted, #425e59) !important;
   font-size: 12px !important;
   font-weight: 700 !important;
   line-height: 1.2;
@@ -2884,10 +2714,10 @@ tbody tr:hover {
   height: 42px !important;
   box-sizing: border-box;
   padding: 0 12px !important;
-  border: 1px solid #79bdb4 !important;
+  border: 1px solid var(--analytics-ui-control-border, #79bdb4) !important;
   border-radius: 10px !important;
-  background: #fff !important;
-  color: #017151 !important;
+  background: var(--analytics-ui-page, #fff) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font: inherit;
   font-size: 13px !important;
 }
@@ -2897,10 +2727,10 @@ tbody tr:hover {
   min-width: 132px !important;
   height: 42px !important;
   margin: 0 !important;
-  border: 1px solid #79bdb4 !important;
+  border: 1px solid var(--analytics-ui-control-border, #79bdb4) !important;
   border-radius: 10px !important;
-  background: #fff !important;
-  color: #017151 !important;
+  background: var(--analytics-ui-page, #fff) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   white-space: nowrap;
 }
 
@@ -2923,7 +2753,7 @@ tbody tr:hover {
 /* All six summary cards share the same title, value and helper tracks. */
 .messages-analytics-page .kpi-grid .kpi-card {
   display: flex !important;
-  align-items: center !important;
+  align-items: flex-start !important;
   min-height: 0 !important;
 }
 
@@ -2933,7 +2763,7 @@ tbody tr:hover {
   flex: 1 1 0% !important;
   align-self: stretch;
   grid-template-rows: 34px auto 34px !important;
-  align-content: center;
+  align-content: start;
 }
 
 .messages-analytics-page .kpi-grid .kpi-card .kpi-label {

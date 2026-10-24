@@ -54,11 +54,12 @@ class _GradingFixture(TestCase):
         cls.saq = SubmissionComponent.objects.get(code="SAQ")
         cls.poster = SubmissionComponent.objects.get(code="POSTER")
 
-        # This year's rubrics, as the app looks them up: never a fixed year,
+        # The challenge year, as the app works it out: never a fixed year,
         # which would stop matching once the calendar moves on.
         cls.year = current_cohort()
-        cls.saq_rubric = Rubric.objects.create(component=cls.saq, year=cls.year, active=True)
-        cls.poster_rubric = Rubric.objects.create(component=cls.poster, year=cls.year, active=True)
+        # One rubric per component, the same every year.
+        cls.saq_rubric = Rubric.objects.create(component=cls.saq, active=True)
+        cls.poster_rubric = Rubric.objects.create(component=cls.poster, active=True)
 
         cls.saq_c1 = RubricCriterion.objects.create(rubric=cls.saq_rubric, name="Content", max_mark=Decimal("10.00"), order=10)
         cls.saq_c2 = RubricCriterion.objects.create(rubric=cls.saq_rubric, name="Clarity", max_mark=Decimal("5.00"), order=20)

@@ -74,12 +74,9 @@ class CreateSupportAgentTests(TestCase):
         result = self.create()
         self.assertIsNotNone(result["data"], result["msg"])
 
-    def test_creating_a_mentor_still_requires_a_country(self):
-        """The exemption is scoped to the two roles that have it, and adding
-        support to that list must not have loosened it for anybody else."""
-        result = self.create(role="mentor", email="mentor@example.com")
-        self.assertIsNone(result["data"])
-        self.assertIn("Country", result["msg"])
+    # A mentor still needed a country here until main's 20 October 2026 Add
+    # user rework, which dropped the requirement for every role (an email and
+    # a role are enough). The create path no longer has an exemption to scope.
 
     def test_the_grant_is_recorded_in_the_audit_log(self):
         """The roster page writes one of these. Without it here, half the ways
@@ -216,8 +213,9 @@ class SavingASupportAccountTests(TestCase):
     again. adminweb sends `countryId: null` for every role without geography,
     and the update path answered "Country cannot be cleared".
 
-    Both paths now read one list, `ROLES_WITHOUT_GEOGRAPHY`, because two
-    copies of the rule is what let them drift in the first place.
+    The update path reads one list, `ROLES_WITHOUT_GEOGRAPHY`. The create
+    path read it too until main's 20 October 2026 rework stopped asking any
+    role for a country there.
     """
 
     def setUp(self):
@@ -319,10 +317,9 @@ class SavingASupportAccountTests(TestCase):
         self.assertIsNone(result["data"])
         self.assertIn("Country cannot be cleared", result["msg"])
 
-    def test_the_two_paths_read_the_same_list(self):
-        """Pinned directly, because the bug was two copies drifting apart and
-        a behavioural test can only ever cover the roles somebody thought to
-        write a case for."""
+    def test_the_exempt_roles_are_exactly_admin_and_support(self):
+        """Pinned directly: a behavioural test can only ever cover the roles
+        somebody thought to write a case for."""
         from apps.admin.services import user as user_service
 
         self.assertEqual(

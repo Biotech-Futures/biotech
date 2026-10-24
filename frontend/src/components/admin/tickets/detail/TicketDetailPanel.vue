@@ -381,7 +381,8 @@ async function loadAssignees() {
 function retryAssignees() {
   void loadAssignees()
   void nextTick(() =>
-    sheet.value?.querySelector<HTMLSelectElement>('select[aria-label="Change assignee"]')?.focus()
+    // The field inside the AppSelect, which carries the control's name.
+    sheet.value?.querySelector<HTMLInputElement>('input[aria-label="Change assignee"]')?.focus()
   )
 }
 
@@ -644,11 +645,10 @@ function trapTab(event: KeyboardEvent) {
 // Heard on the capture phase, before anything inside the panel can act on it.
 function onDocumentKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
-  // A triage control holding a value it has not sent yet takes this Esc for
-  // itself, to put the saved value back (TicketTriageControls onKeydown), the
-  // way an open Radix list in React took Esc before the sheet did. The next
-  // Esc closes the panel.
-  if (event.target instanceof Element && event.target.closest('[data-unsaved-choice]')) return
+  // A dropdown with its list open takes this Esc for itself, to close the
+  // list (AppSelect), the way an open Radix list in React took Esc before the
+  // sheet did. The next Esc closes the panel.
+  if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]')) return
   close()
 }
 
@@ -743,7 +743,12 @@ onBeforeUnmount(() => {
   outline: none;
 }
 
-.ticket-panel :focus-visible {
+/* Not the field inside an AppSelect (C-29): AppSelect rings its whole box
+   when that field has focus, and this rule, which outranks AppSelect's own
+   "no ring on the field", drew a second ring inside the first. The box's
+   ring takes the panel's accent in the dark (TicketTriageControls.vue,
+   TicketReplyComposer.vue). */
+.ticket-panel :focus-visible:not(.app-select__input) {
   outline: 2px solid var(--panel-accent);
   outline-offset: 2px;
 }

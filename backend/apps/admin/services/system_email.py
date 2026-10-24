@@ -37,7 +37,7 @@ from django.template.loader import get_template
 from django.template.loader_tags import ExtendsNode
 
 from apps.services.email_branding import LOGO_CID, brand_context, logo_data_uri
-from apps.services.email_log import email_log, mark_failures_seen, unseen_failures
+from apps.services.email_log import email_log, mark_failures_seen, reason_for, unseen_failures
 from apps.services.email_metrics import record_email_delivery
 from apps.services.email_registry import (
     EMAIL_TYPES,
@@ -98,7 +98,14 @@ def _render_content_block(template_name: str, context: dict) -> str:
     template = get_template(template_name).template
     for node in template.nodelist:
         if isinstance(node, ExtendsNode) and "content" in node.blocks:
-            html = node.blocks["content"].nodelist.render(Context(context))
+            # Bound to its template, as rendering the whole template would
+            # bind it: an {% include %} in the block finds the engine through
+            # the context's template, and unbound it fails, taking the whole
+            # System Emails list down with it. The ticket emails' content
+            # blocks include their shared ticket box and button.
+            block_context = Context(context)
+            with block_context.bind_template(template):
+                html = node.blocks["content"].nodelist.render(block_context)
             return textwrap.dedent(html).strip()
     return template.render(Context(context)).strip()
 
@@ -520,6 +527,8 @@ def send_test_email(
             delivered=0,
             failed=1,
             initiated_by=requested_by,
+            recipients=[recipient],
+            missed={recipient: reason_for(exc)},
         )
         # Not logger.exception: SMTP errors can carry the address in their args.
         logger.error(
@@ -539,6 +548,7 @@ def send_test_email(
         delivered=1,
         failed=0,
         initiated_by=requested_by,
+        recipients=[recipient],
     )
 
     return {
@@ -555,6 +565,38 @@ def send_test_email(
 def get_email_log() -> dict:
     """The Log on System Emails: each email's last send and who it missed."""
     return {"msg": "System email log retrieved successfully", "data": email_log()}
+
+
+def resend_email(key: str, *, requested_by) -> dict:
+    """Resend on the Log: ``key``'s email again to who it missed. ``data`` is
+    None when it can't go, ``msg`` saying why."""
+    from apps.services.resend import QUEUED, start_resend
+
+    refused = start_resend(key, requested_by)
+    if refused:
+        return {"msg": refused, "data": None}
+    return {"msg": QUEUED, "data": {"key": key, "status": "queued"}}
+
+
+def get_mail_api_state() -> dict:
+    """Whether bounced emails can be checked, for the top of Failed Sending Emails."""
+    from apps.services.email_log import mail_api_state
+
+    return {"msg": "Mail API state retrieved", "data": mail_api_state()}
+
+
+def get_scheduled_jobs() -> dict:
+    """The timed jobs the backend runs itself and how each last went, for Email Checks."""
+    from apps.management.scheduler import job_states
+
+    return {"msg": "Scheduled jobs retrieved", "data": job_states()}
+
+
+def get_always_on_state() -> dict:
+    """Whether Azure's Always On is keeping the backend awake, for the top of System Emails."""
+    from apps.services.always_on import always_on_state
+
+    return {"msg": "Always On state retrieved", "data": always_on_state()}
 
 
 def get_unseen_failures() -> dict:

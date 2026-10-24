@@ -1,23 +1,25 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import AppSelect from '@/components/AppSelect.vue'
 import type { AssigneeOption, TicketDetail } from '@/utils/ticketAgentSchema'
-import { UNASSIGNED } from '@/utils/ticketAgentSchema'
 
 import {
   ACTIVE,
   OWNER,
   api,
   deferred,
+  offeredChoices,
   openPanel,
-  optionTexts,
   pending,
+  pickChoice,
   refusal,
   resetPanelTests,
   serverError,
-  shownOption,
+  shownChoice,
   ticketGone,
   ticketWith,
+  triageField,
   type Panel
 } from './ticketDetailFixtures'
 
@@ -25,10 +27,11 @@ import {
 // "assignee control", "when a change is refused" and "category control"
 // blocks of adminweb/src/components/tickets/TicketDetailPanel.test.tsx.
 //
-// The React selects were Radix listboxes opened with ArrowDown; these are
-// native <select>s, so "what the control shows" is the selected option's
-// text and "what it offers" is its option list. A disabled row is a real
-// disabled <option>, which a browser will not let anybody choose.
+// The React selects were Radix listboxes opened with ArrowDown. These were
+// native <select>s until the 2026-10-22 client meeting asked for the
+// platform's own dropdown (C-29), and are AppSelects now: "what the control
+// shows" is the words in its box and "what it offers" is its list, opened. A
+// row that cannot be picked is aria-disabled, and a press on it does nothing.
 vi.mock('@/utils/ticketAgentAPI', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/ticketAgentAPI')>()),
   fetchTicketDetail: vi.fn(),
@@ -44,8 +47,7 @@ afterEach(resetPanelTests)
 
 const ownedByGoneAgent = () => ticketWith({ assignee: { id: OWNER.id, name: OWNER.name } })
 
-const control = ({ page }: Panel, name: string) => page.get(`select[aria-label="${name}"]`)
-const assignee = (panel: Panel) => control(panel, 'Change assignee')
+const ASSIGNEE = 'Change assignee'
 
 describe('assignee control', () => {
   it('still names the current owner after they stop being assignable', async () => {
@@ -56,14 +58,14 @@ describe('assignee control', () => {
     // "Unassigned".
     const panel = await openPanel(ownedByGoneAgent())
 
-    expect(shownOption(assignee(panel))).toContain('Gone Agent')
-    expect(shownOption(assignee(panel))).not.toBe('Unassigned')
+    expect(shownChoice(panel, ASSIGNEE)).toContain('Gone Agent')
+    expect(shownChoice(panel, ASSIGNEE)).not.toBe('Unassigned')
   })
 
   it('does not offer an unassignable person as a new owner', async () => {
     const panel = await openPanel(ownedByGoneAgent())
 
-    const offered = optionTexts(assignee(panel))
+    const offered = await offeredChoices(panel, ASSIGNEE)
     expect(offered).toContain('Sam Reid')
     expect(offered).toContain('Gone Agent (no longer on the queue)')
     // ⚠️ The two lines above cannot fail alone. Dropping the assignable
@@ -79,14 +81,14 @@ describe('assignee control', () => {
     // on an account that was never switched off.
     const panel = await openPanel(ownedByGoneAgent())
 
-    expect(shownOption(assignee(panel))).toBe('Gone Agent (no longer on the queue)')
-    expect(shownOption(assignee(panel))).not.toMatch(/inactive/i)
+    expect(shownChoice(panel, ASSIGNEE)).toBe('Gone Agent (no longer on the queue)')
+    expect(shownChoice(panel, ASSIGNEE)).not.toMatch(/inactive/i)
   })
 
   it('shows Unassigned when there really is no owner', async () => {
     const panel = await openPanel(ticketWith({ assignee: null }))
 
-    expect(shownOption(assignee(panel))).toBe('Unassigned')
+    expect(shownChoice(panel, ASSIGNEE)).toBe('Unassigned')
   })
 
   // P9-1. Every combination of "what state is the roster in" against "where
@@ -121,7 +123,7 @@ describe('assignee control', () => {
       it(`roster ${rosterName}, owner ${standName}: the control reads "${expected}"`, async () => {
         const panel = await openPanel(ownedByGoneAgent(), { roster: roster(listed) })
 
-        expect(shownOption(assignee(panel))).toBe(expected)
+        expect(shownChoice(panel, ASSIGNEE)).toBe(expected)
       })
     }
   }
@@ -134,11 +136,15 @@ describe('assignee control', () => {
       roster: Promise.reject(await ticketGone())
     })
 
-    expect(optionTexts(assignee(panel))).toEqual([
+    expect(await offeredChoices(panel, ASSIGNEE)).toEqual([
       'Unassigned',
       'Gone Agent',
-      'The assignee list has not loaded, so there is nobody else to pick here.'
+      'Nobody else to pick here'
     ])
+    // Its second, quieter line says why.
+    expect(document.querySelector('[role="option"][aria-disabled="true"] .app-select__detail')?.textContent).toBe(
+      'The assignee list has not loaded.'
+    )
   })
 
   it('keys on the roster being available, not on the list being long', async () => {
@@ -148,10 +154,8 @@ describe('assignee control', () => {
     // back empty is still a roster: the owner is not on it.
     const panel = await openPanel(ownedByGoneAgent(), { roster: [] })
 
-    expect(shownOption(assignee(panel))).toBe('Gone Agent (no longer on the queue)')
-    expect(optionTexts(assignee(panel))).not.toContain(
-      'The assignee list has not loaded, so there is nobody else to pick here.'
-    )
+    expect(shownChoice(panel, ASSIGNEE)).toBe('Gone Agent (no longer on the queue)')
+    expect(await offeredChoices(panel, ASSIGNEE)).not.toContain('Nobody else to pick here')
   })
 
   it('leaves the roster-down explanation inert, not a choosable option', async () => {
@@ -159,30 +163,38 @@ describe('assignee control', () => {
     // writes as null: the same body the Unassigned row sends. Measured there
     // with `disabled` removed: clicking the sentence un-assigned ticket #128.
     const panel = await openPanel(ownedByGoneAgent(), { roster: pending() })
+    await offeredChoices(panel, ASSIGNEE)
 
-    const row = Array.from((assignee(panel).element as HTMLSelectElement).options).find((option) =>
-      option.text.includes('has not loaded')
+    const row = Array.from(document.querySelectorAll('[role="option"]')).find((option) =>
+      option.textContent?.includes('Nobody else to pick here')
     )
-    expect(row?.disabled).toBe(true)
+    expect(row?.getAttribute('aria-disabled')).toBe('true')
+
+    row!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }))
+    await flushPromises()
+    expect(api.updateTicket).not.toHaveBeenCalled()
   })
 
   it('refuses the explanation row even when something selects it anyway', async () => {
     // The second guard, independent of `disabled`: a value that is neither
     // the sentinel nor a person's id is never turned into a patch.
     const panel = await openPanel(ownedByGoneAgent(), { roster: pending() })
+    const control = panel.wrapper
+      .findAllComponents(AppSelect)
+      .find((select) => select.vm.$attrs['aria-label'] === ASSIGNEE)!
 
-    await assignee(panel).setValue('__unavailable')
+    control.vm.$emit('change', '__unavailable')
     await flushPromises()
 
     expect(api.updateTicket).not.toHaveBeenCalled()
-    expect(shownOption(assignee(panel))).toBe('Gone Agent')
+    expect(shownChoice(panel, ASSIGNEE)).toBe('Gone Agent')
   })
 
   it('says nothing of the sort while the roster is in hand', async () => {
     // The other direction, so the row above cannot pass by always rendering.
     const panel = await openPanel(ownedByGoneAgent())
 
-    expect(optionTexts(assignee(panel))).toEqual([
+    expect(await offeredChoices(panel, ASSIGNEE)).toEqual([
       'Unassigned',
       'Gone Agent (no longer on the queue)',
       'Sam Reid'
@@ -195,8 +207,7 @@ describe('assignee control', () => {
     api.updateTicket.mockResolvedValue(ticketWith({ assignee: null }))
     const panel = await openPanel(ticketWith({ assignee: { id: 1, name: 'Sam Reid' } }))
 
-    await assignee(panel).setValue(UNASSIGNED)
-    await flushPromises()
+    await pickChoice(panel, ASSIGNEE, 'Unassigned')
 
     expect(api.updateTicket).toHaveBeenCalledWith(7, { assignee: null })
   })
@@ -205,11 +216,10 @@ describe('assignee control', () => {
     api.updateTicket.mockResolvedValue(ticketWith({ assignee: { id: 1, name: 'Sam Reid' } }))
     const panel = await openPanel(ticketWith({ assignee: null }))
 
-    await assignee(panel).setValue('1')
-    await flushPromises()
+    await pickChoice(panel, ASSIGNEE, 'Sam Reid')
 
     expect(api.updateTicket).toHaveBeenCalledWith(7, { assignee: 1 })
-    expect(shownOption(assignee(panel))).toBe('Sam Reid')
+    expect(shownChoice(panel, ASSIGNEE)).toBe('Sam Reid')
   })
 })
 
@@ -220,8 +230,7 @@ describe('status, priority and category', () => {
     api.updateTicket.mockResolvedValue(ticketWith({ status: 'resolved' }))
     const panel = await openPanel(ticketWith({ status: 'in_progress' }))
 
-    await control(panel, 'Change status').setValue('resolved')
-    await flushPromises()
+    await pickChoice(panel, 'Change status', 'Resolved')
 
     expect(api.updateTicket).toHaveBeenCalledTimes(1)
     expect(api.updateTicket.mock.calls[0]).toEqual([7, { status: 'resolved' }])
@@ -231,21 +240,20 @@ describe('status, priority and category', () => {
   it('offers the four statuses and the three priorities in triage words', async () => {
     const panel = await openPanel(ticketWith())
 
-    expect(optionTexts(control(panel, 'Change status'))).toEqual([
+    expect(await offeredChoices(panel, 'Change status')).toEqual([
       'Open',
       'In progress',
       'Pending user',
       'Resolved'
     ])
-    expect(optionTexts(control(panel, 'Change priority'))).toEqual(['High', 'Normal', 'Low'])
+    expect(await offeredChoices(panel, 'Change priority')).toEqual(['High', 'Normal', 'Low'])
   })
 
   it('sends the priority alone', async () => {
     api.updateTicket.mockResolvedValue(ticketWith({ priority: 'high' }))
     const panel = await openPanel(ticketWith({ priority: 'normal' }))
 
-    await control(panel, 'Change priority').setValue('high')
-    await flushPromises()
+    await pickChoice(panel, 'Change priority', 'High')
 
     expect(api.updateTicket.mock.calls[0]).toEqual([7, { priority: 'high' }])
   })
@@ -255,14 +263,14 @@ describe('status, priority and category', () => {
     // and the p52 category breakdown depends on someone being able to fix it.
     const panel = await openPanel(ticketWith({ category: 'help_mentor' }))
 
-    expect(shownOption(control(panel, 'Change category'))).toBe('Help with a mentor')
+    expect(shownChoice(panel, 'Change category')).toBe('Help with a mentor')
   })
 
   it('offers the screening category too, so a mis-screened ticket has a way out', async () => {
     const panel = await openPanel(ticketWith({ category: 'flagged_content' }))
 
-    expect(shownOption(control(panel, 'Change category'))).toBe('Flagged content')
-    expect(optionTexts(control(panel, 'Change category'))).toHaveLength(9)
+    expect(shownChoice(panel, 'Change category')).toBe('Flagged content')
+    expect(await offeredChoices(panel, 'Change category')).toHaveLength(9)
   })
 
   it('sends the new category as a patch, and nothing else', async () => {
@@ -271,8 +279,7 @@ describe('status, priority and category', () => {
     api.updateTicket.mockResolvedValue(ticketWith({ category: 'technical_issue' }))
     const panel = await openPanel(ticketWith({ category: 'account_access' }))
 
-    await control(panel, 'Change category').setValue('technical_issue')
-    await flushPromises()
+    await pickChoice(panel, 'Change category', 'Technical issue')
 
     expect(api.updateTicket).toHaveBeenCalledTimes(1)
     expect(api.updateTicket.mock.calls[0]).toEqual([7, { category: 'technical_issue' }])
@@ -282,7 +289,7 @@ describe('status, priority and category', () => {
   it('names a category it has no option for instead of showing a blank', async () => {
     const panel = await openPanel(ticketWith({ category: '' }))
 
-    expect(shownOption(control(panel, 'Change category'))).toBe('Not categorised')
+    expect(shownChoice(panel, 'Change category')).toBe('Not categorised')
   })
 
   it('says it is saving while a change is on its way, and stops when it lands', async () => {
@@ -290,7 +297,7 @@ describe('status, priority and category', () => {
     api.updateTicket.mockReturnValue(answer.promise)
     const panel = await openPanel(ticketWith())
 
-    await control(panel, 'Change priority').setValue('high')
+    await pickChoice(panel, 'Change priority', 'High')
     expect(panel.page.get('.triage__saving').text()).toBe('Saving…')
     expect(panel.page.get('.triage__saving').attributes('role')).toBe('status')
 
@@ -301,160 +308,119 @@ describe('status, priority and category', () => {
 })
 
 describe('choosing with the keyboard', () => {
-  // On Windows and Linux a closed, focused select moves its value on the
-  // arrow keys (and Home, End, Page Up/Down, typed letters) and fires
-  // `change` at once, as the key's own default action. jsdom has no default
-  // action for a select, so each of these tests does what the browser does:
-  // the key, then the change it causes, in the same tick. React's Radix
-  // Select only committed on Enter or a click.
-  const NOT_SAVED = 'Not saved yet. Press Enter to save it, or Esc to undo.'
-
-  async function moveWithKey(panel: Panel, name: string, key: string, value: string) {
-    const select = control(panel, name)
-    await select.trigger('keydown', { key })
-    await select.setValue(value)
-  }
-
-  /** A macrotask: long enough for the browser to have finished acting on
-   *  any key pressed before it. */
-  const afterTheKey = () => new Promise((resolve) => setTimeout(resolve, 0))
+  // The native selects these replaced moved their value on the arrow keys of
+  // a closed control on Windows and Linux and fired `change` at once, so this
+  // component used to hold such a value back until Enter. AppSelect has no
+  // such move: the arrow keys open its list and move a highlight through it,
+  // and only Enter or a click picks. Sent one by one, In progress, Pending
+  // user, Resolved would be two system lines on the requester's timeline and
+  // a resolved email; on Assignee, the ticket in each person's name in turn.
+  const key = (panel: Panel, name: string, which: string) =>
+    panel.page.get(triageField(name)).trigger('keydown', { key: which })
+  const highlighted = () => document.querySelector('[role="option"].is-active .app-select__label')?.textContent
 
   it('sends nothing while the arrow keys move through the statuses, then one PATCH on Enter', async () => {
-    // In progress, Pending user, Resolved: sent one by one, that is two
-    // system lines on the requester's timeline and a resolved email.
     api.updateTicket.mockResolvedValue(ticketWith({ status: 'resolved' }))
     const panel = await openPanel(ticketWith({ status: 'in_progress' }))
 
-    await moveWithKey(panel, 'Change status', 'ArrowDown', 'pending_user')
-    await moveWithKey(panel, 'Change status', 'ArrowDown', 'resolved')
+    await key(panel, 'Change status', 'ArrowDown')
+    await key(panel, 'Change status', 'ArrowDown')
+    await key(panel, 'Change status', 'ArrowDown')
     await flushPromises()
 
+    expect(highlighted()).toBe('Resolved')
     expect(api.updateTicket).not.toHaveBeenCalled()
-    expect(shownOption(control(panel, 'Change status'))).toBe('Resolved')
-    expect(panel.page.get('.triage__saving').text()).toBe(NOT_SAVED)
+    expect(shownChoice(panel, 'Change status')).toBe('In progress')
 
-    await control(panel, 'Change status').trigger('keydown', { key: 'Enter' })
+    await key(panel, 'Change status', 'Enter')
     await flushPromises()
 
-    expect(api.updateTicket).toHaveBeenCalledTimes(1)
-    expect(api.updateTicket).toHaveBeenCalledWith(7, { status: 'resolved' })
-    expect(shownOption(control(panel, 'Change status'))).toBe('Resolved')
+    expect(api.updateTicket.mock.calls).toEqual([[7, { status: 'resolved' }]])
+    expect(shownChoice(panel, 'Change status')).toBe('Resolved')
     expect(panel.page.get('.triage__saving').text()).toBe('')
   })
 
-  it('holds a person reached with the arrow keys until Enter, so nobody picks it up by accident', async () => {
+  it('moves through the people without picking any up, until Enter', async () => {
     api.updateTicket.mockResolvedValue(ticketWith({ assignee: { id: 1, name: 'Sam Reid' } }))
     const panel = await openPanel(ticketWith({ assignee: null }), {
       roster: [ACTIVE, { id: 2, name: 'Lee Park', assignable: true }]
     })
 
-    await moveWithKey(panel, 'Change assignee', 'ArrowDown', '1')
-    await moveWithKey(panel, 'Change assignee', 'ArrowDown', '2')
-    await moveWithKey(panel, 'Change assignee', 'ArrowUp', '1')
+    await key(panel, ASSIGNEE, 'ArrowDown')
+    await key(panel, ASSIGNEE, 'ArrowDown')
+    await key(panel, ASSIGNEE, 'ArrowDown')
+    await key(panel, ASSIGNEE, 'ArrowUp')
     expect(api.updateTicket).not.toHaveBeenCalled()
 
-    await assignee(panel).trigger('keydown', { key: 'Enter' })
+    await key(panel, ASSIGNEE, 'Enter')
     await flushPromises()
 
     expect(api.updateTicket.mock.calls).toEqual([[7, { assignee: 1 }]])
   })
 
-  it('holds a value reached by typing its first letter too', async () => {
+  it('jumps to a typed first letter in the open list without sending it', async () => {
     const panel = await openPanel(ticketWith({ priority: 'normal' }))
 
-    await moveWithKey(panel, 'Change priority', 'h', 'high')
+    await key(panel, 'Change priority', 'ArrowDown')
+    await key(panel, 'Change priority', 'h')
     await flushPromises()
 
+    expect(highlighted()).toBe('High')
     expect(api.updateTicket).not.toHaveBeenCalled()
-    expect(shownOption(control(panel, 'Change priority'))).toBe('High')
+    expect(shownChoice(panel, 'Change priority')).toBe('Normal')
   })
 
-  it('holds a typed letter whose keypress comes a task after its keydown', async () => {
-    // The browser moves the value on the keypress. If the keypress arrives
-    // after the keydown's own moment has passed, it must still count.
-    const panel = await openPanel(ticketWith({ priority: 'normal' }))
-    const select = control(panel, 'Change priority')
-
-    await select.trigger('keydown', { key: 'h' })
-    await afterTheKey()
-    await select.trigger('keypress', { key: 'h' })
-    await select.setValue('high')
-    await flushPromises()
-
-    expect(api.updateTicket).not.toHaveBeenCalled()
-    expect(shownOption(select)).toBe('High')
-  })
-
-  it('puts the saved value back when the agent leaves the control without choosing', async () => {
+  it('sends nothing when the agent leaves the control without choosing', async () => {
     const panel = await openPanel(ticketWith({ status: 'in_progress' }))
-    await moveWithKey(panel, 'Change status', 'ArrowDown', 'pending_user')
+    await key(panel, 'Change status', 'ArrowDown')
+    await key(panel, 'Change status', 'ArrowDown')
 
-    await control(panel, 'Change status').trigger('blur')
+    await panel.page.get(triageField('Change status')).trigger('blur')
     await flushPromises()
 
     expect(api.updateTicket).not.toHaveBeenCalled()
-    expect(shownOption(control(panel, 'Change status'))).toBe('In progress')
-    expect(panel.page.get('.triage__saving').text()).toBe('')
+    expect(shownChoice(panel, 'Change status')).toBe('In progress')
   })
 
-  it('takes Esc to undo a held value, and leaves the panel open until the next Esc', async () => {
+  it('takes Esc to close its open list, and leaves the panel open until the next Esc', async () => {
     const panel = await openPanel(ticketWith({ status: 'in_progress' }))
-    await moveWithKey(panel, 'Change status', 'ArrowDown', 'pending_user')
+    await key(panel, 'Change status', 'ArrowDown')
+    expect(panel.page.get(triageField('Change status')).attributes('aria-expanded')).toBe('true')
 
-    await control(panel, 'Change status').trigger('keydown', { key: 'Escape' })
+    await key(panel, 'Change status', 'Escape')
 
     expect(panel.wrapper.emitted('close')).toBeUndefined()
-    expect(shownOption(control(panel, 'Change status'))).toBe('In progress')
+    expect(panel.page.get(triageField('Change status')).attributes('aria-expanded')).toBe('false')
     expect(api.updateTicket).not.toHaveBeenCalled()
 
-    await control(panel, 'Change status').trigger('keydown', { key: 'Escape' })
+    await key(panel, 'Change status', 'Escape')
 
     expect(panel.wrapper.emitted('close')).toHaveLength(1)
   })
 
-  it('points a screen reader at the "not saved yet" line from the control holding the value', async () => {
-    const panel = await openPanel(ticketWith())
-    expect(control(panel, 'Change status').attributes('aria-describedby')).toBeUndefined()
-
-    await moveWithKey(panel, 'Change status', 'ArrowDown', 'pending_user')
-
-    const line = document.getElementById(control(panel, 'Change status').attributes('aria-describedby') ?? '')
-    expect(line?.textContent).toBe(NOT_SAVED)
-    expect(line?.getAttribute('role')).toBe('status')
-  })
-
-  it('leaves nothing to save after moving back to the saved value', async () => {
-    const panel = await openPanel(ticketWith({ status: 'in_progress' }))
-    await moveWithKey(panel, 'Change status', 'ArrowDown', 'pending_user')
-    await moveWithKey(panel, 'Change status', 'ArrowUp', 'in_progress')
-
-    await control(panel, 'Change status').trigger('keydown', { key: 'Enter' })
-    await flushPromises()
-
-    expect(api.updateTicket).not.toHaveBeenCalled()
-    expect(panel.page.get('.triage__saving').text()).toBe('')
-  })
-
-  it('sends a pick made from the open list at once, even when a key opened it', async () => {
-    // A Mac, or Alt+ArrowDown on Windows: the key opens the list and moves
-    // nothing, and the change comes later, when the agent picks. That is a
-    // choice, and must not wait for another Enter.
+  it('sends a pick made with a click at once', async () => {
     api.updateTicket.mockResolvedValue(ticketWith({ status: 'resolved' }))
     const panel = await openPanel(ticketWith({ status: 'in_progress' }))
 
-    await control(panel, 'Change status').trigger('keydown', { key: 'ArrowDown' })
-    await afterTheKey()
-    await control(panel, 'Change status').setValue('resolved')
-    await flushPromises()
+    await pickChoice(panel, 'Change status', 'Resolved')
 
     expect(api.updateTicket).toHaveBeenCalledWith(7, { status: 'resolved' })
   })
 
-  it('does nothing on Enter when nothing is held', async () => {
+  it('opens on Enter and sends nothing', async () => {
     const panel = await openPanel(ticketWith())
 
-    await control(panel, 'Change status').trigger('keydown', { key: 'Enter' })
+    await key(panel, 'Change status', 'Enter')
     await flushPromises()
+
+    expect(panel.page.get(triageField('Change status')).attributes('aria-expanded')).toBe('true')
+    expect(api.updateTicket).not.toHaveBeenCalled()
+  })
+
+  it('sends nothing for a pick of what the ticket already has', async () => {
+    const panel = await openPanel(ticketWith({ status: 'in_progress' }))
+
+    await pickChoice(panel, 'Change status', 'In progress')
 
     expect(api.updateTicket).not.toHaveBeenCalled()
   })
@@ -470,19 +436,17 @@ describe('when a change is refused', () => {
     api.updateTicket.mockRejectedValue(await ticketGone())
     const panel = await openPanel(ticketWith({ status: 'in_progress' }))
 
-    await control(panel, 'Change status').setValue('resolved')
-    await flushPromises()
+    await pickChoice(panel, 'Change status', 'Resolved')
 
     expect(alertText(panel)).toMatch(/^That change was not saved\./)
-    expect(shownOption(control(panel, 'Change status'))).toBe('In progress')
+    expect(shownChoice(panel, 'Change status')).toBe('In progress')
   })
 
   it("passes on the server's reason instead of guessing at one", async () => {
     api.updateTicket.mockRejectedValue(await refusal('Send a status or an assignee, not both.'))
     const panel = await openPanel(ticketWith())
 
-    await control(panel, 'Change status').setValue('open')
-    await flushPromises()
+    await pickChoice(panel, 'Change status', 'Open')
 
     expect(alertText(panel)).toBe(
       'That change was not saved. Send a status or an assignee, not both.'
@@ -497,8 +461,7 @@ describe('when a change is refused', () => {
     api.updateTicket.mockRejectedValue(await ticketGone())
     const panel = await openPanel(ticketWith())
 
-    await control(panel, 'Change priority').setValue('low')
-    await flushPromises()
+    await pickChoice(panel, 'Change priority', 'Low')
 
     expect(alertText(panel)).toBe(
       'That change was not saved. The ticket may have been deleted or changed by someone' +
@@ -526,14 +489,13 @@ describe('when a change is refused', () => {
     )
     const panel = await openPanel(ticketWith({ assignee: null }))
 
-    await assignee(panel).setValue('1')
-    await flushPromises()
+    await pickChoice(panel, ASSIGNEE, 'Sam Reid')
 
     expect(alertText(panel)).toBe(
       'That change was not saved. Cannot assign to user "1". They need an active account' +
         ' with support queue access.'
     )
-    expect(shownOption(assignee(panel))).toBe('Unassigned')
+    expect(shownChoice(panel, ASSIGNEE)).toBe('Unassigned')
   })
 
   it("does not read DRF's own words out to the agent", async () => {
@@ -548,8 +510,7 @@ describe('when a change is refused', () => {
     )
     const panel = await openPanel(ticketWith())
 
-    await control(panel, 'Change status').setValue('resolved')
-    await flushPromises()
+    await pickChoice(panel, 'Change status', 'Resolved')
 
     expect(alertText(panel)).not.toMatch(/valid choice/)
     expect(alertText(panel)).toMatch(/Close the panel and reopen it/)
@@ -566,8 +527,7 @@ describe('when a change is refused', () => {
     // reads as a problem with the one they are now looking at.
     api.updateTicket.mockRejectedValue(await ticketGone())
     const panel = await openPanel(ticketWith())
-    await control(panel, 'Change status').setValue('resolved')
-    await flushPromises()
+    await pickChoice(panel, 'Change status', 'Resolved')
     expect(panel.page.find('[role="alert"]').exists()).toBe(true)
 
     api.fetchTicketDetail.mockResolvedValue(ticketWith({ id: 8, ticketNumber: 'SUP-2026-00008' }))
@@ -582,11 +542,9 @@ describe('when a change is refused', () => {
     api.updateTicket.mockRejectedValueOnce(await ticketGone())
     api.updateTicket.mockResolvedValueOnce(ticketWith({ priority: 'high' }))
     const panel = await openPanel(ticketWith())
-    await control(panel, 'Change status').setValue('resolved')
-    await flushPromises()
+    await pickChoice(panel, 'Change status', 'Resolved')
 
-    await control(panel, 'Change priority').setValue('high')
-    await flushPromises()
+    await pickChoice(panel, 'Change priority', 'High')
 
     expect(panel.page.find('[role="alert"]').exists()).toBe(false)
   })

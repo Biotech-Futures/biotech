@@ -32,26 +32,29 @@
         Presets
       </button>
     </template>
-    <select
+    <!-- The platform's own dropdown (AppSelect) since the 2026-10-22 client
+         meeting (C-29). Marked rather than disabled while a page loads, as
+         the box above is: AppSelect hands aria-disabled to its field, and a
+         pick made while it is marked is ignored (onPick), so the box keeps
+         naming the size in force. -->
+    <AppSelect
       v-else
-      ref="presetSelect"
+      :id="presetId"
       class="page-size__select"
-      :value="String(value)"
+      :model-value="String(value)"
+      :options="PRESET_OPTIONS"
+      :searchable="false"
       :aria-disabled="disabled ? 'true' : undefined"
       aria-label="Rows per page"
       @change="onPick"
-    >
-      <option v-for="preset in PAGE_SIZE_PRESETS" :key="preset" :value="String(preset)">
-        {{ preset }} / page
-      </option>
-      <option :value="CUSTOM">Custom…</option>
-    </select>
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, useTemplateRef, watch } from 'vue'
-import '@/components/support/ticketControls.css'
+import { nextTick, ref, useId, useTemplateRef, watch } from 'vue'
+
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 
 import {
   MAX_PAGE_SIZE,
@@ -70,11 +73,18 @@ const emit = defineEmits<{ change: [size: number] }>()
 
 const CUSTOM = 'custom'
 
+const PRESET_OPTIONS: AppSelectOption[] = [
+  ...PAGE_SIZE_PRESETS.map((preset) => ({ value: String(preset), label: `${preset} / page` })),
+  { value: CUSTOM, label: 'Custom…' }
+]
+
 const customMode = ref(!isPresetPageSize(props.value))
 const draft = ref(String(props.value))
 const customBox = useTemplateRef<HTMLInputElement>('customBox')
 const presetsButton = useTemplateRef<HTMLButtonElement>('presetsButton')
-const presetSelect = useTemplateRef<HTMLSelectElement>('presetSelect')
+const presetId = useId()
+// The dropdown's own field, which takes focus as the select did.
+const focusPresets = () => document.getElementById(presetId)?.focus()
 
 // Keep the box in step when the value changes from outside, and snap back to
 // the dropdown whenever the size in force is a preset. That swap takes away
@@ -93,7 +103,7 @@ watch(
     customMode.value = false
     if (!hadFocus) return
     await nextTick()
-    presetSelect.value?.focus()
+    focusPresets()
   }
 )
 
@@ -104,18 +114,14 @@ function applyCustom() {
   if (next !== props.value) emit('change', next)
 }
 
-async function onPick(event: Event) {
-  const select = event.target as HTMLSelectElement
-  // A marked select still changes under the arrow keys. The pick is
-  // ignored, so the select goes back to naming the size in force.
-  if (props.disabled) {
-    select.value = String(props.value)
-    return
-  }
-  const picked = select.value
+async function onPick(value: AppSelectValue) {
+  // A pick made while the control is marked is ignored, and the box goes on
+  // naming the size in force, because it shows the value it is given.
+  if (props.disabled) return
+  const picked = String(value)
   if (picked === CUSTOM) {
     customMode.value = true
-    // The select the agent was using is gone; put them in the box that
+    // The dropdown the agent was using is gone; put them in the box that
     // replaced it rather than leaving focus on nothing.
     await nextTick()
     customBox.value?.focus()
@@ -131,7 +137,7 @@ async function backToPresets() {
   // The button that was pressed is gone with the box; the dropdown that
   // replaced them takes focus.
   await nextTick()
-  presetSelect.value?.focus()
+  focusPresets()
 }
 </script>
 
@@ -170,12 +176,9 @@ async function backToPresets() {
   font-size: 0.875rem;
 }
 
+/* AppSelect draws the chevron and the list. */
 .page-size__select {
-  appearance: none;
-  padding-right: 2rem;
-  background-image: var(--ticket-select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 0.75rem center;
+  min-width: 7.5rem;
 }
 
 .page-size__box {
@@ -203,5 +206,12 @@ async function backToPresets() {
 .page-size__box[aria-disabled='true'] {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* AppSelect rings its box in --dark-green when its field has keyboard focus,
+   which the dark theme does not redefine: about 2.8:1 on the dark grounds,
+   under the 3:1 a focus indicator needs. The queue's dark ring (TicketQueuePage.vue). */
+:root[data-theme='dark'] .page-size__select:has(:focus-visible) {
+  outline-color: var(--mint-green);
 }
 </style>

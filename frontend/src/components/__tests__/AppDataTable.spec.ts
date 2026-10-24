@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
 const columns: DataTableColumn[] = [
   { key: 'icon', label: '' },
@@ -94,9 +96,9 @@ describe('rows that open something', () => {
 describe('the bottom bar', () => {
   const many = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, icon: 'x', name: `Name ${i + 1}`, school: 'S' }))
 
-  it('offers rows per page as Entries', () => {
+  it('offers rows per page as Entries', async () => {
     const wrapper = mountTable({ rows: many, pageSize: 5 })
-    expect(wrapper.findAll('.data-table-page-size option').map((option) => option.text())).toEqual([
+    expect(await appSelectLabels(wrapper, '.data-table-page-size')).toEqual([
       '5 Entries',
       '7 Entries',
       '15 Entries',
@@ -104,6 +106,64 @@ describe('the bottom bar', () => {
       'All Entries'
     ])
     expect(wrapper.find('.data-table-summary').text()).toBe('1 - 5 out of 12')
+  })
+
+  const picker = (wrapper: ReturnType<typeof mountTable>) => wrapper.find('.data-table-page-size .app-select')
+
+  it('reads as the rows there are, and is off, while they all fit on one page', () => {
+    const wrapper = mountTable({ rows: many.slice(0, 8), pageSize: 10 })
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 8 out of 8')
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('8 Entries')
+    expect(picker(wrapper).classes()).toContain('is-disabled')
+  })
+
+  it('shows its own size, and is on, with more than one page', () => {
+    const wrapper = mountTable({ rows: many, pageSize: 10 })
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('10 Entries')
+    expect(picker(wrapper).classes()).not.toContain('is-disabled')
+  })
+
+  it('turns to the page with focusRow and brings it into view, then lets go once someone pages', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const wrapper = mountTable({ rows: many, pageSize: 5, focusRow: 9 })
+    await flushPromises()
+    expect(wrapper.find('.data-table-summary').text()).toBe('6 - 10 out of 12')
+    expect(wrapper.get('tr.data-table-row--focused').attributes('data-row-key')).toBe('9')
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+
+    // Paged on, a change of rows doesn't pull them back to it.
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await wrapper.setProps({ rows: [...many] })
+    await flushPromises()
+    expect(wrapper.find('.data-table-summary').text()).toBe('11 - 12 out of 12')
+  })
+
+  // Rows, headings, bottom bar and scrollbar each 56px: 10 rows fit the
+  // 768px window (600px of room under the headings and above the bar).
+  const rowsOf56px = () => vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(56)
+
+  it('stays on for a table on All whose rows run past the screen', async () => {
+    rowsOf56px()
+    const wrapper = mountTable({ rows: many, pageSize: DATA_TABLE_ALL })
+    await flushPromises()
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 12 out of 12')
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('All Entries')
+    expect(picker(wrapper).classes()).not.toContain('is-disabled')
+  })
+
+  it('is off for a table on All whose rows are all on screen', async () => {
+    rowsOf56px()
+    const wrapper = mountTable({ rows: many.slice(0, 8), pageSize: DATA_TABLE_ALL })
+    await flushPromises()
+    expect(picker(wrapper).classes()).toContain('is-disabled')
+  })
+
+  it('keeps a picked size as picked, on one page too, and stays on to change it back', async () => {
+    const wrapper = mountTable({ rows: many, pageSize: 10 })
+    await pickAppSelect(wrapper, '.data-table-page-size', '15 Entries')
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 12 out of 12')
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('15 Entries')
+    expect(picker(wrapper).classes()).not.toContain('is-disabled')
   })
 
   // Turns a page with the bar at ``from`` on screen, drawn at ``to`` on the

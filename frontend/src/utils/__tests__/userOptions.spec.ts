@@ -3,23 +3,18 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { ROLES_WITHOUT_GEOGRAPHY, USER_ROLES, roleHasGeography } from '@/utils/userOptions'
+import { USER_ROLES } from '@/utils/userOptions'
 
 /**
  * The role lists this app shares with the backend (ported from adminweb
  * src/type/user.test.ts).
  *
- * Two of them are the same rule written twice, once per language, and there
- * is no type system spanning the gap. That is exactly how the defect behind
- * this file happened: "support" was added to the create path's exemption in
- * apps/admin/services/user.py and not to the update path's, so an admin could
- * make a support agent and then never save one again. The editor sent
- * `countryId: null` and the server answered "Country cannot be cleared".
- *
- * The backend was then consolidated onto one constant, ROLES_WITHOUT_GEOGRAPHY,
- * and pinned by a test. This file is the portal's half. Without it, adding a
- * role to the portal's list passes every portal test and type check while
- * every save of that role 400s in production.
+ * There is no type system spanning the two languages, so a role added on one
+ * side and not the other passes every portal test and type check and then
+ * fails in production. This file is the portal's half of keeping them in step.
+ * (It also pinned a portal copy of the backend's ROLES_WITHOUT_GEOGRAPHY until
+ * main's 20 October 2026 Add user form stopped hiding geography by that list;
+ * the backend's own test pins what is left of it.)
  *
  * The backend file is read as text rather than reimplemented. A hand-copied
  * expectation would be a third copy of the rule, and a third copy is a third
@@ -33,7 +28,7 @@ const read = (path: string) => readFileSync(resolve(REPO, path), 'utf8')
 const backendSource = read('backend/apps/admin/services/user.py')
 
 function backendList(name: string): string[] {
-  // ROLES_WITHOUT_GEOGRAPHY = ("admin", "support")
+  // ROLES = ("student", "mentor", ...)
   const match = backendSource.match(new RegExp(`^${name}\\s*=\\s*[\\(\\[]([^\\)\\]]*)[\\)\\]]`, 'm'))
   if (!match) {
     throw new Error(
@@ -44,26 +39,6 @@ function backendList(name: string): string[] {
   }
   return [...match[1].matchAll(/["']([^"']+)["']/g)].map((m) => m[1])
 }
-
-describe('the roles that carry no geography', () => {
-  it('is the same list the backend exempts', () => {
-    expect([...ROLES_WITHOUT_GEOGRAPHY].sort()).toEqual(backendList('ROLES_WITHOUT_GEOGRAPHY').sort())
-  })
-
-  it('exempts admin and support, and nobody else', () => {
-    // Spelled out as well as compared, so a change that edits both files at
-    // once still has to be a deliberate one.
-    expect([...ROLES_WITHOUT_GEOGRAPHY].sort()).toEqual(['admin', 'support'])
-  })
-
-  it('roleHasGeography is the inverse of that list', () => {
-    for (const role of USER_ROLES) {
-      expect(roleHasGeography(role)).toBe(!ROLES_WITHOUT_GEOGRAPHY.includes(role))
-    }
-    expect(roleHasGeography('student')).toBe(true)
-    expect(roleHasGeography('support')).toBe(false)
-  })
-})
 
 describe('the roles the People page offers', () => {
   it('is exactly the backend’s list of roles', () => {

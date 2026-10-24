@@ -9,6 +9,7 @@ import {
   type SymposiumEmail,
   type SymposiumEmailStatus
 } from '@/utils/managementAPI'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/managementAPI', () => ({
   fetchTestEmailRecipients: vi.fn(async () => ({ recipients: [] })),
@@ -334,7 +335,7 @@ describe('Notify Nonfinalist', () => {
     }))
     previewMock.mockResolvedValue({ subject: 'No Submission', to: 'BTF12', html: '<p>email</p>' })
     const wrapper = await mountPage()
-    await wrapper.find(`${NONSUBMISSIONS} .test-email__select`).setValue('12:4')
+    await pickAppSelect(wrapper, `${NONSUBMISSIONS} .test-email__select`, '(BTF12) Ben Lee')
     await buttonIn(wrapper, NONSUBMISSIONS, /^Preview Email$/).trigger('click')
     await flushPromises()
     expect(previewMock).toHaveBeenCalledWith('nonsubmissions', '12:4')

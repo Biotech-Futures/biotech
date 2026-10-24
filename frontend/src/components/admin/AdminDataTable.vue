@@ -113,15 +113,14 @@
       <div class="admin-table__footer-left">
         <label v-if="pageSizeOptions.length" class="admin-table__page-size">
           <span class="sr-only">Rows per page</span>
-          <select
-            :value="pageSize"
-            :disabled="loading"
+          <AppSelect
+            :model-value="shownPageSize"
+            class="table-page-size"
+            :options="pageSizeChoices"
+            :disabled="pickerDisabled"
+            aria-label="Rows per page"
             @change="onPageSizeChange"
-          >
-            <option v-for="size in pageSizeOptions" :key="size" :value="size">
-              {{ size }}
-            </option>
-          </select>
+          />
         </label>
         <span class="admin-table__page-info">
           Page {{ page }} of {{ totalPages }}
@@ -155,6 +154,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 
 import { usePagerAnchor } from '@/composables/usePagerAnchor'
 
@@ -303,9 +303,25 @@ watch([() => props.pageSize, () => props.totalCount, () => props.sortState], res
 
 const onPageChange = (page: number) => turnPage(() => emit('page-change', page))
 
-const onPageSizeChange = (event: Event) => {
-  const value = Number((event.target as HTMLSelectElement).value)
-  emit('page-size-change', value)
+// As AppDataTable's: until someone picks a size, with every row on one page
+// the picker is off and reads as the rows there are (8, not 25). A size
+// someone picked stays as picked, and the picker stays on to change it back.
+const picked = ref(false)
+const rowCount = computed(() => props.totalCount ?? props.rows.length)
+const shownPageSize = computed(() =>
+  !picked.value && rowCount.value > 0 && rowCount.value < props.pageSize ? rowCount.value : props.pageSize
+)
+const pickerDisabled = computed(() => props.loading || (!picked.value && totalPages.value <= 1))
+
+const pageSizeChoices = computed<AppSelectOption[]>(() => {
+  const sizes = [...props.pageSizeOptions]
+  if (!sizes.includes(shownPageSize.value)) sizes.push(shownPageSize.value)
+  return sizes.sort((a, b) => a - b).map((size) => ({ value: size, label: String(size) }))
+})
+
+const onPageSizeChange = (value: AppSelectValue) => {
+  picked.value = true
+  emit('page-size-change', Number(value))
 }
 
 const renderCell = (value: unknown) => {
@@ -464,15 +480,6 @@ const renderCell = (value: unknown) => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.9rem;
-}
-
-.admin-table__page-size select {
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background-color: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
 }
 
 .admin-table__page-info {

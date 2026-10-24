@@ -1,6 +1,8 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import AppSelect from '@/components/AppSelect.vue'
 import { TicketSessionError } from '@/utils/ticketTransport'
 import type { TicketDetail } from '@/utils/ticketAgentSchema'
 
@@ -9,6 +11,7 @@ import {
   deferred,
   messageWith,
   openPanel,
+  pickChoice,
   refusal,
   resetPanelTests,
   serverError,
@@ -39,6 +42,8 @@ afterEach(resetPanelTests)
 const REPLY = 'textarea[aria-label="Reply to the requester"]'
 const NOTE = 'textarea[aria-label="Internal note, not visible to the requester"]'
 const TYPED = 'Here is the form you asked for.'
+// The platform's AppSelect since the 2026-10-22 client meeting (C-29).
+const STATUS = '.reply-box .reply-box__select'
 
 const value = ({ page }: Panel, selector: string) =>
   (page.get(selector).element as HTMLTextAreaElement | HTMLInputElement).value
@@ -112,14 +117,15 @@ describe('the two attachment pickers and the two message boxes', () => {
     // top control's.
     const { page } = await openPanel(ticketWith())
 
-    const select = page.get('.reply-box select')
-    expect(accessibleName(select.element)).toBe('Status after sending')
-    expect((select.element as HTMLSelectElement).value).toBe('pending_user')
-    expect(select.findAll('option').map((o) => [o.attributes('value'), o.text()])).toEqual([
-      ['in_progress', 'In progress'],
-      ['pending_user', 'Pending user'],
-      ['resolved', 'Resolved']
+    const field = page.get(`${STATUS} input[role="combobox"]`)
+    expect(accessibleName(field.element)).toBe('Status after sending')
+    expect(appSelectText(page, STATUS)).toBe('Pending user')
+    expect(page.get('.reply-box').findComponent(AppSelect).props('options')).toEqual([
+      { value: 'in_progress', label: 'In progress' },
+      { value: 'pending_user', label: 'Pending user' },
+      { value: 'resolved', label: 'Resolved' }
     ])
+    expect(await appSelectLabels(page, STATUS)).toEqual(['In progress', 'Pending user', 'Resolved'])
     expect(page.find('.reply-box input[type="checkbox"]').exists()).toBe(false)
   })
 
@@ -128,6 +134,7 @@ describe('the two attachment pickers and the two message boxes', () => {
 
     expect(page.find('.note-box').exists()).toBe(true)
     expect(page.find('.note-box select').exists()).toBe(false)
+    expect(page.find('.note-box .app-select').exists()).toBe(false)
   })
 
   it('takes the file types the server takes, and no more text than it keeps', async () => {
@@ -195,7 +202,7 @@ describe('sending', () => {
     api.sendTicketMessage.mockResolvedValue(ticketWith({ status: 'in_progress' }))
     const panel = await openPanel(ticketWith())
 
-    await panel.page.get('.reply-box select').setValue('in_progress')
+    await pickAppSelect(panel.page, STATUS, 'In progress')
     await sendFrom(panel, 'reply')
 
     expect(api.sendTicketMessage).toHaveBeenCalledTimes(1)
@@ -211,22 +218,22 @@ describe('sending', () => {
   it('clears the box and goes back to Pending user once the server has the reply', async () => {
     api.sendTicketMessage.mockResolvedValue(ticketWith())
     const panel = await openPanel(ticketWith())
-    await panel.page.get('.reply-box select').setValue('resolved')
+    await pickAppSelect(panel.page, STATUS, 'Resolved')
 
     await sendFrom(panel, 'reply')
 
     expect(value(panel, REPLY)).toBe('')
-    expect((panel.page.get('.reply-box select').element as HTMLSelectElement).value).toBe('pending_user')
+    expect(appSelectText(panel.page, STATUS)).toBe('Pending user')
   })
 
   it('keeps the chosen status when the reply did not go', async () => {
     api.sendTicketMessage.mockRejectedValue(await refusal('Attach at most 5 files to one message.'))
     const panel = await openPanel(ticketWith())
-    await panel.page.get('.reply-box select').setValue('resolved')
+    await pickAppSelect(panel.page, STATUS, 'Resolved')
 
     await sendFrom(panel, 'reply')
 
-    expect((panel.page.get('.reply-box select').element as HTMLSelectElement).value).toBe('resolved')
+    expect(appSelectText(panel.page, STATUS)).toBe('Resolved')
   })
 
   it('never lets an internal note carry a status', async () => {
@@ -566,7 +573,7 @@ describe('drafts and tickets', () => {
     const panel = await openPanel(ticketWith())
     await panel.page.get(REPLY).setValue('Still typing')
 
-    await panel.page.get('select[aria-label="Change priority"]').setValue('high')
+    await pickChoice(panel, 'Change priority', 'High')
     await flushPromises()
 
     expect(value(panel, REPLY)).toBe('Still typing')

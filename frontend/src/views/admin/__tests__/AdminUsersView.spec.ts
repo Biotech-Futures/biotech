@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { DOMWrapper, mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminUsersView from '@/views/admin/AdminUsersView.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
 vi.mock('vue-router', () => ({ useRoute: () => routeState }))
@@ -114,8 +115,8 @@ describe('AdminUsersView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('#status-filter').element).toHaveProperty('value', 'inactive')
-    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'no')
+    expect(wrapper.get('#status-filter').element).toHaveProperty('value', 'Inactive')
+    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'Not in a group')
     expect(wrapper.get('input[type="search"]').element).toHaveProperty('value', 'Ada Lovelace')
     const url = String(listCall(fetchMock)?.[0] ?? '')
     expect(url).toContain('active=false')
@@ -291,6 +292,32 @@ describe('AdminUsersView', () => {
     expect(JSON.parse(String(call![1]!.body))).toEqual({ isActive: true })
   })
 
+  it('says first when activating a student from an earlier year makes them this year\'s', async () => {
+    const fetchMock = fetchMockFor([buildUser({ isActive: false, earlierChallengeYear: 2026 })])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, { props: { title: 'Users', noun: 'user' } })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Activate')!.trigger('click')
+    await flushPromises()
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter((call) => String(call[1]?.method).toUpperCase() === 'PATCH')
+    expect(patchCalls()).toHaveLength(0)
+    const confirm = dialogs().find((d) => d.textContent!.includes('Activate user'))
+    expect(confirm!.textContent).toContain(
+      "Ada Lovelace is from the 2026 challenge. Activating them makes them one of this year's students"
+    )
+
+    const confirmButton = Array.from(confirm!.querySelectorAll('button')).find(
+      (b) => b.textContent!.trim() === 'Activate'
+    )
+    await confirmButton!.click()
+    await flushPromises()
+    expect(patchCalls()).toHaveLength(1)
+    expect(JSON.parse(String(patchCalls()[0]![1]!.body))).toEqual({ isActive: true })
+  })
+
   it('shows the in-group filter for students and passes it to the query', async () => {
     const fetchMock = fetchMockFor([buildUser({ groupId: null, groupName: null })])
     vi.stubGlobal('fetch', fetchMock)
@@ -299,9 +326,9 @@ describe('AdminUsersView', () => {
     })
     await flushPromises()
 
-    const filter = wrapper.find<HTMLSelectElement>('#in-group-filter')
+    const filter = wrapper.find('#in-group-filter')
     expect(filter.exists()).toBe(true)
-    await filter.setValue('yes')
+    await pickAppSelect(wrapper, '#in-group-filter', 'In a group')
     await flushPromises()
 
     expect(String(listCall(fetchMock)?.[0])).toContain('inGroup=yes')
@@ -413,7 +440,7 @@ describe('AdminUsersView', () => {
     // Interests, every one, on a line of their own under the row.
     expect(firstRow.text()).not.toContain('Science')
     expect(firstRow.classes()).toContain('data-table-row--joined')
-    expect(wrapper.find('.data-table-detail-row').text()).toBe('Areas of Interest: Science, Maths')
+    expect(wrapper.find('.data-table-detail-row').text()).toBe('Area(s) of Interest: Science, Maths')
   })
 
   it('maps student sortable columns to the supported backend sort fields', async () => {
@@ -489,14 +516,11 @@ describe('AdminUsersView', () => {
     await wrapper.find<HTMLInputElement>('.data-table-search-input').setValue('Ada')
     vi.advanceTimersByTime(350)
     await flushPromises()
-    await wrapper.find<HTMLSelectElement>('#country-filter').setValue('Australia')
-    await flushPromises()
-    await wrapper.find<HTMLSelectElement>('#state-filter').setValue('NSW')
-    await flushPromises()
-    await wrapper.find<HTMLSelectElement>('#in-group-filter').setValue('yes')
-    await flushPromises()
-    await wrapper.find<HTMLSelectElement>('#status-filter').setValue('active')
-    await flushPromises()
+    // Each filter's choice picked from its list.
+    await pickAppSelect(wrapper, '#country-filter', 'Australia')
+    await pickAppSelect(wrapper, '#state-filter', 'NSW')
+    await pickAppSelect(wrapper, '#in-group-filter', 'In a group')
+    await pickAppSelect(wrapper, '#status-filter', 'Active')
 
     const yearSort = wrapper
       .findAll('.data-table-sort-btn')
@@ -621,11 +645,8 @@ describe('AdminUsersView', () => {
     const dialog = dialogs().find((d) => d.textContent!.includes('Assign Student to Group'))
     expect(dialog).toBeDefined()
 
-    const select = dialog!.querySelector<HTMLSelectElement>('#assign-group-select')
-    expect(select).not.toBeNull()
-    select!.value = '1' // Team A
-    select!.dispatchEvent(new Event('change', { bubbles: true }))
-    await flushPromises()
+    expect(dialog!.querySelector('#assign-group-select')).not.toBeNull()
+    await pickAppSelect(new DOMWrapper(dialog!), '#assign-group-select', 'Team A · 0/5 (5 left)')
 
     const confirmButton = Array.from(dialog!.querySelectorAll('button')).find(
       (b) => b.textContent!.trim() === 'Confirm assignment'

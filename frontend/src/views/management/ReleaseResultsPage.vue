@@ -22,13 +22,14 @@
         <div class="release-results__fields">
           <label class="release-results__field release-results__field--wide">
             <span>Feedback Survey Link</span>
-            <input v-model="form.survey_url" type="url" placeholder="https://…" />
+            <input v-model="form.survey_url" class="app-input app-input--compact" type="url" placeholder="https://…" />
           </label>
           <label class="release-results__field">
             <span>Survey Closes</span>
-            <input
+            <AppDatePicker
               v-model="form.survey_closes"
-              type="date"
+              class="app-input app-input--compact"
+              :clearable="false"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && closesPast }"
             />
@@ -90,17 +91,15 @@
               >
                 {{ downloadingSheet ? 'Downloading…' : 'Download Supervisor Marks' }}
               </button>
-              <select
-                v-model="sheetSupervisor"
-                class="release-results__supervisor-select"
+              <AppSelect
+                :model-value="sheetSupervisor"
+                class="release-results__supervisor-select app-input app-input--compact app-input--small"
                 aria-label="Supervisor"
+                :options="sheetSupervisorOptions"
                 :disabled="!sheetSupervisors.length"
-              >
-                <option v-if="!sheetSupervisors.length" value="">Nobody yet</option>
-                <option v-for="option in sheetSupervisors" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
+                searchable
+                @update:model-value="(value) => (sheetSupervisor = String(value ?? ''))"
+              />
             </div>
           </div>
         </div>
@@ -274,6 +273,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
 import { describeRun, isBusy, queuedMessage, queuedNote, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
@@ -398,6 +399,9 @@ const downloadSample = async () => {
 // A supervisor's real marks spreadsheet, from the supervisors due the email.
 const sheetSupervisors = ref<TestEmailRecipient[]>([])
 const sheetSupervisor = ref('')
+const sheetSupervisorOptions = computed<AppSelectOption[]>(() =>
+  sheetSupervisors.value.length ? sheetSupervisors.value : [{ value: '', label: 'Nobody yet' }]
+)
 const downloadingSheet = ref(false)
 
 const loadSheetSupervisors = async () => {
@@ -600,14 +604,10 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   color: var(--text-muted);
 }
 
-.release-results__field input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+/* The shared compact box (app-input), filling its column. */
+.release-results__field .app-input {
+  width: auto;
+  max-width: none;
 }
 
 .release-results__field input:focus {
@@ -615,7 +615,7 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   border-color: var(--dark-green);
 }
 
-.release-results__field input.is-invalid {
+.release-results__field .is-invalid {
   border-color: var(--danger);
 }
 
@@ -656,14 +656,9 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   gap: 0.5rem;
 }
 
+/* The shared compact box (app-input), as wide as its longest name. */
 .release-results__supervisor-select {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.85rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
   max-width: 14rem;
 }
 

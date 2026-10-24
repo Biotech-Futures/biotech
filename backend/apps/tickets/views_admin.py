@@ -54,6 +54,7 @@ from .serializers_admin import (
     TicketPatchSerializer,
 )
 from .services import analytics as analytics_service
+from .services import audit_export as audit_export_service
 from .services import export as export_service
 from .services import lifecycle
 from .services.paging import (
@@ -360,30 +361,49 @@ def _screening_review(ticket):
 # one is a filter the other honours.
 QUEUE_FILTERS = ("region", "status", "category", "assignee", "priority", "search")
 
+# The ones the table lets an agent tick several of (C-27). Search is one box
+# of text.
+MULTI_VALUE_FILTERS = ("region", "status", "category", "assignee", "priority")
+
 
 def _queue_filters(source):
     """The queue's filters, read out of ``source``.
 
-    The table sends them in its query string (``request.query_params``) and
-    the export in its JSON body (``request.data``). Both come through here so
-    that the two can never read the same filters two ways.
+    The table sends them in its query string (``request.query_params``), a
+    filter with several values ticked as its name repeated
+    (``?status=open&status=pending_user``). The export sends them in its JSON
+    body (``request.data``), several as a list (``"status": ["open",
+    "pending_user"]``). Both come through here so that the two can never read
+    the same filters two ways.
 
     A query string can only carry text. A JSON body can carry anything, so
-    anything other than text or null is refused here, before apply_filters
-    sees it. Left to apply_filters, ``"assignee": true`` would read as user 1
-    and ``"status": ["open"]`` as a status that matches nothing. Neither is a
-    filter the table could have sent.
+    anything other than text, a list of text where a filter takes several, or
+    null is refused here, before apply_filters sees it. Left to apply_filters,
+    ``"assignee": true`` would read as user 1 and ``"search": ["x"]`` as a
+    search that matches nothing. Neither is a filter the table could have sent.
     """
     if not hasattr(source, "get"):
         # A body that is a list, a number or a bare string.
         raise serializers.ValidationError("The filters must be a JSON object.")
     filters = {}
     for name in QUEUE_FILTERS:
-        value = source.get(name)
-        if value is not None and not isinstance(value, str):
-            raise serializers.ValidationError({name: f"{name} must be a string."})
+        several = name in MULTI_VALUE_FILTERS
+        if several and hasattr(source, "getlist"):
+            # A query string, or a form-encoded body: every repeat of the name.
+            value = source.getlist(name)
+        else:
+            value = source.get(name)
+        if not _is_filter_value(value, several):
+            expected = "a string or a list of strings" if several else "a string"
+            raise serializers.ValidationError({name: f"{name} must be {expected}."})
         filters[name] = value
     return filters
+
+
+def _is_filter_value(value, several):
+    if value is None or isinstance(value, str):
+        return True
+    return several and isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
 def _queue_tickets(filters, as_of):
@@ -937,6 +957,54 @@ class TicketAnalyticsView(APIView):
         })
 
 
+# The Audit tab's filters, and the only list of them. The table and its export
+# both read them through _audit_filters, as the queue's two read theirs
+# through _queue_filters.
+AUDIT_FILTERS = ("action", "actor")
+
+
+def _audit_filters(source):
+    """The Audit tab's filters, out of the table's query string or the
+    export's JSON body. Text or nothing, for the reason _queue_filters gives."""
+    if not hasattr(source, "get"):
+        raise serializers.ValidationError("The filters must be a JSON object.")
+    filters = {}
+    for name in AUDIT_FILTERS:
+        value = source.get(name)
+        if value is not None and not isinstance(value, str):
+            raise serializers.ValidationError({name: f"{name} must be a string."})
+        filters[name] = value
+    return filters
+
+
+def _audit_rows(filters):
+    """Every ticket audit row the filters match, newest first."""
+    rows = AuditLog.objects.filter(
+        entity_type=lifecycle.AUDIT_ENTITY_TYPE
+    ).select_related("actor_user")
+
+    action = filters.get("action")
+    if action:
+        # Free text on this model — log_audit_event does not validate
+        # against ActionChoices, and the ticket module writes seven values
+        # of which only three are in that enum. An unknown value filters
+        # to nothing rather than erroring, matching the string columns on
+        # the queue endpoint.
+        rows = rows.filter(action=action)
+
+    actor = filters.get("actor")
+    if actor:
+        # The same reader the queue's ?assignee= uses. This had its own
+        # copy that stopped at int(), so a huge number here answered 200
+        # on PostgreSQL and 500 on SQLite while the neighbouring endpoint
+        # answered 400 on both.
+        rows = rows.filter(actor_user_id=database_id(actor, "actor"))
+
+    # Newest first: this is a log to scan, not a story to read, which is
+    # the opposite of the per-ticket history (TicketHistoryView).
+    return rows.order_by("-created_at", "-id")
+
+
 class TicketAuditView(APIView):
     """Every recorded ticket action, including the ones on deleted tickets.
 
@@ -961,30 +1029,7 @@ class TicketAuditView(APIView):
         page, limit = _page_params(request)
         offset = (page - 1) * limit
 
-        rows = AuditLog.objects.filter(
-            entity_type=lifecycle.AUDIT_ENTITY_TYPE
-        ).select_related("actor_user")
-
-        action = request.query_params.get("action")
-        if action:
-            # Free text on this model — log_audit_event does not validate
-            # against ActionChoices, and the ticket module writes seven values
-            # of which only three are in that enum. An unknown value filters
-            # to nothing rather than erroring, matching the string columns on
-            # the queue endpoint.
-            rows = rows.filter(action=action)
-
-        actor = request.query_params.get("actor")
-        if actor:
-            # The same reader the queue's ?assignee= uses. This had its own
-            # copy that stopped at int(), so a huge number here answered 200
-            # on PostgreSQL and 500 on SQLite while the neighbouring endpoint
-            # answered 400 on both.
-            rows = rows.filter(actor_user_id=database_id(actor, "actor"))
-
-        # Newest first: this is a log to scan, not a story to read, which is
-        # the opposite of the per-ticket history right above.
-        rows = rows.order_by("-created_at", "-id")
+        rows = _audit_rows(_audit_filters(request.query_params))
 
         total = rows.count()
         page_rows = list(rows[offset:offset + limit])
@@ -1012,6 +1057,74 @@ class TicketAuditView(APIView):
             },
         })
 
+
+
+class TicketAuditExportView(APIView):
+    """The Audit tab as an Excel file: every row the current filters match.
+
+    Client item C-26 (2026-10-22): "Could you add an export to that, if we
+    needed to export that to, like, an Excel?" Built as the queue's export is
+    (TicketQueueExportView, which says why each of these): the table's own
+    gate, a POST so that it is CSRF-checked, the filters in the JSON body
+    through the reader the table's query string goes through, and an audit
+    row of its own for the file that left.
+    """
+
+    permission_classes = SUPPORT_PERMISSIONS
+    http_method_names = ["post", "options"]
+
+    def post(self, request):
+        filters = _audit_filters(request.data)
+        now = timezone.now()
+        rows = list(_audit_rows(filters))
+        owner_ids = {
+            row.after_state.get("assignee_id")
+            for row in rows
+            if isinstance(row.after_state, dict)
+        }
+        names_by_id = {
+            user.pk: _person(user)["name"]
+            for user in User.objects.filter(
+                pk__in=[owner for owner in owner_ids if type(owner) is int]
+            )
+        }
+        zone = export_service.export_zone(getattr(request.user, "timezone", None))
+        payload = audit_export_service.audit_workbook(
+            [
+                {
+                    "createdAt": row.created_at,
+                    "ticketId": row.entity_id,
+                    "action": row.action,
+                    "actorName": _person(row.actor_user)["name"] if row.actor_user else None,
+                    "beforeState": row.before_state,
+                    "afterState": row.after_state,
+                }
+                for row in rows
+            ],
+            zone=zone,
+            names_by_id=names_by_id,
+        )
+
+        # Not under entity_type "ticket", for the reason the queue's export
+        # gives: the Audit tab lists those, and there is no ticket to link to.
+        log_audit_event(
+            actor=request.user,
+            entity_type="ticket_audit_export",
+            entity_id=request.user.pk,
+            action=AuditLog.ActionChoices.EXPORT,
+            before_state=None,
+            after_state={
+                "filters": {name: value for name, value in filters.items() if value},
+                "rowCount": len(rows),
+            },
+        )
+
+        response = HttpResponse(payload, content_type=export_service.XLSX)
+        response["Content-Disposition"] = content_disposition_header(
+            as_attachment=True,
+            filename=f"ticket-audit-{now.astimezone(zone).date().isoformat()}.xlsx",
+        )
+        return response
 
 class TicketSupportMessageView(APIView):
     permission_classes = SUPPORT_PERMISSIONS
@@ -1066,13 +1179,13 @@ class TicketSupportMessageView(APIView):
 class TicketDigestSendView(APIView):
     """The morning count of open enquiries, called by a scheduler (C-18).
 
-    .github/workflows/ticket-digest.yml calls this once a day with the email
-    jobs' shared token, in the same header as the platform's other scheduled
-    emails (apps.common.email_jobs), so it needs nothing configured that they
-    do not already have. The token is the whole of its access control: with
-    none set the endpoint answers 503 rather than standing open. What it
-    sends, and when it sends nothing, is emails.send_open_tickets_digest's
-    business.
+    .github/workflows/ticket-digest.yml calls this at 9am Sydney time every
+    day with the email jobs' shared token, in the same header as the
+    platform's other scheduled emails (apps.common.email_jobs), so it needs
+    nothing configured that they do not already have. The token is the whole
+    of its access control: with none set the endpoint answers 503 rather than
+    standing open. What it sends is emails.send_open_tickets_digest's
+    business; switched off on System Emails, it answers "sent": false.
     """
 
     authentication_classes = []

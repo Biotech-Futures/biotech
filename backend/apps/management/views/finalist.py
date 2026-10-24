@@ -64,13 +64,18 @@ class FinalistEmailSettingsSerializer(serializers.ModelSerializer):
         return attrs
 
 
+def _flags():
+    """The finalist teams: not a deleted group, nor one Start new year archived."""
+    return FinalistFlag.objects.filter(group__deleted_at__isnull=True)
+
+
 def _email_counts() -> dict:
     """The finalist teams, and their students, mentors and supervisors with
     an address to be emailed at, and how many have been: everyone on a
     notified team, and whoever a run reached on the others (see
     ``role_counts``). A team counts as emailed once its email went, even if
     someone on it missed it."""
-    flags = list(FinalistFlag.objects.values_list("group_id", "notified"))
+    flags = list(_flags().values_list("group_id", "notified"))
     group_ids = [group_id for group_id, _ in flags]
     notified = {group_id for group_id, notified in flags if notified}
     reached = reached_ids(EMAIL_KEY, group_ids)
@@ -85,7 +90,7 @@ def _due(which: str = "", group_ids=None) -> list[tuple[FinalistFlag, list[str]]
     still due the email: all of them, those picked (``group_ids``), those no
     send has tried yet (``which="new"``), or those a send missed someone on
     (``which="missed"``). A team with nobody to email is left out."""
-    flags = FinalistFlag.objects.select_related("group").filter(notified=False)
+    flags = _flags().select_related("group").filter(notified=False)
     if group_ids:
         flags = flags.filter(group_id__in=group_ids)
     flags = list(flags)
@@ -121,6 +126,21 @@ def _switched_off() -> str:
     if is_email_enabled(EMAIL_KEY):
         return ""
     return f"{get_email_type(EMAIL_KEY).name} is switched off on System Emails."
+
+
+def send_blocked_reason() -> str:
+    """Why Notify Finalists can't send, or "" when it may go ahead: its email
+    switched off, its details not all set or already past, or submissions
+    still open. Resend on System Emails' Log asks the same."""
+    switched_off = _switched_off()
+    if switched_off:
+        return switched_off
+    details = FinalistEmailSettings.load()
+    if not details.is_complete:
+        return MISSING_DETAILS
+    if details.dates_before(symposium_today()):
+        return PAST_DATES
+    return submissions_open_reason()
 
 
 class FinalistEmailSettingsView(APIView):
@@ -186,7 +206,7 @@ class FinalistEmailPreviewView(APIView):
             html = rendered.html.replace(f"cid:{LOGO_CID}", logo_data_uri())
             return Response({"subject": rendered.subject, "group_name": group_name, "html": html})
         flag = (
-            FinalistFlag.objects.select_related("group")
+            _flags().select_related("group")
             .order_by("notified", "group__group_name")
             .first()
         )
@@ -220,17 +240,9 @@ class FinalistNotifyAllView(APIView):
     def post(self, request):
         # Refused up front, as the other Management emails are: a run would
         # send nothing and log every member as missed.
-        switched_off = _switched_off()
-        if switched_off:
-            return Response({"detail": switched_off}, status=status.HTTP_400_BAD_REQUEST)
-        details = FinalistEmailSettings.load()
-        if not details.is_complete:
-            return Response({"detail": MISSING_DETAILS}, status=status.HTTP_400_BAD_REQUEST)
-        if details.dates_before(symposium_today()):
-            return Response({"detail": PAST_DATES}, status=status.HTTP_400_BAD_REQUEST)
-        open_reason = submissions_open_reason()
-        if open_reason:
-            return Response({"detail": open_reason}, status=status.HTTP_400_BAD_REQUEST)
+        blocked = send_blocked_reason()
+        if blocked:
+            return Response({"detail": blocked}, status=status.HTTP_400_BAD_REQUEST)
         which = request.data.get("which") or ""
         if which not in ("", *WHICH):
             return Response({"detail": "which must be new or missed"}, status=status.HTTP_400_BAD_REQUEST)
@@ -244,7 +256,7 @@ class FinalistNotifyAllView(APIView):
         queue_send(FINALIST_SEND, request.user, {"which": which, "group_ids": group_ids or []})
         return Response({
             **run_state(FINALIST_SEND),
-            "pending": FinalistFlag.objects.filter(notified=False).count(),
+            "pending": _flags().filter(notified=False).count(),
         })
 
 
@@ -257,7 +269,7 @@ def _finalist_work(actor, options: dict) -> list[Work]:
     work = []
     for flag, addresses in _due(options.get("which", ""), options.get("group_ids")):
         people = member_labels(flag.group, addresses)
-        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor)))
+        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor), list(people)))
     return work
 
 

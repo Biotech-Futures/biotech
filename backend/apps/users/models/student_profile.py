@@ -2,6 +2,14 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
+
+def default_challenge_year() -> int:
+    """The challenge year a student is added in."""
+    from apps.submissions.services import current_cohort  # its models import this app
+
+    return current_cohort()
+
+
 class StudentProfile(models.Model):
     class RegisteredBy(models.TextChoices):
         SELF = "self", "The student"
@@ -36,11 +44,19 @@ class StudentProfile(models.Model):
     # The last day the student was emailed to add their parent/guardian's
     # details (apps.users.guardian_details), so a rerun never emails twice.
     guardian_details_reminded_on = models.DateField(blank=True, null=True)
+    # When a supervisor last copied the guardian-details form link: every copy
+    # out works until FORM_LINK_LIFETIME after the latest.
+    guardian_details_link_at = models.DateTimeField(blank=True, null=True)
     # Who registered the student; blank for those registered before it was
     # recorded. Registered by a supervisor, or edited by one since, the student
     # can't change their own details: they ask their supervisor (``details_locked``).
     registered_by = models.CharField(max_length=16, choices=RegisteredBy.choices, blank=True, default="")
     supervisor_edited_at = models.DateTimeField(blank=True, null=True)
+    # The challenge year they're taking part in: the one they registered in,
+    # or came back for by registering again once Start new year deactivated
+    # them (apps.users.returning). Guardian Permission's tables and the
+    # guardian and supervisor emails count this year's students by it.
+    challenge_year = models.PositiveSmallIntegerField(default=default_challenge_year)
 
     class Meta:
         db_table = 'student_profile'
@@ -48,6 +64,7 @@ class StudentProfile(models.Model):
         verbose_name_plural = "Student Profiles"
         indexes = [
             models.Index(fields=['supervisor']),
+            models.Index(fields=['challenge_year']),
         ]
         constraints = [
         # A guardian may be left for later when someone else registered the
@@ -64,13 +81,15 @@ class StudentProfile(models.Model):
             ),
             name='student_last_name_not_empty'
         ),
+        # A student a peer registered, or an admin added, may have no school
+        # or year yet: an admin may add them before they're known.
         models.CheckConstraint(
-            condition=~Q(school_name='') | Q(registered_by='peer'),
+            condition=~Q(school_name='') | Q(registered_by__in=['peer', 'admin']),
             name='student_school_name_not_empty'
         ),
         models.CheckConstraint(
             condition=Q(year_lvl__in=[str(i) for i in range(9, 13)])
-            | Q(registered_by='peer', year_lvl=''),
+            | Q(registered_by__in=['peer', 'admin'], year_lvl=''),
             name='student_year_lvl_valid'
         ),
         models.CheckConstraint(

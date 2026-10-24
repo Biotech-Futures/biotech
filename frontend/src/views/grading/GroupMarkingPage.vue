@@ -51,7 +51,7 @@
           {{ payload.group.group_name }}
         </h2>
         <div class="group-marking__search-field">
-          <span class="group-marking__search-label">Search</span>
+          <span class="table-filter-label">Search</span>
           <form class="group-marking__search-form" @submit.prevent="openSearch">
             <GroupSearchInput
               ref="picker"
@@ -942,14 +942,6 @@ const downloadAll = async () => {
   min-width: 0;
   max-width: 400px;
   margin-inline: auto;
-}
-
-.group-marking__search-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .group-marking__search-form {

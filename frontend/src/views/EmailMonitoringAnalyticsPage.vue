@@ -19,16 +19,15 @@
 
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv">
-            <i class="fas fa-download"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
         </div>
       </div>
     </div>
+
+    <p v-if="exportError" role="alert">{{ exportError }}</p>
 
     <AnalyticsDataState
       :loading="isLoading"
@@ -154,10 +153,20 @@
       <div class="section-heading-row logs-heading">
         <div>
           <h2>Email Logs</h2>
-          <p>Recent announcement delivery runs.</p>
+          <p v-if="recipientMode">
+            Emails sent to recipients matching “{{ recipientQuery.trim() }}”, newest first. Each row is one recipient's copy.
+          </p>
+          <p v-else>The latest 100 sends of each email type, newest first.</p>
         </div>
 
         <div class="log-actions">
+          <input
+            v-model="recipientQuery"
+            type="search"
+            class="log-search recipient-search"
+            placeholder="Emails sent to… (name or email)"
+            aria-label="Find emails sent to a recipient by name or email"
+          />
           <input
             v-model.trim="logSearch"
             type="search"
@@ -166,8 +175,15 @@
             aria-label="Search email logs"
           />
           <label class="status-filter">
+            <select v-model="logType" aria-label="Filter email logs by email type">
+              <option value="all">All email types</option>
+              <option v-for="type in logTypes" :key="type" :value="type">{{ type }}</option>
+            </select>
+          </label>
+          <label class="status-filter">
             <select v-model="logStatus" aria-label="Filter email logs by status">
               <option value="all">All statuses</option>
+              <option value="Sending">Sending</option>
               <option value="Delivered">Delivered</option>
               <option value="Partial">Partial</option>
               <option value="Failed">Failed</option>
@@ -185,12 +201,14 @@
           <thead>
             <tr>
               <th>Sender</th>
-              <th>Sender Email</th>
+              <th>Initiating Admin Email</th>
               <th>Recipient</th>
               <th>Recipient Email</th>
+              <th>Email Type</th>
               <th>Email Title</th>
               <th>Sent At</th>
               <th>Status</th>
+              <th>Recipients</th>
             </tr>
           </thead>
           <tbody>
@@ -199,12 +217,32 @@
               <td>{{ log.senderEmail }}</td>
               <td>{{ log.recipient }}</td>
               <td>{{ log.recipientEmail }}</td>
+              <td>{{ log.type }}</td>
               <td class="email-title-cell">{{ log.title }}</td>
               <td>{{ log.sentAt }}</td>
               <td>
-                <span class="log-status" :class="log.status.toLowerCase()">
+                <span class="log-status" :class="log.status.toLowerCase()" :title="statusDetail(log)">
                   {{ log.status }}
                 </span>
+              </td>
+              <td>
+                <button
+                  v-if="log.sendId && log.recipientsRecorded"
+                  type="button"
+                  class="recipient-export-button"
+                  :disabled="exportingSendId === log.sendId"
+                  :title="`Download the ${log.recipientsRecorded} recorded recipients of this email as CSV`"
+                  :aria-label="`Download recipients of ${log.title}`"
+                  @click="exportRecipients(log)"
+                >
+                  <i class="fas fa-download" aria-hidden="true"></i>
+                  CSV
+                </button>
+                <span
+                  v-else
+                  class="recipients-not-recorded"
+                  title="Recipient lists are kept for emails sent since recipient tracking was added."
+                >Not recorded</span>
               </td>
             </tr>
           </tbody>
@@ -212,8 +250,41 @@
       </div>
 
       <div class="logs-footer">
+        <span v-if="recipientError" class="recipient-error" role="alert">{{ recipientError }}</span>
+        <span v-else-if="recipientLoading">Searching recipients…</span>
         <span>{{ filteredLogs.length }} log entries shown</span>
       </div>
+      <p class="recipient-note">
+        Recipient lists are kept for emails sent since recipient tracking was added; earlier emails show
+        “Not recorded”. Search by recipient to see every recorded email sent to one person.
+      </p>
+
+      <dl class="log-status-legend" aria-label="What the statuses mean">
+        <div>
+          <dt><span class="log-status sending">Sending</span></dt>
+          <dd>The email send is still in progress.</dd>
+        </div>
+        <div>
+          <dt><span class="log-status delivered">Delivered</span></dt>
+          <dd>Every recipient's mail server accepted the email.</dd>
+        </div>
+        <div>
+          <dt><span class="log-status partial">Partial</span></dt>
+          <dd>
+            Some recipients received the email and some could not be reached, so it did not go to everyone.
+            This happens when a mail server refuses an address (for example a mistyped or closed mailbox)
+            or the send stopped part-way.
+          </dd>
+        </div>
+        <div>
+          <dt><span class="log-status failed">Failed</span></dt>
+          <dd>No recipient received the email.</dd>
+        </div>
+        <p>
+          Who was missed and why is listed in
+          <RouterLink to="/admin/emails">System Emails → Failed Sending Emails</RouterLink>.
+        </p>
+      </dl>
     </section>
 
 
@@ -571,12 +642,28 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import { useRoute } from 'vue-router'
-import type { EmailMonitoringData } from '@/types/analytics'
+import type { EmailLog, EmailMonitoringData } from '@/types/analytics'
 import {
   buildEmailMonitoring,
+  buildRecipientEmailLogs,
   loadEmailMonitoringAnalyticsBundle,
   type EmailAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
+import { downloadEmailRecipientsCsv, searchEmailsToRecipient } from '@/utils/liveAnalyticsApi'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoUtc,
+  runExport,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const route = useRoute()
 const data = ref<EmailMonitoringData>({
@@ -617,22 +704,79 @@ const exportDisabled = computed(() => isLoading.value || !!loadError.value || is
 const analyticsSnapshotAt = ref<string | null>(null)
 const logSearch = ref('')
 const logStatus = ref('all')
+const logType = ref('all')
+// Recipient search (by name or address) replaces the recent sends with every
+// recorded email to the matching recipients.
+const RECIPIENT_SEARCH_MIN_LENGTH = 3
+const recipientQuery = ref('')
+const recipientLogs = ref<EmailLog[] | null>(null)
+const recipientLoading = ref(false)
+const recipientError = ref('')
+const recipientMode = computed(() => recipientLogs.value !== null)
+const shownLogs = computed(() => recipientLogs.value ?? data.value.logs)
+const logTypes = computed(() => [...new Set(shownLogs.value.map((log) => log.type))].sort())
+
+let recipientTimer: ReturnType<typeof setTimeout> | undefined
+let recipientRequest = 0
+watch(recipientQuery, (value) => {
+  clearTimeout(recipientTimer)
+  const query = value.trim()
+  recipientError.value = ''
+  if (query.length < RECIPIENT_SEARCH_MIN_LENGTH) {
+    recipientRequest += 1
+    recipientLogs.value = null
+    recipientLoading.value = false
+    return
+  }
+  recipientTimer = setTimeout(async () => {
+    const request = ++recipientRequest
+    recipientLoading.value = true
+    try {
+      const rows = await searchEmailsToRecipient(query)
+      if (request === recipientRequest) recipientLogs.value = buildRecipientEmailLogs(rows)
+    } catch {
+      if (request === recipientRequest) {
+        recipientLogs.value = []
+        recipientError.value = 'Emails to this recipient could not be loaded.'
+      }
+    } finally {
+      if (request === recipientRequest) recipientLoading.value = false
+    }
+  }, 350)
+})
+
+const exportingSendId = ref<number | null>(null)
+async function exportRecipients(log: EmailLog) {
+  if (!log.sendId) return
+  exportingSendId.value = log.sendId
+  recipientError.value = ''
+  try {
+    await downloadEmailRecipientsCsv(log.sendId)
+  } catch {
+    recipientError.value = 'The recipient list could not be downloaded.'
+  } finally {
+    exportingSendId.value = null
+  }
+}
 
 useAnalyticsRefreshState('email', {
   logSearch,
   logStatus,
+  logType,
 }, () => !isLoading.value && hasLoaded.value)
 
 const filteredLogs = computed(() => {
   const query = logSearch.value.toLowerCase()
 
-  return data.value.logs.filter((log) => {
+  return shownLogs.value.filter((log) => {
     const matchesStatus = logStatus.value === 'all' || log.status === logStatus.value
+    const matchesType = logType.value === 'all' || log.type === logType.value
     const haystack = [
       log.sender,
       log.senderEmail,
       log.recipient,
       log.recipientEmail,
+      log.type,
       log.title,
       log.sentAt,
       log.status,
@@ -640,9 +784,22 @@ const filteredLogs = computed(() => {
       .join(' ')
       .toLowerCase()
 
-    return matchesStatus && (!query || haystack.includes(query))
+    return matchesStatus && matchesType && (!query || haystack.includes(query))
   })
 })
+
+function statusDetail(log: EmailLog) {
+  if (log.recipientReason !== undefined) {
+    return log.recipientReason
+      ? `Not delivered to this recipient: ${log.recipientReason}.`
+      : 'Delivered to this recipient.'
+  }
+  const counts = `${log.delivered} of ${log.attempted} delivered, ${log.failed} not delivered.`
+  if (log.status === 'Sending') return 'Sending: this email send is still in progress.'
+  if (log.status === 'Partial') return `Partial: not every recipient received this email. ${counts}`
+  if (log.status === 'Failed') return `Failed: no recipient received this email. ${counts}`
+  return counts
+}
 
 
 
@@ -825,37 +982,102 @@ function refreshAnalytics() {
   return loadAnalytics(true)
 }
 
-function exportLogsCsv() {
-  const rows: (string | number)[][] = [
-    ['Sender', 'Sender Email', 'Recipient', 'Recipient Email', 'Email Title', 'Sent At', 'Status'],
-    ...filteredLogs.value.map((log) => [
-      log.sender,
-      log.senderEmail,
-      log.recipient,
-      log.recipientEmail,
-      log.title,
-      log.sentAt,
-      log.status,
-    ]),
-  ]
-
-  const csv = rows
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'email-logs.csv'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
 
 
 onMounted(() => loadAnalytics())
+
+const exportError = ref('')
+const exportOptions: ExportOption[] = [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'The email logs below, with their filters' },
+]
+
+function emailSummary() {
+  const current = data.value
+  const attribution = current.roleAttribution
+  const latestHour = current.hourlyUsage[current.hourlyUsage.length - 1]
+  const peak = current.hourlyUsage.find((row) => row.label === current.peakHourLabel)
+  const stats = current.overallStats
+  const rows: SummaryRow[] = [
+    ...mailboxSummaries.value.flatMap((mailbox) => [
+      figure(`Mailbox ${mailbox.email}`, 'Rolling 24-hour usage', mailbox.currentUsage, 'recipients'),
+      figure(`Mailbox ${mailbox.email}`, 'Quota', mailbox.quotaLimit, 'recipients'),
+      figure(`Mailbox ${mailbox.email}`, 'Quota used', mailbox.percent, '%'),
+      figure(`Mailbox ${mailbox.email}`, 'Remaining', mailbox.remaining, 'recipients'),
+    ]),
+    figure('Rolling 24 hours', 'Combined usage', combinedUsage.value, 'recipients'),
+    figure('Rolling 24 hours', 'Window end', isoUtc(analyticsSnapshotAt.value), 'UTC'),
+    figure('Rolling 24 hours', 'Latest recorded hour', latestHour ? isoUtc(latestHour.hour) : '', 'UTC'),
+    figure('Rolling 24 hours', 'Latest recorded hour attempts', current.sentLastHour, 'recipients'),
+    figure('Rolling 24 hours', 'Peak hour', peak ? isoUtc(peak.hour) : '', 'UTC'),
+    figure('Rolling 24 hours', 'Peak hour attempts', current.peakHourValue, 'recipients'),
+    figure('Emails', 'Attempted', stats.sent, 'recipients'),
+    figure('Emails', 'Delivered', stats.delivered, 'recipients'),
+    figure('Emails', 'Not delivered', stats.failed, 'recipients'),
+    figure('Emails', 'Average recipients per send', stats.averageSentPerUser, 'recipients'),
+    ...current.verificationDaily.map((point) => figure('Attempts per day', point.date, point.value, 'recipients')),
+    ...current.hourlyUsage.flatMap((row) => [
+      figure('Attempts per hour (info mailbox)', isoUtc(row.hour), row.info, 'recipients'),
+      figure('Attempts per hour (connect mailbox)', isoUtc(row.hour), row.connect, 'recipients'),
+    ]),
+    ...current.categories.map((item) => figure('Email volume by type', item.label, item.value, 'emails')),
+    figure('Role attribution', 'Availability', attribution.available ? 'Available' : 'Unavailable', '',
+      "Based on each announcement's current single-role audience, not a record made at send time"),
+    figure('Role attribution', 'Coverage', !attribution.available ? '' : attribution.complete ? 'Complete' : 'Partial'),
+    figure('Role attribution', 'Attributed sends', attribution.trackedDeliveryRuns, 'sends'),
+    figure('Role attribution', 'Unattributed sends', attribution.unattributedDeliveryRuns, 'sends'),
+    figure('Role attribution', 'Attributed attempts', attribution.trackedAttempted, 'recipients'),
+    figure('Role attribution', 'Unattributed attempts', attribution.unattributedAttempted, 'recipients'),
+    ...(attribution.available
+      ? current.statusByRole.flatMap((row) => [
+          figure(`Delivery by role (${row.role})`, 'Attempted', row.attempted, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Delivered', row.delivered, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Not delivered', row.failed, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Sends', row.trackedDeliveries, 'sends'),
+        ])
+      : []),
+    ...emailInsightItems.value.map((item) => figure('Key insights', item.text, item.value)),
+  ]
+  const snapshot = isoUtc(analyticsSnapshotAt.value)
+  return {
+    fileName: exportFileName('email', 'summary', snapshot.slice(0, 10) || 'latest'),
+    csv: summaryCsv({
+      page: 'Email Monitoring',
+      covers: snapshot ? `Rolling 24 hours to ${snapshot}; daily attempts for the last 14 days` : 'Latest recorded sends',
+    }, rows),
+  }
+}
+
+function emailLogsDetails() {
+  const perRecipient = recipientMode.value
+  // A send's title repeats its type for system emails; keep it only when it adds something.
+  const titleOf = (log: EmailLog) => (log.title === log.type ? '' : log.title)
+  const rows = filteredLogs.value.map((log) => perRecipient
+    ? [
+        log.sendId, isoUtc(log.sentAtIso), log.type, titleOf(log), log.sender, log.senderEmail,
+        log.recipient === '—' ? '' : log.recipient, log.recipientEmail, log.status, log.recipientReason ?? '',
+      ]
+    : [
+        log.sendId, isoUtc(log.sentAtIso), log.type, titleOf(log), log.sender, log.senderEmail,
+        log.status, log.attempted, log.delivered, log.failed, log.recipientsRecorded,
+      ])
+  const headers = perRecipient
+    ? ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Initiating Admin Email', 'Recipient', 'Recipient Email', 'Status', 'Reason Not Delivered']
+    : ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Initiating Admin Email', 'Status', 'Recipients', 'Delivered', 'Not Delivered', 'Recipients Recorded']
+  const scope = perRecipient ? `to ${recipientQuery.value.trim()}` : isoUtc(analyticsSnapshotAt.value).slice(0, 10) || 'latest'
+  return {
+    fileName: exportFileName('email', 'logs', scope),
+    csv: detailsCsv(headers, rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? emailSummary : emailLogsDetails)
+}
+
+function exportLogsCsv() {
+  exportCsv('details')
+}
 
 async function scrollToDeepLinkTarget(hash: string) {
   if (!hash) return
@@ -883,94 +1105,6 @@ watch(
   { immediate: true },
 )
 
-function exportCsv() {
-  const rows: (string | number)[][] = [
-    ['Email Monitoring'],
-    [],
-    ['Metric', 'Value'],
-    ...mailboxSummaries.value.flatMap((mailbox) => [
-      [`${mailbox.email} - 24-Hour Usage`, mailbox.currentUsage],
-      [`${mailbox.email} - Quota Limit`, mailbox.quotaLimit],
-      [`${mailbox.email} - Quota Used (%)`, mailbox.percent],
-      [`${mailbox.email} - Remaining`, mailbox.remaining],
-    ]),
-    ['Combined 24-Hour Usage', combinedUsage.value],
-    ['Mailbox Limit', data.value.verificationDailyBaseLimit],
-    ...data.value.verificationDaily.map((point) => [`Delivery Attempts - ${point.label}`, point.value]),
-    ['Rolling 24-Hour Window End (UTC)', analyticsSnapshotLabel.value || 'Unavailable'],
-    ['Latest Recorded UTC Hour', latestRecordedHourLabel.value],
-    ['Latest Recorded UTC Hour Attempts', data.value.sentLastHour],
-    ['Peak Hour', data.value.peakHourLabel],
-    ['Peak Hour Attempted Recipients', data.value.peakHourValue],
-    [],
-    ['Overall Email Stats'],
-    ['Emails Delivered', data.value.overallStats.delivered],
-    ['Emails Sent', data.value.overallStats.sent],
-    ['Emails Failed', data.value.overallStats.failed],
-    ['Emails Clicked', optionalMetric(data.value.overallStats.clicked)],
-    ['Emails Opened', optionalMetric(data.value.overallStats.opened)],
-    ['Marked as Spam', optionalMetric(data.value.overallStats.spam)],
-    ['Average Attempted Recipients per Delivery Run', optionalMetric(data.value.overallStats.averageSentPerUser)],
-    ['Average Opened per User', optionalMetric(data.value.overallStats.averageOpenedPerUser)],
-    ['Average Clicked per User', optionalMetric(data.value.overallStats.averageClickedPerUser)],
-    [],
-    ['Role Attribution'],
-    ['Basis', 'Current single-role announcement audience; not a send-time historical role snapshot'],
-    ['Availability', data.value.roleAttribution.available ? 'Available' : 'Unavailable'],
-    [
-      'Coverage',
-      !data.value.roleAttribution.available
-        ? 'Unavailable'
-        : data.value.roleAttribution.complete
-          ? 'Complete'
-          : 'Partial',
-    ],
-    ['Attributed Delivery Runs', data.value.roleAttribution.trackedDeliveryRuns],
-    ['Unattributed Delivery Runs', data.value.roleAttribution.unattributedDeliveryRuns],
-    ['Attributed Attempts', data.value.roleAttribution.trackedAttempted],
-    ['Unattributed Attempts', data.value.roleAttribution.unattributedAttempted],
-    ['Attributed Delivered', data.value.roleAttribution.trackedDelivered],
-    ['Unattributed Delivered', data.value.roleAttribution.unattributedDelivered],
-    ['Attributed Failed', data.value.roleAttribution.trackedFailed],
-    ['Unattributed Failed', data.value.roleAttribution.unattributedFailed],
-    ['Role', 'Attributed Delivery Runs', 'Attempted', 'Delivered', 'Failed', 'Opened'],
-    ...(data.value.roleAttribution.available
-      ? data.value.statusByRole.map((row) => [
-          row.role,
-          row.trackedDeliveries,
-          row.attempted,
-          row.delivered,
-          row.failed,
-          optionalMetric(row.opened),
-        ])
-      : [['Unavailable', '', '', '', '', 'Unavailable']]),
-    [],
-    ['Hour', 'info@biotechfutures.org', 'connect@biotechfutures.org', 'Combined'],
-    ...data.value.hourlyUsage.map((item) => [
-      item.label,
-      item.info,
-      item.connect,
-      item.info + item.connect,
-    ]),
-    [],
-    ['Email Type', 'Messages'],
-    ...data.value.categories.map((item) => [item.label, item.value]),
-  ]
-
-  const csv = rows
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'email-monitoring.csv'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
 </script>
 
 <style src="@/assets/analytics-theme.css"></style>
@@ -979,8 +1113,8 @@ function exportCsv() {
 .email-monitoring-page {
   min-height: 100%;
   padding: 28px 32px 40px;
-  background: #f7faf9;
-  color: #174243;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #174243);
 }
 
 .page-heading {
@@ -995,13 +1129,13 @@ function exportCsv() {
   align-items: center;
   gap: 8px;
   margin-bottom: 18px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
 
 .breadcrumb a {
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   text-decoration: none;
 }
 
@@ -1009,7 +1143,7 @@ function exportCsv() {
 
 
 .breadcrumb a:hover {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   text-decoration: underline;
 }
 .title-line {
@@ -1026,12 +1160,12 @@ h1 {
 
 .heading-copy > p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 .page-heading h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -1044,10 +1178,10 @@ h1 {
   align-items: center;
   min-height: 30px;
   padding: 0 10px;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 999px;
-  background: #F1E5A6;
-  color: #174243;
+  background: var(--analytics-ui-warning-bg, #F1E5A6);
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1065,7 +1199,7 @@ h1 {
 .export-button {
   height: 46px;
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1077,8 +1211,8 @@ h1 {
   gap: 9px;
   width: 120px;
   padding: 0 13px;
-  border: 1px solid #d7e3e0;
-  color: #174844;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0);
+  color: var(--analytics-ui-text, #174844);
   cursor: pointer;
 }
 
@@ -1089,8 +1223,8 @@ h1 {
   gap: 8px;
   width: 142px;
   padding: 0 16px;
-  border: 1px solid #9fd8c7;
-  color: #017151;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
+  color: var(--analytics-ui-accent, #017151);
   cursor: pointer;
   transition:
     background-color 0.2s ease,
@@ -1099,8 +1233,8 @@ h1 {
 
 .refresh-button:hover,
 .export-button:hover {
-  background: #ecf8f4;
-  border-color: #74c9b3;
+  background: var(--analytics-ui-selected, #ecf8f4);
+  border-color: var(--analytics-ui-control-border, #74c9b3);
 }
 
 .kpi-grid {
@@ -1112,9 +1246,9 @@ h1 {
 
 .kpi-card,
 .analytics-card {
-  border: 1px solid #d7e2de;
+  border: 1px solid var(--analytics-ui-border, #d7e2de);
   border-radius: 12px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
 }
 
 .kpi-card {
@@ -1132,8 +1266,8 @@ h1 {
   flex: 0 0 42px;
   place-items: center;
   border-radius: 10px;
-  background: #e7f1e6;
-  color: #017151;
+  background: var(--analytics-ui-soft, #e7f1e6);
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .kpi-card > div {
@@ -1143,14 +1277,14 @@ h1 {
 }
 
 .kpi-label {
-  color: #52615c;
+  color: var(--analytics-ui-muted, #52615c);
   font-size: 12px;
   font-weight: 700;
 }
 
 .kpi-card strong {
   margin: 0;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 30px;
   line-height: 38px;
 }
@@ -1160,7 +1294,7 @@ h1 {
 }
 
 .kpi-card small {
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 11px;
   line-height: 15px;
 }
@@ -1193,13 +1327,13 @@ h1 {
 
 .card-heading h2 {
   margin: 0;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 18px;
 }
 
 .card-heading p {
   margin: 4px 0 0;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 12px;
 }
 
@@ -1210,16 +1344,16 @@ h1 {
   min-height: 28px;
   padding: 0 9px;
   border-radius: 999px;
-  background: #e7f1e6;
-  color: #017151;
+  background: var(--analytics-ui-soft, #e7f1e6);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   font-weight: 700;
 }
 
 .status-pill.warning,
 .table-status.monitoring {
-  background: #f1e5a6;
-  color: #174243;
+  background: var(--analytics-ui-warning-bg, #f1e5a6);
+  color: var(--analytics-ui-text, #174243);
 }
 
 .quota-layout {
@@ -1238,7 +1372,7 @@ h1 {
   width: 170px;
   height: 170px;
   border-radius: 50%;
-  background: conic-gradient(var(--quota-color) var(--quota), #e9efec 0);
+  background: conic-gradient(var(--quota-color) var(--quota), var(--analytics-ui-soft, #e9efec) 0);
 }
 
 .quota-ring::after {
@@ -1246,7 +1380,7 @@ h1 {
   position: absolute;
   inset: 24px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
 }
 
 .quota-center {
@@ -1259,12 +1393,12 @@ h1 {
 }
 
 .quota-center strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 34px;
 }
 
 .quota-center span {
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 11px;
 }
 
@@ -1279,17 +1413,17 @@ h1 {
   align-items: baseline;
   justify-content: space-between;
   gap: 22px;
-  border-bottom: 1px solid #e9efec;
+  border-bottom: 1px solid var(--analytics-ui-border, #e9efec);
   padding-bottom: 8px;
 }
 
 .quota-details span {
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 12px;
 }
 
 .quota-details strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 16px;
 }
 
@@ -1314,7 +1448,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1329,7 +1463,7 @@ h1 {
   height: 12px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e9efec;
+  background: var(--analytics-ui-soft, #e9efec);
 }
 
 .category-track span {
@@ -1339,7 +1473,7 @@ h1 {
 }
 
 .category-row > strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   text-align: right;
 }
@@ -1356,7 +1490,7 @@ h1 {
   flex-direction: column;
   justify-content: space-between;
   padding: 5px 0 36px;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 10px;
   text-align: right;
 }
@@ -1365,8 +1499,8 @@ h1 {
   position: relative;
   min-width: 0;
   height: 330px;
-  border-left: 1px solid #d7e2de;
-  border-bottom: 1px solid #d7e2de;
+  border-left: 1px solid var(--analytics-ui-border, #d7e2de);
+  border-bottom: 1px solid var(--analytics-ui-border, #d7e2de);
 }
 
 .bar-grid-lines {
@@ -1379,7 +1513,7 @@ h1 {
 }
 
 .bar-grid-lines span {
-  border-top: 1px solid #e9efec;
+  border-top: 1px solid var(--analytics-ui-border, #e9efec);
 }
 
 .bars {
@@ -1401,7 +1535,7 @@ h1 {
 }
 
 .bar-value {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 10px;
   font-weight: 700;
 }
@@ -1418,13 +1552,13 @@ h1 {
 
 .bar-column > span {
   align-self: center;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 10px;
 }
 
 .axis-title {
   margin-top: 7px;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 10px;
   font-weight: 700;
   text-align: center;
@@ -1443,15 +1577,15 @@ table {
 th,
 td {
   padding: 10px;
-  border-bottom: 1px solid #e9efec;
-  color: #52615c;
+  border-bottom: 1px solid var(--analytics-ui-border, #e9efec);
+  color: var(--analytics-ui-muted, #52615c);
   font-size: 12px;
   text-align: left;
 }
 
 th {
-  background: #f0f3f2;
-  color: #174243;
+  background: var(--analytics-ui-soft, #f0f3f2);
+  color: var(--analytics-ui-text, #174243);
   font-size: 11px;
 }
 
@@ -1467,18 +1601,18 @@ th {
   gap: 10px;
   padding: 12px;
   border-radius: 9px;
-  background: #f7faf9;
+  background: var(--analytics-ui-surface, #f7faf9);
 }
 
 .insight-value {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 20px;
   font-weight: 700;
 }
 
 .insight-row p {
   margin: 0;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 11px;
 }
 
@@ -1497,30 +1631,30 @@ th {
 
 .section-heading-row h2 {
   margin: 0;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 18px;
 }
 
 .section-heading-row p {
   margin: 4px 0 0;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 12px;
 }
 
 .overall-stats-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border: 1px solid #d7e2de;
+  border: 1px solid var(--analytics-ui-border, #d7e2de);
   border-radius: 12px;
   overflow: hidden;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
 }
 
 .overall-stat-card {
   min-width: 0;
   min-height: 150px;
   padding: 10px 16px;
-  border-right: 1px solid #d7e2de;
+  border-right: 1px solid var(--analytics-ui-border, #d7e2de);
   text-align: center;
 }
 
@@ -1544,20 +1678,20 @@ th {
   height: 28px;
   flex: 0 0 28px;
   place-items: center;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 16px;
 }
 
 .overall-stat-label {
   display: block;
   margin-bottom: 2px;
-  color: #52615c;
+  color: var(--analytics-ui-muted, #52615c);
   font-size: 11px;
   font-weight: 700;
 }
 
 .overall-stat-top strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 22px;
   line-height: 1.05;
 }
@@ -1579,14 +1713,14 @@ th {
 
 .overall-stat-meta span {
   display: block;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 10px;
 }
 
 .overall-stat-meta strong {
   display: block;
   margin-top: 3px;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
 }
 
@@ -1609,10 +1743,10 @@ th {
 .status-filter select,
 .download-logs-button {
   height: 38px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #fff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-text, #174243);
   font: inherit;
   font-size: 11px;
 }
@@ -1632,7 +1766,7 @@ th {
   align-items: center;
   gap: 7px;
   padding: 0 11px;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-weight: 700;
   cursor: pointer;
 }
@@ -1641,7 +1775,7 @@ th {
   max-height: 430px;
   overflow-y: auto;
   overflow-x: hidden;
-  border: 1px solid #d7e2de;
+  border: 1px solid var(--analytics-ui-border, #d7e2de);
   border-radius: 10px;
 }
 
@@ -1655,7 +1789,7 @@ th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #f0f3f2;
+  background: var(--analytics-ui-soft, #f0f3f2);
 }
 
 .email-log-table th,
@@ -1668,17 +1802,64 @@ th {
   font-size: 10px;
 }
 
-.email-log-table th:nth-child(1) { width: 10%; }
-.email-log-table th:nth-child(2) { width: 16%; }
-.email-log-table th:nth-child(3) { width: 12%; }
-.email-log-table th:nth-child(4) { width: 16%; }
-.email-log-table th:nth-child(5) { width: 24%; }
-.email-log-table th:nth-child(6) { width: 12%; }
-.email-log-table th:nth-child(7) { width: 10%; }
+.email-log-table th:nth-child(1) { width: 9%; }
+.email-log-table th:nth-child(2) { width: 15%; }
+.email-log-table th:nth-child(3) { width: 9%; }
+.email-log-table th:nth-child(4) { width: 12%; }
+.email-log-table th:nth-child(5) { width: 11%; }
+.email-log-table th:nth-child(6) { width: 16%; }
+.email-log-table th:nth-child(7) { width: 11%; }
+.email-log-table th:nth-child(8) { width: 9%; }
+.email-log-table th:nth-child(9) { width: 8%; }
+
+/* Recipient search and per-email recipient export. */
+.recipient-search {
+  min-width: 220px;
+}
+
+.recipient-export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
+  border-radius: 7px;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-accent, #017151);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.recipient-export-button:hover:not(:disabled) {
+  background: var(--analytics-ui-selected, #f3f8f5);
+}
+
+.recipient-export-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.recipients-not-recorded {
+  color: var(--analytics-ui-muted, #8a9a96);
+  font-size: 10px;
+}
+
+.recipient-error {
+  margin-right: auto;
+  color: var(--analytics-ui-danger, #9b3b1f);
+  font-weight: 700;
+}
+
+.recipient-note {
+  margin: 6px 0 0;
+  color: var(--analytics-ui-muted, #667873);
+  font-size: 11px;
+}
 
 .email-title-cell {
   min-width: 0;
-  color: #39687b;
+  color: var(--analytics-ui-secondary, #39687b);
 }
 
 .log-status {
@@ -1689,8 +1870,8 @@ th {
   max-width: 100%;
   padding: 0 7px;
   border-radius: 999px;
-  background: #E7F1E6;
-  color: #017151;
+  background: var(--analytics-ui-soft, #E7F1E6);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 9px;
   font-weight: 700;
   line-height: 1.1;
@@ -1700,26 +1881,67 @@ th {
 }
 
 .log-status.opened {
-  background: #e4f0ee;
-  color: #174243;
+  background: var(--analytics-ui-soft, #e4f0ee);
+  color: var(--analytics-ui-text, #174243);
+}
+
+.log-status.sending {
+  background: var(--analytics-ui-soft, #e8f0f3);
+  color: var(--analytics-ui-secondary, #376f83);
 }
 
 .log-status.partial {
-  background: #fff4d0;
-  color: #715400;
+  background: var(--analytics-ui-warning-bg, #fff4d0);
+  color: var(--analytics-ui-warning, #715400);
 }
 
 .log-status.failed {
-  background: #f1e5a6;
-  color: #174243;
+  background: var(--analytics-ui-warning-bg, #f1e5a6);
+  color: var(--analytics-ui-text, #174243);
 }
 
 .logs-footer {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
   padding-top: 8px;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 10px;
+}
+
+/* What each delivery status means (Partial in particular). */
+.log-status-legend {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--analytics-ui-border, #e1e9e6);
+  border-radius: 10px;
+  background: var(--analytics-ui-surface, #f7fbf9);
+  color: var(--analytics-ui-muted, #536762);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.log-status-legend div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.log-status-legend dt,
+.log-status-legend dd {
+  margin: 0;
+}
+
+.log-status-legend p {
+  margin: 2px 0 0;
+}
+
+.log-status-legend a {
+  color: var(--analytics-ui-accent, #017151);
+  font-weight: 700;
 }
 
 .mailbox-quota-list {
@@ -1733,7 +1955,7 @@ th {
   align-items: center;
   gap: 20px;
   padding: 14px 0;
-  border-bottom: 1px solid #e9efec;
+  border-bottom: 1px solid var(--analytics-ui-border, #e9efec);
 }
 
 .mailbox-quota-row:last-child {
@@ -1760,7 +1982,7 @@ th {
 .mailbox-address {
   display: block;
   margin-bottom: 10px;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 14px;
 }
 
@@ -1768,14 +1990,14 @@ th {
   height: 12px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e9efec;
+  background: var(--analytics-ui-soft, #e9efec);
 }
 
 .mailbox-progress span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #BAD7B8;
+  background: var(--analytics-ui-soft, #BAD7B8);
 }
 
 .mailbox-quota-row.low-remaining .mailbox-progress span {
@@ -1790,14 +2012,14 @@ th {
 }
 
 .mailbox-stat-row > span {
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 10px;
 }
 
 .mailbox-stat-row strong {
   display: block;
   margin-top: 2px;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
 }
 
@@ -1820,7 +2042,7 @@ th {
 
   .overall-stat-card {
     border-right: 0;
-    border-bottom: 1px solid #d7e2de;
+    border-bottom: 1px solid var(--analytics-ui-border, #d7e2de);
   }
 
   .overall-stat-card:last-child {
@@ -1917,29 +2139,34 @@ th {
 
 .email-log-table .log-status.delivered {
   background: rgba(186, 215, 184, 0.52);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .email-log-table .log-status.opened {
   background: rgba(94, 169, 158, 0.16);
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
+}
+
+.email-log-table .log-status.sending {
+  background: var(--analytics-ui-soft, #e8f0f3);
+  color: var(--analytics-ui-secondary, #376f83);
 }
 
 .email-log-table .log-status.partial {
-  background: #fff4d0;
-  color: #715400;
+  background: var(--analytics-ui-warning-bg, #fff4d0);
+  color: var(--analytics-ui-warning, #715400);
 }
 
 .email-log-table .log-status.failed {
-  background: #F1E5A6;
-  color: #174243;
+  background: var(--analytics-ui-warning-bg, #F1E5A6);
+  color: var(--analytics-ui-text, #174243);
 }
 
 
 /* Exact Users Analytics header/control alignment */
 .email-monitoring-page .page-heading h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -1947,7 +2174,7 @@ th {
 
 .email-monitoring-page .heading-copy > p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -1963,10 +2190,10 @@ th {
   width: 120px;
   height: 46px;
   padding: 0 13px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 12px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-page, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1975,18 +2202,18 @@ th {
   width: 142px;
   height: 46px;
   padding: 0 16px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 12px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-page, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 14px;
   font-weight: 700;
 }
 
-.verification-limit-badge { display:inline-flex; align-items:center; min-height:28px; padding:0 9px; border:1px solid #BAD7B8; border-radius:999px; background:rgba(241,229,166,.55); color:#174243; font-size:11px; font-weight:700; }
+.verification-limit-badge { display:inline-flex; align-items:center; min-height:28px; padding:0 9px; border:1px solid var(--analytics-ui-border, #BAD7B8); border-radius:999px; background:rgba(241,229,166,.55); color:var(--analytics-ui-text, #174243); font-size:11px; font-weight:700; }
 .verification-chart-area { position:relative; }
 .verification-limit-line { position:absolute; right:10px; left:10px; z-index:2; border-top:1px dashed #39687B; pointer-events:none; }
-.verification-limit-line span { position:absolute; right:0; bottom:4px; padding:2px 6px; border-radius:6px; background:#fff; color:#39687B; font-size:10px; font-weight:700; }
+.verification-limit-line span { position:absolute; right:0; bottom:4px; padding:2px 6px; border-radius:6px; background:var(--analytics-ui-surface, #fff); color:var(--analytics-ui-secondary, #39687B); font-size:10px; font-weight:700; }
 .verification-bars { grid-template-columns:repeat(7,minmax(0,1fr)); }
 .verification-bar { background:#5EA99E; }
 
@@ -2026,7 +2253,7 @@ th {
   justify-self: center;
   overflow: hidden;
   border-radius: 5px 5px 0 0;
-  background: #e5efec;
+  background: var(--analytics-ui-soft, #e5efec);
   cursor: pointer;
 }
 
@@ -2046,7 +2273,7 @@ th {
 }
 
 .two-tone-remaining {
-  background: #BAD7B8;
+  background: var(--analytics-ui-soft, #BAD7B8);
   opacity: 0.55;
 }
 
@@ -2061,7 +2288,7 @@ th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #f0f3f2;
+  background: var(--analytics-ui-soft, #f0f3f2);
 }
 
 .axis-footer {
@@ -2082,7 +2309,7 @@ th {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #617571;
+  color: var(--analytics-ui-muted, #617571);
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
@@ -2189,28 +2416,28 @@ th {
 
 
 .email-status-role-card { margin-bottom:18px; }
-.status-role-legend { display:flex; justify-content:flex-end; gap:18px; margin:4px 0 18px; color:#60736f; font-size:12px; }
+.status-role-legend { display:flex; justify-content:flex-end; gap:18px; margin:4px 0 18px; color:var(--analytics-ui-muted, #60736f); font-size:12px; }
 .status-role-legend span { display:inline-flex; align-items:center; gap:6px; }
 .status-role-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
 .status-role-dot.delivered,.status-role-segment.delivered { background:#017151; }
-.status-role-dot.failed,.status-role-segment.failed { background:#F1E5A6; }
+.status-role-dot.failed,.status-role-segment.failed { background:var(--analytics-ui-warning-bg, #F1E5A6); }
 .status-role-chart { display:grid; gap:16px; }
-.status-role-row { display:grid; grid-template-columns:120px minmax(0,1fr) 110px; gap:14px; align-items:center; color:#174243; font-size:12px; }
+.status-role-row { display:grid; grid-template-columns:120px minmax(0,1fr) 110px; gap:14px; align-items:center; color:var(--analytics-ui-text, #174243); font-size:12px; }
 .status-role-name { display:grid; gap:2px; }
-.status-role-name small { color:#6b7d79; font-size:10px; font-weight:500; }
-.status-role-track { display:flex; height:22px; overflow:hidden; border-radius:999px; background:#edf2f0; }
+.status-role-name small { color:var(--analytics-ui-muted, #6b7d79); font-size:10px; font-weight:500; }
+.status-role-track { display:flex; height:22px; overflow:hidden; border-radius:999px; background:var(--analytics-ui-soft, #edf2f0); }
 .status-role-segment { height:100%; cursor:pointer; }
 .status-role-total { text-align:right; font-weight:700; }
 .role-attribution-heading { align-items:flex-start; }
 .role-attribution-heading > div { min-width:0; }
-.role-attribution-badge { display:inline-flex; align-items:center; align-self:flex-start; flex:0 0 auto; min-height:28px; border-radius:999px; padding:5px 10px; background:#fff4d1; color:#745b00; font-size:11px; font-weight:700; line-height:1.2; white-space:nowrap; }
-.role-attribution-badge.complete { background:#ddf2e8; color:#075f47; }
+.role-attribution-badge { display:inline-flex; align-items:center; align-self:flex-start; flex:0 0 auto; min-height:28px; border-radius:999px; padding:5px 10px; background:var(--analytics-ui-warning-bg, #fff4d1); color:var(--analytics-ui-text, #745b00); font-size:11px; font-weight:700; line-height:1.2; white-space:nowrap; }
+.role-attribution-badge.complete { background:var(--analytics-ui-soft, #ddf2e8); color:var(--analytics-ui-accent, #075f47); }
 .role-attribution-summary { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0 12px; }
-.role-attribution-summary span { border-radius:999px; padding:5px 9px; background:#edf5f2; color:#315b54; font-size:11px; font-weight:600; }
+.role-attribution-summary span { border-radius:999px; padding:5px 9px; background:var(--analytics-ui-soft, #edf5f2); color:var(--analytics-ui-text, #315b54); font-size:11px; font-weight:600; }
 .role-attribution-note { margin:8px 0 14px; padding:10px 12px; border-radius:8px; font-size:11px; line-height:1.5; }
-.role-attribution-note.partial { border:1px solid #ead58b; background:#fffaf0; color:#67561a; }
-.role-attribution-note.unavailable { border:1px dashed #b8cbc5; background:#f7faf9; color:#526b66; }
-.unavailable-metric { color:#6b7d79; font-weight:600; }
+.role-attribution-note.partial { border:1px solid var(--analytics-ui-control-border, #ead58b); background:var(--analytics-ui-soft, #fffaf0); color:var(--analytics-ui-text, #67561a); }
+.role-attribution-note.unavailable { border:1px dashed var(--analytics-ui-border, #b8cbc5); background:var(--analytics-ui-surface, #f7faf9); color:var(--analytics-ui-muted, #526b66); }
+.unavailable-metric { color:var(--analytics-ui-muted, #6b7d79); font-weight:600; }
 
 @media (max-width: 720px) {
   .role-attribution-heading {
@@ -2237,13 +2464,13 @@ th {
 }
 
 #rolling-mailbox-usage:target {
-  border-color: #9fd8c7;
+  border-color: var(--analytics-ui-control-border, #9fd8c7);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.08), 0 8px 22px rgba(16, 32, 27, 0.05);
 }
 
 
 #rolling-mailbox-usage:target {
-  border-color: #9fd8c7 !important;
+  border-color: var(--analytics-ui-control-border, #9fd8c7) !important;
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.08), 0 8px 22px rgba(16, 32, 27, 0.05) !important;
 }
 

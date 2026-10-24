@@ -45,7 +45,6 @@ class GroupMarkingView(APIView):
 
     def get(self, request, group_id: int):
         group = get_object_or_404(Groups.objects.filter(deleted_at__isnull=True), pk=group_id)
-        year = int(request.query_params.get("year") or current_cohort())
 
         components = list(SubmissionComponent.objects.all().order_by("order", "id"))
         entries_by_component = {
@@ -56,7 +55,7 @@ class GroupMarkingView(APIView):
         group_closes_at = content.group_deadline_map([group.id]).get(group.id)
         rubrics_by_component = {
             r.component_id: r
-            for r in Rubric.objects.filter(year=year, active=True).prefetch_related("criteria")
+            for r in Rubric.objects.filter(active=True).prefetch_related("criteria")
         }
 
         grades_by_component: dict[int, list[Grade]] = {}
@@ -104,7 +103,7 @@ class GroupMarkingView(APIView):
                 "group_name": group.group_name,
                 "project_title": content.submitted_titles([group.id]).get(group.id, ""),
             },
-            "year": year,
+            "year": current_cohort(),
             "components": payload_components,
         })
 

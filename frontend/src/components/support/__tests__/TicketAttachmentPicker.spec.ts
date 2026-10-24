@@ -265,3 +265,20 @@ describe('replacing a picked file', () => {
     ])
   })
 })
+
+describe('TicketAttachmentPicker layout', () => {
+  // jsdom lays nothing out, so these pin the rules themselves. Measured in a
+  // browser on 22 October: without them five files with one long name ran
+  // 220px past the new-enquiry card at 1440px wide (468px at 1100px), since
+  // the longest name set the list's width; with them every row ends 1px
+  // inside the card and the name ends in an ellipsis.
+  const rule = (selector: string) =>
+    SOURCE.match(new RegExp(`\\n${selector.replace('.', '\\.')} \\{([^}]*)\\}`))?.[1] ?? ''
+
+  it('keeps the file rows inside the card however long a file name is', () => {
+    expect(rule('.attach__list')).toMatch(/min-width:\s*0;/)
+    expect(rule('.attach__list')).toMatch(/max-width:\s*100%;/)
+    expect(rule('.attach__item')).toMatch(/min-width:\s*0;/)
+    expect(rule('.attach__name')).toMatch(/text-overflow:\s*ellipsis;/)
+  })
+})

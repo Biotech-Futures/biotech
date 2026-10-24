@@ -65,6 +65,13 @@ const router = createRouter({
       return { left: 0, top: 0 }
     }
 
+    // A resource's own page opens at its top, not as far down as the page
+    // it was opened from (Release Resources sits low on Challenge Start).
+    // The browser's back and forward still return to where they were.
+    if (to.name === 'resource-detail' && to.path !== from.path && !savedPosition) {
+      return { left: 0, top: 0 }
+    }
+
     return savedPosition ?? undefined
   },
 })
@@ -143,8 +150,9 @@ router.beforeEach((to, from, next) => {
   } else if (to.path === '/login' && auth.isAuthenticated) {
     // landingPath() answers the set-password case first, as this branch did.
     next(landingPath(auth))
-  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
-    // Hidden from supervisors until Management > Supervisor Pages Visibility shows them.
+  } else if (auth.isAuthenticated && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
+    // Hidden from students, mentors and supervisors until Management >
+    // Challenge Start > Pages Visibility's date: their profile instead.
     void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()

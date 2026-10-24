@@ -1,11 +1,11 @@
 """Student resends and scheduled reminders share the signed consent email flow.
 
 Until a guardian signs, they're emailed the consent form: as soon as a student
-names them on their profile, and then once a day (every
-``GUARDIAN_REMINDER_INTERVAL_DAYS``; 0 switches the reminders off) by the
-daily run, which also sends the first email to guardians added any other way
-(registration, an admin, the student import). Each email carries a fresh link
-that replaces the last. They never stop until consent is recorded.
+registers naming them, or names them on their profile, and then once a day
+(every ``GUARDIAN_REMINDER_INTERVAL_DAYS``; 0 switches the reminders off) by
+the daily run, which also sends the first email to guardians added any other
+way (an admin, the student import). Each email carries a fresh link that
+replaces the last. They never stop until consent is recorded.
 """
 import logging
 from datetime import datetime, time, timedelta
@@ -29,8 +29,9 @@ _CAN_SIGN_IN = (User.AccountStatus.INVITED, User.AccountStatus.PENDING, User.Acc
 def reminder_info(profile):
     from apps.admin.services.guardian_consent import RESEND_COOLDOWN
     guardian = guardian_to_ask(profile)
+    # The last email (each reuses the same link), else when the link was made.
     last_request = profile.consent_requests.order_by("-created_at").first()
-    last_sent = last_request.created_at if last_request else profile.guardian_reminder_sent_at
+    last_sent = profile.guardian_reminder_sent_at or (last_request.created_at if last_request else None)
     reason = ""
     if guardian is None:
         reason = "Guardian permission has already been received."
@@ -58,7 +59,7 @@ def send_guardian_reminder(user_id):
     return StudentProfile.objects.get(user_id=user_id)
 
 
-def email_new_guardian(profile) -> None:
+def email_new_guardian(profile, *, details_saved: bool = True, background: bool = False) -> None:
     """Email the consent form to the guardian a student just named, unless
     they've been sent it already or no consent is needed. Never raises: the
     details are saved either way, and the daily run tries again."""
@@ -70,9 +71,18 @@ def email_new_guardian(profile) -> None:
     if profile.consent_requests.filter(guardian_email=guardian.email).exists():
         return
     try:
-        send_guardian_consent_request(profile.user_id, details_saved=True)
+        send_guardian_consent_request(profile.user_id, details_saved=details_saved, background=background)
     except Exception:  # noqa: BLE001
         logger.exception("guardian_reminders.new_guardian_failed student=%s", profile.user_id)
+
+
+def email_registered_guardians(user_ids) -> None:
+    """Email the consent form to each guardian named at registration, once it's
+    saved, rather than at the next daily run (which then keeps reminding them).
+    In the background, so a registration naming many guardians isn't held up;
+    a student registered without one (theirs to add later) gets nothing."""
+    for profile in StudentProfile.objects.select_related("user").filter(user_id__in=list(user_ids)):
+        email_new_guardian(profile, details_saved=False, background=True)
 
 
 def _today(now):
@@ -102,7 +112,7 @@ def guardians_due(now=None):
         .filter(
             waiting,
             user__account_status__in=_CAN_SIGN_IN,
-            user__date_joined__year=current_cohort(),
+            challenge_year=current_cohort(),
         )
         .filter(Q(guardian_reminder_sent_at__isnull=True) | Q(guardian_reminder_sent_at__lt=start))
         .filter(Q(guardian_reminder_due_at__isnull=True) | Q(guardian_reminder_due_at__lt=end))

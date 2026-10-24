@@ -12,7 +12,11 @@ from .views import (
     FinalistNotifyAllView,
     GradingSettingsView,
     BounceCheckTriggerView,
+    SendWaitingEmailsView,
     ChallengeStartView,
+    NewYearView,
+    ResourceReleasesView,
+    ResourceReleaseView,
     RegistrationOpenView,
     RegistrationSupervisorsView,
     RegistrationSupervisorView,
@@ -40,6 +44,9 @@ from .views import (
     PresentationResponsesView,
     PresentationSlidesFileView,
     PresentationSlidesView,
+    FinalistSubmissionsCloseView,
+    PresentationSlidesZipFileView,
+    PresentationSlidesZipView,
     PresentationSlotDetailView,
     PresentationTimesShownView,
     PresentationSlotListView,
@@ -73,6 +80,11 @@ urlpatterns = [
     path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
     # Management > Challenge Start.
     path("challenge-start/", ChallengeStartView.as_view(), name="challenge-start"),
+    # Challenge Start > Release Resources.
+    path("resource-releases/", ResourceReleasesView.as_view(), name="resource-releases"),
+    path("resource-releases/<int:resource_id>/", ResourceReleaseView.as_view(), name="resource-release"),
+    # Management > New Year: the year in progress, and Start new year.
+    path("new-year/", NewYearView.as_view(), name="new-year"),
     # Late Registration > Supervisors After Close.
     path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
     path(
@@ -81,6 +93,8 @@ urlpatterns = [
         name="registration-supervisor",
     ),
     path("bounce-check/", BounceCheckTriggerView.as_view(), name="bounce-check"),
+    # Every 10 minutes: the emails kept while the mail server couldn't be reached.
+    path("send-waiting-emails/", SendWaitingEmailsView.as_view(), name="send-waiting-emails"),
     # Which placeholders the active template actually contains.
     path(
         "settings/template-scan/<str:kind>/",
@@ -135,7 +149,7 @@ urlpatterns = [
     path("nonsubmissions/preview/", NonSubmissionEmailPreviewView.as_view(), name="nonsubmission-email-preview"),
     path("nonsubmissions/send/", NonSubmissionEmailSendView.as_view(), name="nonsubmission-email-send"),
 
-    # The Finalist Presentation tab: this year's times finalists can present.
+    # The Finalist Presentation tab: the times finalists can present.
     path(
         "finalists/presentation-slots/",
         PresentationSlotListView.as_view(),
@@ -166,6 +180,11 @@ urlpatterns = [
     ),
     # The slides each finalist team hands in for its presentation.
     path(
+        "finalists/submissions-close/",
+        FinalistSubmissionsCloseView.as_view(),
+        name="finalist-submissions-close",
+    ),
+    path(
         "finalists/presentation-slides/",
         PresentationSlidesView.as_view(),
         name="presentation-slides",
@@ -174,6 +193,16 @@ urlpatterns = [
         "finalists/presentation-slides/<int:group_id>/file/",
         PresentationSlidesFileView.as_view(),
         name="presentation-slides-file",
+    ),
+    path(
+        "finalists/presentation-slides/zip/",
+        PresentationSlidesZipView.as_view(),
+        name="presentation-slides-zip",
+    ),
+    path(
+        "finalists/presentation-slides/zip/file/",
+        PresentationSlidesZipFileView.as_view(),
+        name="presentation-slides-zip-file",
     ),
 
     # Send Test Email beside each email tab's preview.

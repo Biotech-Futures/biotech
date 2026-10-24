@@ -1,21 +1,18 @@
 name: Unread-messages digest
 
-# Hits the HMAC-protected digest dispatcher every 15 minutes so the FIRST
-# email lands within ~15 min of a message going unread. The endpoint throttles
-# per user (ChatDigestState high-water mark + 8h cadence + overnight quiet
-# hours in Sydney time), so this schedule only bounds first-notification
-# latency — a couple of daytime emails per user per day at most.
+# Hits the HMAC-protected digest dispatcher. The endpoint throttles per user
+# (ChatDigestState high-water mark + 8h cadence + overnight quiet hours in
+# Sydney time), so how often it runs only bounds how soon the FIRST email
+# lands after a message goes unread: a couple of daytime emails per user per
+# day at most.
 #
 # Required configuration:
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
 #                              backend env of the same name
 #
-# Off-peak minutes (7,22,37,52) dodge GitHub's top-of-hour scheduler spike,
-# which delays :00/:15/:30/:45 crons the most. Scheduled runs can still lag a
-# few minutes under load — "within 15 min" is best-effort, not guaranteed.
+# Run by hand only (Actions > Run workflow), as a backup: the backend runs
+# this itself every 15 minutes (apps.management.scheduler).
 on:
-  schedule:
-    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 # The endpoint dedups overlapping triggers server-side; this just stops GH

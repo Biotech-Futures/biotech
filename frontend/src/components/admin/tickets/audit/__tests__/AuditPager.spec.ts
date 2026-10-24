@@ -2,8 +2,13 @@ import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
 
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 import AuditPager from '../AuditPager.vue'
 import { pageItems } from '../pageItems'
+
+// The size dropdown is the platform's AppSelect since the 2026-10-22 client
+// meeting (C-29); its field is the one combobox in the footer.
+const SIZE = 'input[role="combobox"]'
 
 /**
  * The footer under the audit table, ported from adminweb's shared
@@ -89,12 +94,12 @@ describe('AuditPager', () => {
 
   it('offers the React presets and a custom size under a visible label', async () => {
     const wrapper = pager()
-    const select = wrapper.find('select')
+    const select = wrapper.find(SIZE)
 
     const label = wrapper.find('label')
     expect(label.text()).toBe('Rows per page')
     expect(label.attributes('for')).toBe(select.attributes('id'))
-    expect(select.findAll('option').map((option) => option.text())).toEqual([
+    expect(await appSelectLabels(wrapper, SIZE)).toEqual([
       '25 / page',
       '50 / page',
       '100 / page',
@@ -102,7 +107,7 @@ describe('AuditPager', () => {
       'Custom…'
     ])
 
-    await select.setValue('100')
+    await pickAppSelect(wrapper, SIZE, '100 / page')
     expect(wrapper.emitted('page-size-change')).toEqual([[100]])
   })
 
@@ -112,13 +117,12 @@ describe('AuditPager', () => {
     // number box, as React's did; met while the presets are showing, the size
     // gets an option of its own rather than a blank select.
     const opened = pager({ pageSize: 10 })
-    expect(opened.find('select').exists()).toBe(false)
+    expect(opened.find(SIZE).exists()).toBe(false)
     expect((opened.find('input').element as HTMLInputElement).value).toBe('10')
 
     const later = pager()
     await later.setProps({ pageSize: 10 })
-    const select = later.find('select')
-    expect(select.findAll('option').map((option) => option.text())).toEqual([
+    expect(await appSelectLabels(later, SIZE)).toEqual([
       '10 / page',
       '25 / page',
       '50 / page',
@@ -126,7 +130,7 @@ describe('AuditPager', () => {
       '200 / page',
       'Custom…'
     ])
-    expect((select.element as HTMLSelectElement).value).toBe('10')
+    expect(appSelectText(later, SIZE)).toBe('10 / page')
   })
 })
 
@@ -148,14 +152,14 @@ describe('a custom number of rows per page', () => {
 
   const box = (w: ReturnType<typeof pager>) => w.find('input[type="number"]')
 
-  it('swaps the select for a number box, focused and holding the current size', async () => {
-    // The select that had focus is gone once Custom… is picked, so focus goes
+  it('swaps the dropdown for a number box, focused and holding the current size', async () => {
+    // The dropdown that had focus is gone once Custom… is picked, so focus goes
     // to the box that replaces it rather than to the top of the document.
     // The size in force changes after the control opens (the server's answer
     // lands), and the box holds the new one, not the one it opened with.
     const w = attached()
     await w.setProps({ pageSize: 50 })
-    await w.find('select').setValue('custom')
+    await pickAppSelect(w, SIZE, 'Custom…')
     await nextTick()
 
     const input = box(w)
@@ -170,7 +174,7 @@ describe('a custom number of rows per page', () => {
 
   it('asks for the typed size on Enter and when the box loses focus', async () => {
     const w = attached()
-    await w.find('select').setValue('custom')
+    await pickAppSelect(w, SIZE, 'Custom…')
 
     await box(w).setValue('75')
     await box(w).trigger('keydown', { key: 'Enter' })
@@ -182,7 +186,7 @@ describe('a custom number of rows per page', () => {
 
   it('keeps the size to a whole number from 1 to 500, as React did', async () => {
     const w = attached()
-    await w.find('select').setValue('custom')
+    await pickAppSelect(w, SIZE, 'Custom…')
 
     for (const typed of ['900', '0', '7.9']) {
       await box(w).setValue(typed)
@@ -196,7 +200,7 @@ describe('a custom number of rows per page', () => {
 
   it('asks for nothing when the typed size is the one in force', async () => {
     const w = attached()
-    await w.find('select').setValue('custom')
+    await pickAppSelect(w, SIZE, 'Custom…')
 
     await box(w).setValue('25')
     await box(w).trigger('keydown', { key: 'Enter' })
@@ -214,17 +218,17 @@ describe('a custom number of rows per page', () => {
 
     expect(w.emitted('page-size-change')).toEqual([[25]])
     expect(box(w).exists()).toBe(false)
-    expect(document.activeElement).toBe(w.find('select').element)
+    expect(document.activeElement).toBe(w.find(SIZE).element)
   })
 
   it('leaves the size alone when going back from a preset', async () => {
     const w = attached()
-    await w.find('select').setValue('custom')
+    await pickAppSelect(w, SIZE, 'Custom…')
     await w.find('button').trigger('click')
     await nextTick()
 
     expect(w.emitted('page-size-change')).toBeUndefined()
-    expect(document.activeElement).toBe(w.find('select').element)
+    expect(document.activeElement).toBe(w.find(SIZE).element)
   })
 
   it('returns to the presets when the size in force becomes one, keeping focus', async () => {
@@ -233,7 +237,7 @@ describe('a custom number of rows per page', () => {
     // is a preset, so the select comes back naming it, and the reader who
     // pressed Enter in the box lands on that select.
     const w = attached()
-    await w.find('select').setValue('custom')
+    await pickAppSelect(w, SIZE, 'Custom…')
     await nextTick()
     await box(w).setValue('300')
     await box(w).trigger('keydown', { key: 'Enter' })
@@ -244,8 +248,8 @@ describe('a custom number of rows per page', () => {
 
     await w.setProps({ pageSize: 100 })
     await nextTick()
-    const select = w.find('select')
-    expect((select.element as HTMLSelectElement).value).toBe('100')
+    const select = w.find(SIZE)
+    expect(appSelectText(w, SIZE)).toBe('100 / page')
     expect(document.activeElement).toBe(select.element)
   })
 })

@@ -98,17 +98,15 @@
         </template>
         <!-- Group by, beside Search. -->
         <template #filters>
-          <div class="admin-view-executed__group-by">
-            <label class="admin-view-executed__group-by-label" for="view-group-by">Group by</label>
-            <select
+          <div class="table-filter-field">
+            <label class="table-filter-label" for="view-group-by">Group by</label>
+            <AppSelect
               id="view-group-by"
-              :value="groupBy"
-              @change="onGroupByChange(($event.target as HTMLSelectElement).value as GroupByOption)"
-            >
-              <option value="none">None</option>
-              <option value="role">Role</option>
-              <option value="status">Status</option>
-            </select>
+              class="table-filter"
+              :model-value="groupBy"
+              :options="GROUP_BY_OPTIONS"
+              @change="(value) => onGroupByChange(value as GroupByOption)"
+            />
           </div>
           <span v-if="groupBy !== 'none'" class="admin-view-executed__group-by-hint">
             Grouping is not yet applied server-side; results are shown sorted, not grouped.
@@ -150,7 +148,7 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div v-if="bulkForce" class="admin-view-executed__delete-type">
-        <label class="admin-view-executed__delete-label" for="bulk-delete-confirm">
+        <label class="table-filter-label" for="bulk-delete-confirm">
           Type <span class="admin-view-executed__delete-keyword">DELETE</span> to confirm
         </label>
         <input
@@ -163,12 +161,12 @@
       </div>
     </ConfirmDialog>
 
-    <!-- Single deactivate confirm -->
+    <!-- Single deactivate confirm, or activating a student from an earlier year -->
     <ConfirmDialog
       v-model="singleToggle.open"
-      title="Deactivate user"
+      :title="singleToggle.active ? 'Activate user' : 'Deactivate user'"
       :message="singleToggle.message"
-      confirm-label="Deactivate"
+      :confirm-label="singleToggle.active ? 'Activate' : 'Deactivate'"
       variant="warning"
       :busy="busy"
       @confirm="runSingleToggle"
@@ -196,7 +194,7 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div v-if="singleDelete.force" class="admin-view-executed__delete-type">
-        <label class="admin-view-executed__delete-label" for="single-delete-confirm">
+        <label class="table-filter-label" for="single-delete-confirm">
           Type <span class="admin-view-executed__delete-keyword">DELETE</span> to confirm
         </label>
         <input
@@ -231,7 +229,6 @@
       :open="viewOpen"
       :user="detailUser"
       @close="onViewClose"
-      @edit="openEditFromView"
       @updated="onDetailUpdated"
     />
 
@@ -243,6 +240,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import StudentAssignDialog from '@/components/admin/StudentAssignDialog.vue'
@@ -257,6 +255,12 @@ import {
   type GroupByOption,
   type ViewResultRow
 } from '@/composables/admin/useAdminViewExecuted'
+
+const GROUP_BY_OPTIONS: AppSelectOption[] = [
+  { value: 'none', label: 'None' },
+  { value: 'role', label: 'Role' },
+  { value: 'status', label: 'Status' }
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -337,12 +341,6 @@ const openEdit = (user: ViewResultRow): void => {
   formOpen.value = true
 }
 
-const openEditFromView = (): void => {
-  const user = detailUser.value
-  if (!user) return
-  onViewClose()
-  openEdit(user)
-}
 
 const onFormSaved = (): void => {
   void loadResults()
@@ -455,31 +453,6 @@ onMounted(() => {
 }
 
 /* Group by beside Search in the table's search card, drawn like it. */
-.admin-view-executed__group-by {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.admin-view-executed__group-by-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.admin-view-executed__group-by select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
-}
-
 .admin-view-executed__group-by-hint {
   align-self: center;
   max-width: 220px;
@@ -516,14 +489,6 @@ onMounted(() => {
   flex-direction: column;
   gap: 0.3rem;
   margin-top: 0.75rem;
-}
-
-.admin-view-executed__delete-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .admin-view-executed__delete-keyword {

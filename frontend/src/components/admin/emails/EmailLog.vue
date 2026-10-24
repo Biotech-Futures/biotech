@@ -1,5 +1,7 @@
 <template>
   <section class="email-log" aria-label="Failed sending emails">
+    <!-- First: when bounced emails can't be checked, as nobody would know. -->
+    <p v-if="mailApiNote" class="email-log__error" role="alert" data-test="log-mail-api">{{ mailApiNote }}</p>
     <p v-if="loading" class="email-log__state" role="status">
       <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
       Loading the log…
@@ -12,8 +14,42 @@
     <template v-else-if="email">
       <p class="email-log__line" data-test="log-last-emailed">{{ lastEmailed(email) }}</p>
       <p class="email-log__note">{{ deliveryNote(email.sentFrom, email.toGroups) }}</p>
-      <div v-if="email.missed.length || bouncedOf(email).length" class="email-log__missed" data-test="log-missed">
-        <p class="email-log__missed-title">Couldn't be emailed:</p>
+      <div
+        v-if="email.missed.length || bouncedOf(email).length || waitingOf(email).length"
+        class="email-log__missed"
+        data-test="log-missed"
+      >
+        <div class="email-log__head">
+          <p class="email-log__missed-title">Couldn't be emailed:</p>
+          <button
+            v-if="email.resendable"
+            type="button"
+            class="btn btn-outline btn-sm email-log__resend"
+            :disabled="resendOf(email.key).busy || resendOf(email.key).queued"
+            data-test="log-resend"
+            @click="resend(email.key)"
+          >
+            Resend
+          </button>
+          <span v-else-if="email.expires" class="email-log__expires" data-test="log-expires">{{ EXPIRES_NOTE }}</span>
+        </div>
+        <p
+          v-if="resendOf(email.key).note"
+          :class="resendOf(email.key).failed ? 'email-log__error' : 'email-log__line'"
+          data-test="log-resend-note"
+        >
+          {{ resendOf(email.key).note }}
+        </p>
+        <!-- Kept until the mail server can be reached, each with when it's given up on. -->
+        <template v-if="waitingOf(email).length">
+          <p class="email-log__subtitle" data-test="log-waiting">Waiting to send:</p>
+          <p class="email-log__when">{{ WAITING_HINT }}</p>
+          <ul>
+            <li v-for="(person, i) in waitingOf(email)" :key="i">
+              <MissedPerson :who="person.who" /><span class="email-log__reason"> · until {{ formatWhen(person.until) }}</span>
+            </li>
+          </ul>
+        </template>
         <!-- Bounced back after the mail server took it, by when each was found. -->
         <template v-if="bouncedOf(email).length">
           <p class="email-log__subtitle" data-test="log-bounced">Bounced emails:</p>
@@ -52,12 +88,43 @@
         Every email reached everyone it was sent to.
       </p>
       <div v-for="item in withMissed" :key="item.key" class="email-log__email" data-test="log-email">
-        <h3 class="email-log__name">
-          {{ nameParts(item.name).title }}
-          <span v-if="nameParts(item.name).to" class="email-log__to">{{ nameParts(item.name).to }}</span>
-          <!-- When it was sent. -->
-          <span v-if="sentAt(item)" class="email-log__when">{{ formatWhen(sentAt(item)!) }}</span>
-        </h3>
+        <div class="email-log__head">
+          <h3 class="email-log__name">
+            {{ nameParts(item.name).title }}
+            <span v-if="nameParts(item.name).to" class="email-log__to">{{ nameParts(item.name).to }}</span>
+            <!-- When it was sent. -->
+            <span v-if="sentAt(item)" class="email-log__when">{{ formatWhen(sentAt(item)!) }}</span>
+          </h3>
+          <!-- Each email its own: again to the people it missed. -->
+          <button
+            v-if="item.resendable"
+            type="button"
+            class="btn btn-outline btn-sm email-log__resend"
+            :disabled="resendOf(item.key).busy || resendOf(item.key).queued"
+            data-test="log-resend"
+            @click="resend(item.key)"
+          >
+            Resend
+          </button>
+          <span v-else-if="item.expires" class="email-log__expires" data-test="log-expires">{{ EXPIRES_NOTE }}</span>
+        </div>
+        <p
+          v-if="resendOf(item.key).note"
+          :class="resendOf(item.key).failed ? 'email-log__error' : 'email-log__line'"
+          data-test="log-resend-note"
+        >
+          {{ resendOf(item.key).note }}
+        </p>
+        <!-- Kept until the mail server can be reached, each with when it's given up on. -->
+        <template v-if="waitingOf(item).length">
+          <p class="email-log__subtitle" data-test="log-waiting">Waiting to send:</p>
+          <p class="email-log__when">{{ WAITING_HINT }}</p>
+          <ul>
+            <li v-for="(person, i) in waitingOf(item)" :key="i">
+              <MissedPerson :who="person.who" /><span class="email-log__reason"> · until {{ formatWhen(person.until) }}</span>
+            </li>
+          </ul>
+        </template>
         <!-- Bounced back after the mail server took it, by when each was found. -->
         <template v-if="bouncedOf(item).length">
           <p class="email-log__subtitle" data-test="log-bounced">Bounced emails:</p>
@@ -91,10 +158,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { deliveryNote } from '@/composables/useEmailRun'
+import { resendSystemEmail } from '@/utils/adminAPI'
+import { logApiError } from '@/utils/apiError'
 import { formatShortDateTime, formatStatementTime } from '@/utils/date'
-import { nameParts, type SystemEmailLogEntry } from '@/utils/systemEmail'
+import {
+  mailApiNote as mailApiNoteFor,
+  nameParts,
+  type SystemEmailLogEntry,
+  type SystemEmailMailApi
+} from '@/utils/systemEmail'
 import MissedPerson from '@/views/management/MissedPerson.vue'
 
 const props = defineProps<{
@@ -103,19 +177,59 @@ const props = defineProps<{
   selectedKey: string
   loading: boolean
   error: string
+  /** Whether bounced emails can be checked through Hostinger's Mail API. */
+  mailApi?: SystemEmailMailApi | null
 }>()
+
+// Where a key comes from, and where it goes.
+// Why bounced emails aren't being checked, or '' when they are.
+const mailApiNote = computed(() => mailApiNoteFor(props.mailApi, formatStatementTime))
 
 const email = computed(() => props.emails.find((item) => item.key === props.selectedKey) ?? null)
 
 // Its bounces, grouped by when they were found (none from an older server).
 const bouncedOf = (item: SystemEmailLogEntry) => item.bounced ?? []
 
+// Each email's Resend: sending now, queued (it sends in its turn, so the log
+// shows who it reached once opened again), and what the server said.
+interface ResendState {
+  busy: boolean
+  queued: boolean
+  failed: boolean
+  note: string
+}
+const resends = ref<Record<string, ResendState>>({})
+const resendOf = (key: string): ResendState =>
+  resends.value[key] ?? { busy: false, queued: false, failed: false, note: '' }
+
+const resend = async (key: string) => {
+  resends.value = { ...resends.value, [key]: { busy: true, queued: false, failed: false, note: '' } }
+  try {
+    const note = await resendSystemEmail(key)
+    resends.value = { ...resends.value, [key]: { busy: false, queued: true, failed: false, note } }
+  } catch (err) {
+    logApiError('admin.emails.resend', err)
+    const note = err instanceof Error ? err.message : 'It could not be resent. Try again shortly.'
+    resends.value = { ...resends.value, [key]: { busy: false, queued: false, failed: true, note } }
+  }
+}
+
+// In place of Resend on a login code or reset link.
+const EXPIRES_NOTE = "Can't be resent as these expire within minutes. They can ask for a new one."
+
+// Who it's waiting to reach while the mail server can't be reached.
+const waitingOf = (item: SystemEmailLogEntry) => item.waiting ?? []
+const WAITING_HINT =
+  "The mail server couldn't be reached. Each is tried again every 10 minutes until the time beside it."
+
 const withMissed = computed(() =>
-  props.emails.filter((item) => item.missed.length || bouncedOf(item).length),
+  props.emails.filter((item) => item.missed.length || bouncedOf(item).length || waitingOf(item).length),
 )
 
-// When it was sent: its last send, else its latest that missed someone.
-const sentAt = (item: SystemEmailLogEntry) => item.lastSentAt ?? item.missed[0]?.at ?? null
+// When it was sent: its last send, else its latest that missed someone, else
+// when its newest email waiting for the mail server was tried.
+const sentAt = (item: SystemEmailLogEntry) =>
+  item.lastSentAt ?? item.missed[0]?.at ?? waitingOf(item)[waitingOf(item).length - 1]?.at ?? null
 
 /** Each send's time: "29/09/26 23:58". */
 const formatWhen = (iso: string) => formatShortDateTime(iso)
@@ -158,6 +272,39 @@ const lastEmailed = (item: SystemEmailLogEntry) => {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+/* A heading, or "Couldn't be emailed:", with its Resend beside it. Wrapped
+   onto a line of its own, the note on a login code or reset link sits the
+   email's 0.25rem below the heading, or the missed block's 0.5rem. */
+.email-log__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.email-log__missed .email-log__head {
+  row-gap: 0.5rem;
+}
+
+/* Below the note, the email's 0.25rem gap and this: as far as a heading with
+   its Resend sits above the next line. */
+.email-log__email .email-log__expires {
+  margin-bottom: 0.25rem;
+}
+
+/* Where Resend would be, on a login code or reset link. */
+.email-log__expires {
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+
+/* White, as the editor's boxes are, against the page's grey; the outline
+   button's green still shows on hover. */
+.email-log__resend:not(:hover),
+.email-log__resend:disabled {
+  background-color: var(--white);
 }
 
 .email-log__missed-title {

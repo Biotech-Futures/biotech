@@ -39,6 +39,8 @@ interface User {
   join_perm_granted_at?: string | null
   pending_guardian?: (GuardianDetails & { requested_at: string }) | null
   interests?: string[]
+  /** As given registering, and changeable on their profile. */
+  pronouns?: string | null
   supervisor_name?: string | null
   supervisor_id?: number | null
   /** The student's own details are their supervisor's to change. */
@@ -168,7 +170,8 @@ export const useAuthStore = defineStore('auth', {
 
       const first = state.user.first_name?.[0] || ''
       const last = state.user.last_name?.[0] || ''
-      return (first + last).toUpperCase() || state.user.email[0].toUpperCase()
+      // No name: the email's first letter, and none without an email either.
+      return (first + last).toUpperCase() || state.user.email?.[0]?.toUpperCase() || ''
     },
 
     normalizedRole: (state) => resolveNormalizedRole(state.user),

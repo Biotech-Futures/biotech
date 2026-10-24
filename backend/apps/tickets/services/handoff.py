@@ -23,6 +23,7 @@ from ..models import (
     TicketMessageType,
     TicketPriority,
 )
+from . import emails
 from .lifecycle import AUDIT_ENTITY_TYPE
 from .numbering import allocate_ticket_number
 
@@ -121,8 +122,11 @@ def create_ticket_from_screening(message, verdict, text_snapshot) -> Ticket:
     because the author may have edited it since. Reading it fresh would file
     the edited text as evidence for a judgement made about the original.
 
-    Sends nothing. There is no requester on these tickets, so every email in
-    the system skips them for their whole life, not just at creation.
+    Sends one email, to the support inbox, once the screening batch commits:
+    E6, because the client asked on 20 October for "an email to be triggered
+    from the AI screening flags as well". Nothing goes to anyone else. There
+    is no requester on these tickets, so every email to a requester skips them
+    for their whole life, not just at creation.
 
     Writes an audit row with no actor. Note this is deliberately NOT
     symmetric with portal submission, which writes none: a person filling in
@@ -206,5 +210,13 @@ def create_ticket_from_screening(message, verdict, text_snapshot) -> Ticket:
                 "screening_category": category,
                 "message_id": getattr(message, "pk", None),
             },
+        )
+        # E6 to the support inbox, after the outermost transaction commits:
+        # this runs inside the screening batch's, and a batch that rolls back
+        # must not have mailed anyone about a ticket that no longer exists.
+        # robust, as for the portal's emails (lifecycle.create_ticket): a
+        # failed email must not undo a flag that has already been recorded.
+        transaction.on_commit(
+            lambda: emails.send_flagged_message_to_support(ticket), robust=True
         )
     return ticket

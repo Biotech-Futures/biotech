@@ -4,15 +4,19 @@ from django.db.models import Q
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.admin.models import AdminView
 from apps.admin.permissions import IsAdminScoped
+from apps.events.models import EventRsvp
 
 logger = logging.getLogger(__name__)
 from apps.admin.serializers import (
+    AdminTaskListQuerySerializer,
+    AdminTaskToggleSerializer,
     BulkUserRowSerializer,
     SystemEmailPreviewSerializer,
     SystemEmailTestSendSerializer,
@@ -35,10 +39,16 @@ from apps.admin.services.user import (
 )
 from apps.admin.services import guardian_consent
 from apps.admin.services.email_verification import get_credit_balance
+from apps.audit.models import AuditLog
+from apps.audit.services import log_audit_event
+from apps.users.known_university_load import load_universities, parse_university_upload
+from apps.users.profile_images import remove_profile_image, save_profile_image
 from apps.admin.services.known_university import (
+    MISSING as KNOWN_UNIVERSITY_MISSING,
     add_known_university,
     delete_known_university,
     list_known_universities,
+    rename_known_university,
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
@@ -71,7 +81,10 @@ from apps.admin.services.mentor import get_mentor_list, set_mentor_active
 from apps.admin.services.task import (
     list_admin_tasks, get_admin_task_by_id, create_admin_task,
     update_admin_task, delete_admin_task, toggle_admin_task,
-    count_role_recipients,
+)
+from apps.admin.services.role_task import (
+    list_admin_role_tasks, get_admin_role_task_by_id, create_admin_role_task,
+    update_admin_role_task, delete_admin_role_task, count_role_recipients,
 )
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
@@ -80,6 +93,8 @@ from apps.admin.services.mentor_match import (
 )
 from apps.admin.services.system_email import (
     get_email_log,
+    get_mail_api_state,
+    resend_email,
     get_email_settings,
     get_unseen_failures,
     see_failures,
@@ -185,6 +200,60 @@ class UserStatusUpdateView(APIView):
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
+
+
+class UserProfileImageView(APIView):
+    """POST: replace a user's profile photo (``image``, checked as the
+    dashboard's upload is). DELETE: take it off."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _user(self, user_id):
+        from django.contrib.auth import get_user_model
+
+        return get_user_model().objects.filter(pk=int(user_id)).first()
+
+    def _changed(self, request, user, change):
+        log_audit_event(
+            actor=request.user,
+            entity_type="user",
+            entity_id=user.id,
+            action="update",
+            after_state={"profile_photo": change},
+        )
+        return Response(query_user_by_id(user.id))
+
+    def post(self, request, user_id):
+        user = self._user(user_id)
+        if user is None:
+            return Response({"msg": "User not found", "data": None}, status=status.HTTP_404_NOT_FOUND)
+        image = request.FILES.get("image")
+        if image is None:
+            return Response({"msg": "Choose a photo to upload.", "data": None}, status=status.HTTP_400_BAD_REQUEST)
+        save_profile_image(user=user, uploaded_file=image)
+        return self._changed(request, user, "replaced")
+
+    def delete(self, request, user_id):
+        user = self._user(user_id)
+        if user is None:
+            return Response({"msg": "User not found", "data": None}, status=status.HTTP_404_NOT_FOUND)
+        remove_profile_image(user=user)
+        return self._changed(request, user, "removed")
+
+
+class UserSuperviseesView(APIView):
+    """POST: add students to a supervisor or take them off, by student or by
+    group; with ``preview``, only say who would move."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        from apps.admin.services.supervisees import change_supervisees
+
+        result = change_supervisees(int(user_id), request.data, initiated_by=request.user)
+        if result.get("data") is not None:
+            return Response(result)
+        missing = result["msg"].endswith("not found")
+        return Response(result, status=status.HTTP_404_NOT_FOUND if missing else status.HTTP_400_BAD_REQUEST)
 
 
 GUARDIAN_CONSENT_STATUS_CODES = {
@@ -698,8 +767,13 @@ class EventRsvpDetailView(APIView):
 
     def put(self, request, rsvp_id):
         result = update_event_rsvp(rsvp_id, request.data)
-        code = status.HTTP_200_OK if result.get(
-            "data") else status.HTTP_404_NOT_FOUND
+        rsvp_status = request.data.get("rsvpStatus") or request.data.get("rsvp_status")
+        if result.get("data"):
+            code = status.HTTP_200_OK
+        elif rsvp_status not in EventRsvp.RsvpStatus.values:
+            code = status.HTTP_400_BAD_REQUEST
+        else:
+            code = status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -1280,13 +1354,13 @@ class AdminTaskListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        page = int(request.query_params.get("page", 1))
-        limit = int(request.query_params.get("limit", 10))
+        query = AdminTaskListQuerySerializer(data=request.query_params.dict())
+        query.is_valid(raise_exception=True)
         task_type = request.query_params.get("task_type") or None
         result = list_admin_tasks(
             request.user,
-            page=page,
-            limit=limit,
+            page=query.validated_data["page"],
+            limit=query.validated_data["limit"],
             task_type=task_type,
             sort_by=request.query_params.get("sortBy", "createdAt"),
             sort_order=request.query_params.get("sortOrder", "desc"),
@@ -1297,18 +1371,6 @@ class AdminTaskListCreateView(APIView):
     def post(self, request):
         result = create_admin_task(request.user, request.data)
         code = status.HTTP_201_CREATED if result.get(
-            "data") else status.HTTP_400_BAD_REQUEST
-        return Response(result, status=code)
-
-
-class AdminTaskRoleRecipientsView(APIView):
-    """GET /api/v1/admin/task/role-recipients/?role=mentor — how many users a
-    role fan-out would create tasks for."""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def get(self, request):
-        result = count_role_recipients(request.user, request.query_params.get("role"))
-        code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
@@ -1341,16 +1403,84 @@ class AdminTaskToggleView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request, task_id):
-        completed = request.data.get("completed")
-        if completed is None:
-            return Response(
-                {"msg": "completed field is required", "data": None},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        result = toggle_admin_task(request.user, task_id, bool(completed))
+        data = request.data.dict() if hasattr(request.data, "dict") else request.data
+        payload = AdminTaskToggleSerializer(data=data)
+        payload.is_valid(raise_exception=True)
+        result = toggle_admin_task(request.user, task_id, payload.validated_data["completed"])
         if result.get("msg") == "Task not found":
             return Response(result, status=status.HTTP_404_NOT_FOUND)
         return Response(result)
+
+
+# ============================================================================
+# ROLE TASK ENDPOINTS
+# ============================================================================
+class AdminRoleTaskListCreateView(APIView):
+    """GET/POST /api/v1/admin/role-task/ — role-task definitions.
+
+    Unlike /admin/task/, there is no task_type here: a role task is always
+    targeted at exactly one role, defined once, picked up live by every
+    current and future holder of that role (see apps.tasks.role_task_views)."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        query = AdminTaskListQuerySerializer(data=request.query_params.dict())
+        query.is_valid(raise_exception=True)
+        result = list_admin_role_tasks(
+            request.user,
+            page=query.validated_data["page"],
+            limit=query.validated_data["limit"],
+            sort_by=request.query_params.get("sortBy", "createdAt"),
+            sort_order=request.query_params.get("sortOrder", "desc"),
+        )
+        return Response(result)
+
+    def post(self, request):
+        result = create_admin_role_task(request.user, request.data)
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class AdminRoleTaskRoleRecipientsView(APIView):
+    """GET /api/v1/admin/role-task/role-recipients/?role=mentor — how many
+    users currently hold `role`, shown before committing a role task every
+    one of them (and every future holder) will pick up."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result = count_role_recipients(request.user, request.query_params.get("role"))
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class AdminRoleTaskDetailView(APIView):
+    """GET/PATCH/DELETE /api/v1/admin/role-task/{role_task_id}/
+
+    PATCH is the "bulk-edit in one place" the ticket asks for: editing this
+    one row changes it for every current and future holder of the role."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, role_task_id):
+        result = get_admin_role_task_by_id(request.user, role_task_id)
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+    def patch(self, request, role_task_id):
+        result = update_admin_role_task(request.user, role_task_id, request.data)
+        if result.get("msg") == "Role task not found":
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        if result.get("data") is None:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
+    def delete(self, request, role_task_id):
+        result = delete_admin_role_task(request.user, role_task_id)
+        if result.get("msg") == "Role task not found":
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        return Response(result, status=status.HTTP_204_NO_CONTENT)
 
 
 # ============================================================================
@@ -1754,6 +1884,53 @@ class SystemEmailLogView(APIView):
         return Response(get_email_log())
 
 
+class SystemEmailMailApiView(APIView):
+    """GET /api/v1/admin/email-log/mail-api/ — whether bounced emails can be
+    checked through Hostinger's Mail API (see ``email_log.mail_api_state``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_mail_api_state())
+
+
+class ScheduledJobsView(APIView):
+    """GET /api/v1/admin/scheduled-jobs/ — the timed jobs the backend runs
+    itself, and each one's last run (see ``management.scheduler``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        from apps.admin.services.system_email import get_scheduled_jobs
+
+        return Response(get_scheduled_jobs())
+
+
+class SystemEmailAlwaysOnView(APIView):
+    """GET /api/v1/admin/email-settings/always-on/ — whether Azure's Always On
+    is keeping the backend awake (see ``services.always_on``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        from apps.admin.services.system_email import get_always_on_state
+
+        return Response(get_always_on_state())
+
+
+class SystemEmailResendView(APIView):
+    """POST /api/v1/admin/email-log/<key>/resend/ — Resend on the Log: the
+    email again to the people it missed, queued to send in its turn (202),
+    or 400 with why it can't go."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        result = resend_email(key, requested_by=request.user)
+        code = status.HTTP_202_ACCEPTED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
 class SystemEmailUnseenFailuresView(APIView):
     """GET /api/v1/admin/email-log/unseen/ — how many people sends couldn't
     reach since an admin last looked at Failed Sending Emails. POST marks
@@ -1799,9 +1976,22 @@ class EmailVerificationCreditsView(APIView):
         return Response(get_credit_balance())
 
 
+def _known_university_fields(data) -> dict:
+    """The full name ("fullName", or "name" as before), acronym and country a
+    request gives; a field it leaves out is MISSING."""
+    data = data if isinstance(data, dict) else {}
+    name_key = "fullName" if "fullName" in data else "name"
+    return {
+        "name": data.get(name_key, KNOWN_UNIVERSITY_MISSING),
+        "acronym": data.get("acronym", KNOWN_UNIVERSITY_MISSING),
+        "country": data.get("country", KNOWN_UNIVERSITY_MISSING),
+    }
+
+
 class KnownUniversityListCreateView(APIView):
-    """GET/POST /api/v1/admin/known-university/ — the names the registration
-    school check treats as universities (optional ``?search=`` on name)."""
+    """GET/POST /api/v1/admin/known-university/ — the universities the
+    registration school check knows ({"fullName" or "name", "acronym",
+    "country"}; optional ``?search=`` on any of them)."""
 
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
@@ -1809,16 +1999,73 @@ class KnownUniversityListCreateView(APIView):
         return Response(list_known_universities(request.query_params.get("search")))
 
     def post(self, request):
-        name = request.data.get("name") if isinstance(request.data, dict) else None
-        result, code = add_known_university(name, actor=request.user)
+        fields = {
+            key: None if value is KNOWN_UNIVERSITY_MISSING else value
+            for key, value in _known_university_fields(request.data).items()
+        }
+        result, code = add_known_university(
+            fields["name"], acronym=fields["acronym"], country=fields["country"], actor=request.user,
+        )
         return Response(result, status=code)
 
 
 class KnownUniversityDetailView(APIView):
-    """DELETE /api/v1/admin/known-university/<id>/ — take a name off the list."""
+    """PATCH /api/v1/admin/known-university/<id>/ — change its full name,
+    acronym or country (a field left out keeps its value); DELETE — take it
+    off the list."""
 
     permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def patch(self, request, university_id):
+        fields = _known_university_fields(request.data)
+        result, code = rename_known_university(
+            university_id, fields["name"], acronym=fields["acronym"], country=fields["country"],
+            actor=request.user,
+        )
+        return Response(result, status=code)
 
     def delete(self, request, university_id):
         result, code = delete_known_university(university_id, actor=request.user)
         return Response(result, status=code)
+
+
+# An uploaded list of universities, at most this big.
+UNIVERSITY_UPLOAD_MAX_BYTES = 2 * 1024 * 1024
+
+
+class KnownUniversityUploadView(APIView):
+    """POST multipart ``file`` (a .csv or .xlsx) to
+    /api/v1/admin/known-university/upload/: Management > Known Universities'
+    Upload Universities, as My Students' Upload guardian details: its
+    columns name, acronym and country exactly, in order. ``dry_run`` ("true",
+    the default) previews what it would do; "false" loads it, if nothing is
+    wrong, as the load_known_universities command loads a file: new ones
+    added, a listed one's blank acronym or country filled in, nothing
+    overwritten or removed."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response({"msg": "Choose a file to upload.", "data": None}, status=400)
+        if upload.size > UNIVERSITY_UPLOAD_MAX_BYTES:
+            return Response({"msg": "Choose a file no larger than 2 MB.", "data": None}, status=400)
+        try:
+            result = parse_university_upload(upload, upload.name)
+        except Exception:  # noqa: BLE001 - an unreadable file, whatever the reason
+            return Response({"msg": "That file couldn't be read. Upload a .csv or .xlsx.", "data": None}, status=400)
+        rows = result.pop("rows")
+        if str(request.data.get("dry_run", "true")).lower() != "false":
+            return Response({"msg": "ok", "data": result})
+        if result["summary"]["errors"]:
+            return Response({"msg": "The sheet has problems; fix them before applying.", "data": result}, status=400)
+        loaded = load_universities(rows)
+        log_audit_event(
+            actor=request.user, entity_type="known_university", entity_id=0,
+            action=AuditLog.ActionChoices.IMPORT,
+            after_state={"file": upload.name, **{key: loaded[key] for key in ("added", "filled", "skipped")}},
+        )
+        result["summary"].update(added=loaded["added"], filled=loaded["filled"], skipped=loaded["skipped"])
+        return Response({"msg": "Universities uploaded", "data": {**result, "applied": True}})

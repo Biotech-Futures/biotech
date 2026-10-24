@@ -2,7 +2,10 @@
   <div class="content-area admin-tasks">
     <header class="page-header">
       <h1 class="page-title">Tasks</h1>
-      <p class="page-subtitle">Assign and track admin-managed tasks.</p>
+      <p class="page-subtitle">
+        Assign a task to a group or to a specific person. For tasks assigned by role, see
+        <RouterLink to="/admin/role-tasks">Role Tasks</RouterLink>.
+      </p>
     </header>
 
     <div class="admin-tasks__main">
@@ -20,17 +23,15 @@
       >
         <label class="admin-tasks__bulk-status" for="task-bulk-status">
           <span class="sr-only">Set selected task status</span>
-          <select
+          <!-- An action: it stays on "Set status" once a status is set. -->
+          <AppSelect
             id="task-bulk-status"
-            value=""
+            :model-value="null"
+            :options="STATUS_OPTIONS"
+            placeholder="Set status"
             :disabled="taskActionBusy"
             @change="onBulkStatusChange"
-          >
-            <option value="" disabled>Set status</option>
-            <option v-for="status in TASK_STATUSES" :key="status" :value="status">
-              {{ taskStatusLabel(status) }}
-            </option>
-          </select>
+          />
         </label>
         <button type="button" class="btn btn-sm btn-danger" :disabled="taskActionBusy" @click="openBulkDelete">
           Delete
@@ -59,18 +60,16 @@
       >
         <!-- Type, beside Search. -->
         <template #filters>
-          <div class="admin-tasks__filter">
-            <label class="admin-tasks__filter-label" for="task-type-filter">Type</label>
-            <select
+          <div class="table-filter-field">
+            <label class="table-filter-label" for="task-type-filter">Type</label>
+            <AppSelect
               id="task-type-filter"
-              :value="taskTypeFilter"
+              class="table-filter"
+              :model-value="taskTypeFilter"
+              :options="TYPE_OPTIONS"
               :disabled="loading || taskActionBusy"
               @change="onTaskTypeChange"
-            >
-              <option value="all">All</option>
-              <option value="group">Group</option>
-              <option value="individual">Individual</option>
-            </select>
+            />
           </div>
         </template>
         <template #search-side>
@@ -141,21 +140,9 @@
         :task="editingTask"
         :groups="groups"
         :users="users"
-        :roles="roles"
         :busy="saving"
         :submit-error="formError"
         @save="onFormSave"
-      />
-
-      <ConfirmDialog
-        v-model="roleFanoutConfirmOpen"
-        title="Create role tasks"
-        :message="roleFanoutConfirmMessage"
-        confirm-label="Create tasks"
-        variant="warning"
-        :busy="saving"
-        @confirm="confirmRoleFanoutCreate"
-        @cancel="cancelRoleFanoutCreate"
       />
 
       <ConfirmDialog
@@ -190,13 +177,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminTaskFormSheet from '@/components/admin/tasks/AdminTaskFormSheet.vue'
 import {
   createAdminTask,
   deleteAdminTask,
-  fetchAdminEventMetaRoles,
   fetchAdminGroupList,
   fetchAdminTasks,
   fetchAdminUsers,
@@ -216,7 +203,6 @@ import { formatShortDate } from '@/utils/date'
 
 
 type TaskTypeFilter = 'all' | AdminTaskType
-type RoleOption = { id?: number; roleName: string }
 
 const TASK_STATUS_LABELS: Record<AdminTaskStatus, string> = {
   todo: 'To Do',
@@ -225,6 +211,15 @@ const TASK_STATUS_LABELS: Record<AdminTaskStatus, string> = {
   blocked: 'Blocked'
 }
 const TASK_STATUSES = Object.keys(TASK_STATUS_LABELS) as AdminTaskStatus[]
+const STATUS_OPTIONS: AppSelectOption[] = TASK_STATUSES.map((status) => ({
+  value: status,
+  label: TASK_STATUS_LABELS[status]
+}))
+const TYPE_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All' },
+  { value: 'group', label: 'Group' },
+  { value: 'individual', label: 'Individual' }
+]
 
 const columns: DataTableColumn[] = [
   { key: 'name', label: 'Name', sortable: true },
@@ -252,10 +247,6 @@ const formOpen = ref(false)
 const editingTask = ref<AdminTask | null>(null)
 const groups = ref<AdminGroup[]>([])
 const users = ref<AdminUser[]>([])
-const roles = ref<RoleOption[]>([])
-const roleFanoutConfirmOpen = ref(false)
-const pendingRoleFanoutPayload = ref<CreateAdminTaskPayload | null>(null)
-const pendingRoleFanoutRecipientCount = ref<number | null>(null)
 const selectedTasks = ref(new Map<string | number, AdminTask>())
 const singleDeleteConfirmOpen = ref(false)
 const taskPendingDelete = ref<AdminTask | null>(null)
@@ -268,17 +259,6 @@ const selectedTaskList = computed(() =>
     .map((id) => selectedTasks.value.get(id))
     .filter((task): task is AdminTask => Boolean(task))
 )
-const roleFanoutConfirmMessage = computed(() => {
-  const payload = pendingRoleFanoutPayload.value
-  const role = payload?.assigned_role ?? 'selected'
-  const count = pendingRoleFanoutRecipientCount.value
-  const recipientText = count === 1
-    ? '1 recipient will receive this task.'
-    : typeof count === 'number'
-      ? `${count} recipients will each receive a separate task.`
-      : 'Each recipient will receive a separate task.'
-  return `Create a separate task for every user with the ${role} role? ${recipientText} There is no single action to undo this assignment.`
-})
 const singleDeleteMessage = computed(() => {
   const task = taskPendingDelete.value
   return task
@@ -339,44 +319,17 @@ const clampPageAfterDelete = (deletedCount: number) => {
   if (page.value > maxPage) page.value = maxPage
 }
 
-const normalizeRoles = (data: unknown): RoleOption[] => {
-  const rows =
-    Array.isArray(data)
-      ? data
-      : data && typeof data === 'object' && Array.isArray((data as { data?: unknown }).data)
-        ? (data as { data: unknown[] }).data
-        : []
-  const result: RoleOption[] = []
-  rows.forEach((role) => {
-    if (!role || typeof role !== 'object') return
-    const value = role as { id?: unknown; roleName?: unknown; role_name?: unknown }
-    const roleName = typeof value.roleName === 'string'
-      ? value.roleName
-      : typeof value.role_name === 'string'
-        ? value.role_name
-        : ''
-    if (!roleName) return
-    result.push({
-      id: typeof value.id === 'number' ? value.id : undefined,
-      roleName
-    })
-  })
-  return result
-}
-
 const loadOptions = async () => {
   try {
-    const [groupData, userData, roleData] = await Promise.all([
+    const [groupData, userData] = await Promise.all([
       fetchAdminGroupList({ page: 1, limit: 200 }),
-      fetchAdminUsers({ page: 1, limit: 200, sortBy: 'name', sortOrder: 'asc' }),
-      fetchAdminEventMetaRoles()
+      fetchAdminUsers({ page: 1, limit: 200, sortBy: 'name', sortOrder: 'asc' })
     ])
     groups.value = groupData.items.map((group) => ({
       id: group.id,
       name: group.name
     }))
     users.value = userData.items
-    roles.value = normalizeRoles(roleData)
   } catch (optionsError) {
     logApiError('admin.tasks.options', optionsError)
     error.value =
@@ -385,7 +338,6 @@ const loadOptions = async () => {
         : 'Task assignment options could not be loaded right now.'
     groups.value = []
     users.value = []
-    roles.value = []
   }
 }
 
@@ -434,32 +386,8 @@ const saveTask = async (payload: CreateAdminTaskPayload | UpdateAdminTaskPayload
   }
 }
 
-const onFormSave = async (
-  payload: CreateAdminTaskPayload | UpdateAdminTaskPayload,
-  recipientCount?: number | null
-) => {
+const onFormSave = async (payload: CreateAdminTaskPayload | UpdateAdminTaskPayload) => {
   if (saving.value) return
-  if (!editingTask.value && 'assigned_role' in payload && payload.assigned_role) {
-    pendingRoleFanoutPayload.value = payload
-    pendingRoleFanoutRecipientCount.value = recipientCount ?? null
-    roleFanoutConfirmOpen.value = true
-    return
-  }
-
-  await saveTask(payload)
-}
-
-const cancelRoleFanoutCreate = () => {
-  pendingRoleFanoutPayload.value = null
-  pendingRoleFanoutRecipientCount.value = null
-}
-
-const confirmRoleFanoutCreate = async () => {
-  if (!pendingRoleFanoutPayload.value) return
-  const payload = pendingRoleFanoutPayload.value
-  pendingRoleFanoutPayload.value = null
-  pendingRoleFanoutRecipientCount.value = null
-  roleFanoutConfirmOpen.value = false
   await saveTask(payload)
 }
 
@@ -558,10 +486,8 @@ const updateTaskStatusPayload = (task: AdminTask, status: AdminTaskStatus): Upda
   parent: task.parent
 })
 
-const onBulkStatusChange = async (event: Event) => {
-  const select = event.target as HTMLSelectElement
-  const status = select.value as AdminTaskStatus
-  select.value = ''
+const onBulkStatusChange = async (value: AppSelectValue) => {
+  const status = value as AdminTaskStatus
   if (!status || taskActionBusy.value) return
   const targets = selectedTaskList.value
   if (!targets.length) return
@@ -594,8 +520,8 @@ watch(searchInput, () => {
   }, 350)
 })
 
-const onTaskTypeChange = (event: Event) => {
-  taskTypeFilter.value = (event.target as HTMLSelectElement).value as TaskTypeFilter
+const onTaskTypeChange = (value: AppSelectValue) => {
+  taskTypeFilter.value = value as TaskTypeFilter
   clearSelection()
   reloadFromFirstPage()
 }
@@ -656,32 +582,11 @@ onMounted(() => {
 }
 
 /* Type, in the table's search card, drawn like Search. */
-.admin-tasks__filter {
+/* Its text centred in the 2rem box, as a select's is. */
+.admin-tasks__bulk-status .app-select {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-}
-
-.admin-tasks__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.admin-tasks__filter select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
-}
-
-.admin-tasks__bulk-status select {
+  justify-content: center;
   min-width: 140px;
   height: 2rem;
   padding: 0.25rem 0.5rem;
@@ -692,10 +597,11 @@ onMounted(() => {
   font: inherit;
 }
 
-.admin-tasks__bulk-status select:disabled {
+.admin-tasks__bulk-status .app-select.is-disabled {
   background-color: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;
+  opacity: 1;
 }
 
 .admin-tasks__error {

@@ -4,6 +4,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 
 import routes from '@/router/routes'
 import AdminUsersView from '@/views/admin/AdminUsersView.vue'
+import { appSelectText } from '@/__tests__/appSelect'
 
 /**
  * The two People-page changes the support work makes to AdminUsersView:
@@ -163,7 +164,8 @@ describe('?role= on arrival (RO-08 link target)', () => {
     expect(lists).toHaveLength(1)
     expect(new URL(lists[0]).searchParams.get('role')).toBe('support')
     // And the filter control says so, so the admin can see why the list is short.
-    expect(wrapper!.find<HTMLSelectElement>('#role-filter').element.value).toBe('support')
+    // An AppSelect since main's 20 October 2026 dropdowns: its box shows the label.
+    expect(appSelectText(wrapper!, '#role-filter')).toBe('Support')
   })
 
   it('ignores a role the page does not offer', async () => {
@@ -172,7 +174,7 @@ describe('?role= on arrival (RO-08 link target)', () => {
     await mountAt('/admin/users?role=superuser', { title: 'Users', noun: 'user' })
 
     expect(new URL(listCalls(mock)[0]).searchParams.has('role')).toBe(false)
-    expect(wrapper!.find<HTMLSelectElement>('#role-filter').element.value).toBe('all')
+    expect(appSelectText(wrapper!, '#role-filter')).toBe('All roles')
   })
 
   it('does not override a tab that fixes its own role', async () => {

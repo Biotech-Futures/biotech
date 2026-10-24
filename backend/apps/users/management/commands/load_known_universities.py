@@ -1,54 +1,56 @@
-"""Add names from a CSV file to the list of known universities, which the
-registration school check consults (apps.users.models.KnownUniversity).
+"""Add universities from a CSV file to the list the registration school check
+consults (apps.users.models.KnownUniversity).
 
-The file needs a header row. Names are read from its ``name`` column, or the
-one given with --column. Blank names, names already listed (ignoring case and
-spacing) and repeats within the file are skipped, so a rerun adds nothing
-twice. Nothing is ever removed: do that in Django admin.
+The file needs a header row: "full_name", with optional "acronym" and
+"country" columns, or the older single "name" column (or the one given with
+--column), read as full names. Values are tidied as the list stores them.
+Blank or over-long values and repeats within the file are skipped.
 
-No dataset ships with the code. Check a list's licence before loading it.
+A full name already listed (ignoring case and spacing) gets the file's
+acronym and country where its own are blank; one that differs is left as it
+is and reported as a conflict, so an admin's edit is never overwritten.
+Nothing is ever removed (see prune_known_universities), so a rerun changes
+nothing. Management > Known Universities' Upload Universities loads a file
+the same way (apps.users.known_university_load).
+
+Check a list's licence before loading it.
 
 Usage:
   python manage.py load_known_universities universities.csv
-  python manage.py load_known_universities universities.csv --column institution
+  python manage.py load_known_universities names.csv --column institution
   python manage.py load_known_universities universities.csv --dry-run
 """
-import csv
-
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.users.models import KnownUniversity
+from apps.users.known_university_load import NoNameColumn, load_universities, read_university_rows
+
+
+def read_rows(path, column=None) -> list[dict]:
+    """The file's rows as {full_name, acronym, country}, tidied."""
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as handle:
+            return read_university_rows(handle, column)
+    except NoNameColumn as exc:
+        raise CommandError(f'No "{exc}" column in {path}.')
+    except OSError as exc:
+        raise CommandError(f"Could not read {path}: {exc}")
 
 
 class Command(BaseCommand):
-    help = "Add names from a CSV file to the list of known universities."
+    help = "Add universities from a CSV file to the list of known universities."
 
     def add_arguments(self, parser):
         parser.add_argument("csv_path", help="CSV file with a header row.")
-        parser.add_argument("--column", default="name", help="Column holding the names (default: name).")
-        parser.add_argument("--dry-run", action="store_true", help="Report what would be added; add nothing.")
+        parser.add_argument("--column", default=None, help="Column holding full names (default: full_name, else name).")
+        parser.add_argument("--dry-run", action="store_true", help="Report what would change; change nothing.")
 
     def handle(self, *args, **options):
-        column = options["column"]
-        try:
-            with open(options["csv_path"], newline="", encoding="utf-8-sig") as handle:
-                reader = csv.DictReader(handle)
-                if column not in (reader.fieldnames or []):
-                    raise CommandError(f'No "{column}" column in {options["csv_path"]}.')
-                names = [KnownUniversity.normalise(row.get(column)) for row in reader]
-        except OSError as exc:
-            raise CommandError(f"Could not read {options['csv_path']}: {exc}")
-
-        listed = {name.lower() for name in KnownUniversity.objects.values_list("name", flat=True)}
-        new, skipped = [], 0
-        for name in names:
-            if not name or len(name) > 255 or name.lower() in listed:
-                skipped += 1
-                continue
-            listed.add(name.lower())
-            new.append(KnownUniversity(name=name))
-
-        if not options["dry_run"]:
-            KnownUniversity.objects.bulk_create(new)
-        verb = "Would add" if options["dry_run"] else "Added"
-        self.stdout.write(f"{verb} {len(new)} universities, skipped {skipped}.")
+        rows = read_rows(options["csv_path"], options["column"])
+        result = load_universities(rows, dry_run=options["dry_run"])
+        for conflict in result["conflicts"]:
+            self.stdout.write(f"Conflict, left as it is: {conflict}")
+        add, fill = ("Would add", "would fill in") if options["dry_run"] else ("Added", "filled in")
+        self.stdout.write(
+            f"{add} {result['added']} universities, {fill} {result['filled']}, "
+            f"conflicts {len(result['conflicts'])}, skipped {result['skipped']}."
+        )

@@ -109,7 +109,7 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 import { SUPPORT_TOPICS, labelIdFor } from '@/utils/supportTopics'
 import { fetchMyTickets, type TicketDetail, type TicketRow } from '@/utils/supportAPI'
 import { fetchResourceLabels, type ResourceLabel } from '@/utils/resourcesAPI'
-import { isSupervisorHiddenPath, useSupervisorPages } from '@/composables/useSupervisorPages'
+import { useSupervisorPages } from '@/composables/useSupervisorPages'
 import { useAuthStore } from '@/stores/auth'
 
 // The list itself lives in utils/supportTopics.ts so a test can import the
@@ -141,17 +141,14 @@ const labels = ref<ResourceLabel[]>([])
 // test file and pinned the rule instead of the implementation.
 const topicLabelId = (topic: string) => labelIdFor(topic, labels.value)
 
-// Resources is one of the pages Management > Supervisor Pages Visibility
-// keeps from a supervisor until it shows them, and the router guard sends
-// them to their profile instead. So for them the panel names its topics
-// without linking anywhere, and leaves out the link to the whole library.
+// Resources is one of the pages Management > Challenge Start > Pages
+// Visibility keeps from students, mentors and supervisors until its date,
+// and the router guard sends them to their profile instead. Until then the
+// panel names its topics without linking anywhere and leaves out the link
+// to the whole library. Admins always see Resources.
 const auth = useAuthStore()
-const { shown: supervisorPagesShown } = useSupervisorPages()
-const resourcesOpen = computed(
-  () =>
-    !(auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) ||
-    !isSupervisorHiddenPath('/resources')
-)
+const { shown: memberPagesShown } = useSupervisorPages()
+const resourcesOpen = computed(() => auth.isAdmin || memberPagesShown.value)
 
 const router = useRouter()
 

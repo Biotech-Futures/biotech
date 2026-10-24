@@ -166,7 +166,8 @@ const route = useRoute()
 const router = useRouter()
 
 // Filters, page and page size are not in the address bar: reloading the page
-// returns to page one, ten rows, no filters, as the React queue did. A cursor
+// returns to page one, ten rows, and the resting view (every status but
+// Resolved, C-28), as the React queue returned to its start. A cursor
 // in a URL goes stale, and the walk (useTicketQueue) is what holds a place.
 const q = useTicketQueue()
 

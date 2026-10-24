@@ -11,40 +11,16 @@
     :disabled="pending"
     @clear="emit('clear')"
   >
-    <select v-model="choice" class="bulk-assign__select" aria-label="Assign to">
-      <option value="" disabled>Assign to…</option>
-      <!-- The pool, under the name the filter bar already calls it by. The
-           batch endpoint has always taken a null assignee, the way the
-           single-ticket PATCH does, but nothing here could say it: an agent
-           who swept twenty tickets onto themselves by mistake had twenty
-           separate visits to the detail panel to undo it. Above the names
-           rather than below, again matching the filter bar. -->
-      <option :value="UNASSIGNED">Unassigned</option>
-      <!-- Same filter as the detail panel's assign control. The endpoint
-           returns one list for two consumers: the filter dropdown wants every
-           past owner, this one wants only people the write path will accept.
-           Without the filter a deactivated or revoked agent was offered here
-           and the whole batch came back 400. -->
-      <option v-for="person in assignable" :key="person.id" :value="String(person.id)">
-        {{ person.name }}
-      </option>
-      <!-- Said here as well as in the page's banner, because this list is not
-           empty any more: the pool line above it is always offered, so a
-           failed endpoint leaves a dropdown that opens on one plausible
-           option and reads as the whole platform. A disabled option rather
-           than loose text, which is the shape the group dialogs already use
-           for a list with nothing to offer. -->
-      <option v-if="assigneesUnavailable" value="__unavailable" disabled>
-        The assignee list could not be loaded, so there is nobody to pick here. Reload to try
-        again.
-      </option>
-      <!-- The same trap while the list is still on its way: the pool line on
-           its own reads as a platform with nobody on it. React told the panel
-           about a pending roster (P9-1) but not this dropdown (U2 GAP-15). -->
-      <option v-else-if="assigneesLoading" value="__loading" disabled>
-        Loading the assignee list…
-      </option>
-    </select>
+    <!-- The platform's own dropdown (AppSelect) since the 2026-10-22 client
+         meeting (C-29). What it offers, and why, is assignOptions below. -->
+    <AppSelect
+      class="bulk-assign__select"
+      aria-label="Assign to"
+      :model-value="choice"
+      placeholder="Assign to…"
+      :options="assignOptions"
+      @update:model-value="(value) => (choice = value === null ? '' : String(value))"
+    />
 
     <button
       type="button"
@@ -71,8 +47,8 @@
 
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
-import '@/components/support/ticketControls.css'
 
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import { UNASSIGNED, type AssigneeOption } from '@/utils/ticketAgentSchema'
 import { BULK_ASSIGN_LIMIT as BATCH_LIMIT } from './queueRules'
@@ -102,6 +78,43 @@ const limitNoteId = useId()
 const choice = ref('')
 
 const assignable = computed(() => props.assignees.filter((person) => person.assignable))
+
+const assignOptions = computed<AppSelectOption[]>(() => [
+  // The pool, under the name the filter bar already calls it by. The batch
+  // endpoint has always taken a null assignee, the way the single-ticket PATCH
+  // does, but nothing here could say it: an agent who swept twenty tickets
+  // onto themselves by mistake had twenty separate visits to the detail panel
+  // to undo it. Above the names rather than below, again matching the filter
+  // bar.
+  { value: UNASSIGNED, label: 'Unassigned' },
+  // Same filter as the detail panel's assign control. The endpoint returns
+  // one list for two consumers: the filter dropdown wants every past owner,
+  // this one wants only people the write path will accept. Without the filter
+  // a deactivated or revoked agent was offered here and the whole batch came
+  // back 400.
+  ...assignable.value.map((person) => ({ value: String(person.id), label: person.name })),
+  // Said here as well as in the page's banner, because this list is not empty
+  // any more: the pool line above it is always offered, so a failed endpoint
+  // leaves a dropdown that opens on one plausible choice and reads as the
+  // whole platform. A row that cannot be picked rather than loose text, the
+  // shape the group dialogs already use for a list with nothing to offer; on
+  // two lines, because AppSelect keeps each line to one row.
+  ...(props.assigneesUnavailable
+    ? [
+        {
+          value: '__unavailable',
+          label: 'Nobody to pick here',
+          detail: 'The assignee list could not be loaded. Reload to try again.',
+          disabled: true
+        }
+      ]
+    : props.assigneesLoading
+      ? // The same trap while the list is still on its way: the pool line on
+        // its own reads as a platform with nobody on it. React told the panel
+        // about a pending roster (P9-1) but not this dropdown (U2 GAP-15).
+        [{ value: '__loading', label: 'Loading the assignee list…', disabled: true }]
+      : [])
+])
 
 const toThePool = computed(() => choice.value === UNASSIGNED)
 // "Assign" is the wrong word for handing a batch back, and the button is the
@@ -164,18 +177,15 @@ function assign() {
   font-size: 0.7rem;
 }
 
+/* The box. AppSelect draws the chevron and the list. */
 .bulk-assign__select {
   width: 200px;
   max-width: 100%;
   height: 2.5rem;
-  padding: 0 2.25rem 0 0.75rem;
+  padding: 0 0.75rem;
   border: 1px solid var(--bulk-edge);
   border-radius: 8px;
   background: var(--white);
-  background-image: var(--ticket-select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 0.9rem center;
-  appearance: none;
   color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
@@ -227,5 +237,12 @@ function assign() {
    mounted button). */
 :root[data-theme='dark'] .bulk-actions-bar :deep(.bulk-actions-bar__clear) {
   color: var(--mint-green);
+}
+
+/* AppSelect rings its box in --dark-green when its field has keyboard focus,
+   which the dark theme does not redefine: about 2.8:1 on the dark grounds,
+   under the 3:1 a focus indicator needs. The queue's dark ring (TicketQueuePage.vue). */
+:root[data-theme='dark'] .bulk-assign__select:has(:focus-visible) {
+  outline-color: var(--mint-green);
 }
 </style>

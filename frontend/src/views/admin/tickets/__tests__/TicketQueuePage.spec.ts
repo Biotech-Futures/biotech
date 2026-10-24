@@ -64,6 +64,8 @@ import {
 } from '@/utils/ticketAgentAPI'
 import { useAuthStore } from '@/stores/auth'
 import TicketQueuePage from '../TicketQueuePage.vue'
+import { restingFilters } from '@/components/admin/tickets/queue/queueFilters'
+import { openAppSelect, pickAppSelect } from '@/__tests__/appSelect'
 
 const queueMock = vi.mocked(fetchTicketQueue)
 const summaryMock = vi.mocked(fetchTicketSummary)
@@ -180,8 +182,13 @@ async function selectRow(ticketNumber = 'SUP-2026-00001') {
   await w().get(`input[aria-label="Select ${ticketNumber}"]`).setValue(true)
 }
 
+// The bulk bar's dropdown is the platform's AppSelect (C-29): picked by the
+// words on a choice. Sam Reid is SUPPORT_AGENTS' id 9.
+const ASSIGN_TO = 'input[aria-label="Assign to"]'
+const ASSIGNEE_NAMES: Record<string, string> = { '9': 'Sam Reid', __unassigned__: 'Unassigned' }
+
 async function assignTo(value: string) {
-  await w().get('select[aria-label="Assign to"]').setValue(value)
+  await pickAppSelect(w(), ASSIGN_TO, ASSIGNEE_NAMES[value])
   await click(value === '__unassigned__' ? 'Unassign' : 'Assign')
 }
 
@@ -327,7 +334,7 @@ describe('the counter cards', () => {
 
     await click('Open')
 
-    expect(lastAsk()).toMatchObject({ page: 1, filters: { status: 'open' } })
+    expect(lastAsk()).toMatchObject({ page: 1, filters: { status: ['open'] } })
   })
 
   it('takes the agent to the tickets the Pending user card counts', async () => {
@@ -335,7 +342,7 @@ describe('the counter cards', () => {
 
     await click('Pending user')
 
-    expect(lastAsk()).toMatchObject({ page: 1, filters: { status: 'pending_user' } })
+    expect(lastAsk()).toMatchObject({ page: 1, filters: { status: ['pending_user'] } })
   })
 
   it('takes the agent to the tickets the Unassigned card counts', async () => {
@@ -343,7 +350,9 @@ describe('the counter cards', () => {
 
     await click('Unassigned')
 
-    expect(lastAsk()).toMatchObject({ page: 1, filters: { assignee: '__unassigned__' } })
+    // Beside the resting statuses, which already leave resolved tickets out
+    // as the card's count does.
+    expect(lastAsk()).toMatchObject({ page: 1, filters: { ...restingFilters(), assignee: ['__unassigned__'] } })
   })
 
   it('takes the agent to the tickets the Overdue card counts', async () => {
@@ -353,7 +362,7 @@ describe('the counter cards', () => {
 
     await click('Overdue')
 
-    expect(lastAsk()).toMatchObject({ page: 1, filters: { status: '__overdue__' } })
+    expect(lastAsk()).toMatchObject({ page: 1, filters: { status: ['__overdue__'] } })
   })
 
   it('shows the Overdue filter in the status dropdown once the card is clicked', async () => {
@@ -363,8 +372,7 @@ describe('the counter cards', () => {
 
     await click('Overdue')
 
-    const status = w().get('select[aria-label="Filter by status"]').element as HTMLSelectElement
-    expect(status.selectedOptions[0]!.textContent!.trim()).toBe('Overdue')
+    expect(w().get('button[aria-label="Filter by status"]').text()).toBe('Overdue')
   })
 
   it('keeps the filters already on screen when a card is clicked', async () => {
@@ -373,12 +381,13 @@ describe('the counter cards', () => {
     // already narrowed to.
     regionsMock.mockResolvedValue([{ value: 'Australia', label: 'Australia' }])
     await mountPage()
-    await w().get('select[aria-label="Filter by region"]').setValue('Australia')
+    await w().get('button[aria-label="Filter by region"]').trigger('click')
+    await w().get('[role="group"][aria-label="Filter by region"] input[value="Australia"]').setValue(true)
     await flushPromises()
 
     await click('Open')
 
-    expect(lastAsk().filters).toEqual({ region: 'Australia', status: 'open' })
+    expect(lastAsk().filters).toEqual({ region: ['Australia'], status: ['open'] })
   })
 
   it('asks for the list once per click on a card, not twice', async () => {
@@ -879,7 +888,7 @@ describe('paging backwards', () => {
       { page: 2, walk: { asOf: WALK.asOf, after: 'new-walk-after-page-1' } },
       { page: 3, walk: undefined }
     ])
-    expect(lastAsk().filters).toEqual({ status: 'open' })
+    expect(lastAsk().filters).toEqual({ status: ['open'] })
   })
 
   it('starts a fresh walk when the page size changes', async () => {
@@ -1086,12 +1095,13 @@ describe('handing a batch back to the pool', () => {
     await mountPage()
     await selectRow()
 
-    const options = w().get('select[aria-label="Assign to"]').findAll('option')
+    const options = await openAppSelect(w(), ASSIGN_TO)
     const last = options[options.length - 1]!
-    expect(last.text().replace(/\s+/g, ' ')).toBe(
-      'The assignee list could not be loaded, so there is nobody to pick here. Reload to try again.'
+    expect(last.querySelector('.app-select__label')?.textContent).toBe('Nobody to pick here')
+    expect(last.querySelector('.app-select__detail')?.textContent).toBe(
+      'The assignee list could not be loaded. Reload to try again.'
     )
-    expect(last.attributes('disabled')).toBeDefined()
+    expect(last.getAttribute('aria-disabled')).toBe('true')
   })
 
   it('passes on the transport’s own refusal instead of advising a retry', async () => {
@@ -1206,7 +1216,7 @@ describe('a bulk assign that goes through', () => {
     bulkMock.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
     await mountPage()
     await selectRow()
-    await w().get('select[aria-label="Assign to"]').setValue('9')
+    await pickAppSelect(w(), ASSIGN_TO, 'Sam Reid')
 
     const go = button('Assign')
     go.element.click()
@@ -1345,7 +1355,7 @@ describe('the footer', () => {
     next.click()
     await flushPromises()
 
-    expect(asked.slice(before)).toEqual([{ page: 2, limit: 10, filters: {}, walk: WALK }])
+    expect(asked.slice(before)).toEqual([{ page: 2, limit: 10, filters: restingFilters(), walk: WALK }])
     expect(text()).toMatch(/Nothing left on this page/)
   })
 })
@@ -1769,7 +1779,37 @@ describe('a refresh of page one', () => {
     // A request really went out: the mount's own page-one read would satisfy
     // the second assertion on its own.
     expect(asked.length - before).toBe(1)
-    expect(lastAsk()).toEqual({ page: 1, limit: 10, filters: {}, walk: undefined })
+    expect(lastAsk()).toEqual({ page: 1, limit: 10, filters: restingFilters(), walk: undefined })
+  })
+})
+
+describe('the view the queue opens on (C-28)', () => {
+  /* "By default, when someone opens this page, it shows all statuses except
+   * for resolved. So resolved essentially to be hidden by default." (client
+   * meeting, 2026-10-22) */
+  const statusBox = () => w().get('button[aria-label="Filter by status"]')
+
+  it('asks for every status but Resolved, and says so on the status box', async () => {
+    await mountPage()
+
+    expect(asked[0]).toMatchObject({ page: 1, filters: { status: ['open', 'in_progress', 'pending_user'] } })
+    expect(statusBox().text()).toBe('Not Resolved')
+    expect(w().findAll('button').some((b) => b.text() === 'Clear filters')).toBe(false)
+  })
+
+  it('shows resolved tickets once Resolved is ticked, and Clear filters goes back', async () => {
+    await mountPage()
+    await statusBox().trigger('click')
+    await w().get('[role="group"][aria-label="Filter by status"] input[value="resolved"]').setValue(true)
+    await flushPromises()
+
+    expect(lastAsk().filters).toEqual({ status: ['open', 'in_progress', 'pending_user', 'resolved'] })
+    expect(statusBox().text()).toBe('Any status')
+
+    await click('Clear filters')
+
+    expect(lastAsk().filters).toEqual(restingFilters())
+    expect(statusBox().text()).toBe('Not Resolved')
   })
 })
 
@@ -1786,7 +1826,7 @@ describe('Export to Excel (C-09)', () => {
 
     await click('Export to Excel')
 
-    expect(exportMock.mock.calls).toEqual([[{ status: 'open' }]])
+    expect(exportMock.mock.calls).toEqual([[{ status: ['open'] }]])
     expect(saveMock.mock.calls).toEqual([[FILE]])
   })
 

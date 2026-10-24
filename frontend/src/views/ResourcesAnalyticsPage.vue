@@ -15,13 +15,15 @@
       </div>
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv"><i class="fas fa-download"></i> Export CSV</button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
         </div>
       </div>
     </div>
+
+    <p v-if="exportError" role="alert">{{ exportError }}</p>
 
     <AnalyticsPartialNotice :sources="unavailableSources" @retry="loadAnalytics(true)" />
 
@@ -85,6 +87,13 @@
           </div>
         </div>
       </article>
+    </section>
+
+    <section v-if="sourceAvailable('resourceAnalytics')" class="analytics-card resource-trend-card">
+      <h2>Clicks and Unique Users by Resource</h2>
+      <p class="card-subtitle">Daily usage of each resource. Switch resources on or off to compare them.</p>
+      <ResourceUsageTrendChart v-if="data.resourceDaily" :rows="data.resourceDaily" />
+      <p v-else class="card-subtitle">Per-resource daily usage is not available from the server yet.</p>
     </section>
 
     <section class="analytics-card table-card">
@@ -161,15 +170,32 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
+import ResourceUsageTrendChart from '@/components/analytics/ResourceUsageTrendChart.vue'
+import type { ResourceDailyUsage } from '@/types/analytics'
 import {
   buildResourcesAnalytics,
   loadResourcesAnalyticsBundle,
   type ResourceAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const data = reactive({
   totalClicks: 0, uniqueUsers: 0, activeResources: 0, mostUsedResource: '—',
   dailyClicks: [] as Array<{ label: string; clicks: number }>,
+  resourceDaily: [] as ResourceDailyUsage[] | null,
   resources: [] as Array<{ id: number; name: string; clicks: number; uniqueUsers: number; type: string; roles: Array<'Student' | 'Mentor' | 'Supervisor'> }>,
   byType: [] as Array<{ label: string; value: number; color: string }>,
 })
@@ -359,23 +385,85 @@ function sortIcon(key: ResourceSortKey) {
 function showTooltip(e:MouseEvent,title:string,value:string,detail=''){tooltip.value={visible:true,x:e.clientX,y:e.clientY,title,value,detail}}
 function moveTooltip(e:MouseEvent){tooltip.value.x=e.clientX;tooltip.value.y=e.clientY}
 function hideTooltip(){tooltip.value.visible=false}
-function exportCsv() {
-  const rows = [
-    ['Resource', 'Type', 'Clicks', 'Unique Users'],
-    ...sortedResources.value.map((resource) => [
-      resource.name, resource.type,
-      sourceAvailable('resourceAnalytics') ? resource.clicks : 'Unavailable',
-      sourceAvailable('resourceAnalytics') ? resource.uniqueUsers : 'Unavailable',
+const exportError = ref('')
+const exportOptions = computed<ExportOption[]>(() => [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'One row per resource in the table, with its filters' },
+  {
+    kind: 'daily',
+    label: 'Daily usage by resource',
+    description: 'Clicks and unique users per resource per day',
+    disabled: !data.resourceDaily,
+  },
+])
+const latestClickDay = computed(() =>
+  data.dailyClicks.reduce((latest, point) => (point.label > latest ? point.label : latest), ''),
+)
+
+function resourcesSummary() {
+  const comparison = resourceYearComparison.value
+  const rows: SummaryRow[] = [
+    figure('Resources', 'Total clicks', data.totalClicks, 'clicks'),
+    figure('Resources', 'Unique users', data.uniqueUsers, 'users'),
+    figure('Resources', 'Resources used', data.activeResources, 'resources'),
+    figure('Resources', 'Most used resource', data.mostUsedResource),
+    figure('Resources', `Clicks in ${comparison.year}`, comparison.current, 'clicks'),
+    figure('Resources', `Clicks in ${comparison.previousYear}`, comparison.previous, 'clicks'),
+    ...data.byType.map((item) => figure('Clicks by resource type', item.label, item.value, 'clicks')),
+    ...filteredDailyClicks.value.map((point) => figure('Clicks per day', point.label, point.clicks, 'clicks')),
+    ...sortedResources.value.flatMap((resource) => [
+      figure('Clicks by resource', resource.name, resource.clicks, 'clicks'),
+      figure('Unique users by resource', resource.name, resource.uniqueUsers, 'users'),
     ]),
   ]
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'resource-analytics.csv'
-  anchor.click()
-  URL.revokeObjectURL(url)
+  return {
+    fileName: exportFileName('resources', 'summary', latestClickDay.value || 'all dates'),
+    csv: summaryCsv({
+      page: 'Resources',
+      covers: 'All recorded resource clicks',
+      filters: [
+        ['Search', search.value.trim()],
+        ['Audience', selectedAudienceRole.value],
+        ['Clicks per day date filter', clicksDateQuery.value.trim()],
+      ].filter(([, value]) => value && value !== 'all') as Array<[string, string]>,
+      dataAsOf: latestClickDay.value || null,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
+  }
+}
+
+function resourcesDetails() {
+  const usage = sourceAvailable('resourceAnalytics')
+  return {
+    fileName: exportFileName('resources', 'details', latestClickDay.value || 'all dates'),
+    csv: detailsCsv(
+      ['Resource ID', 'Resource', 'Type', 'Audiences', 'Clicks', 'Unique Users'],
+      sortedResources.value.map((resource) => [
+        resource.id,
+        resource.name,
+        resource.type,
+        resource.roles.join('; '),
+        usage ? resource.clicks : null,
+        usage ? resource.uniqueUsers : null,
+      ]),
+    ),
+  }
+}
+
+function resourcesDaily() {
+  const rows = [...(data.resourceDaily ?? [])]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name))
+    .map((row) => [row.date, row.resourceId, row.name, row.clicks, row.uniqueUsers])
+  return {
+    fileName: exportFileName('resources', 'daily-usage', latestClickDay.value || 'all dates'),
+    // Unique users are counted per day, so they do not add up across days.
+    csv: detailsCsv(['Date (UTC)', 'Resource ID', 'Resource', 'Clicks', 'Unique Users That Day'], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  const build = kind === 'summary' ? resourcesSummary : kind === 'daily' ? resourcesDaily : resourcesDetails
+  exportError.value = runExport(build)
 }
 </script>
 
@@ -383,8 +471,8 @@ function exportCsv() {
 .resources-analytics-page {
   min-width: 0;
   padding: 32px 40px 44px;
-  background: #f7faf9;
-  color: #174243;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #174243);
 }
 
 .page-heading {
@@ -398,7 +486,7 @@ function exportCsv() {
   display: flex;
   gap: 8px;
   margin-bottom: 18px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
@@ -416,7 +504,7 @@ function exportCsv() {
 
 h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -424,7 +512,7 @@ h1 {
 
 .heading-copy > p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -433,9 +521,9 @@ h1 {
   min-height: 30px;
   align-items: center;
   padding: 0 10px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 999px;
-  background: #f1e5a6;
+  background: var(--analytics-ui-warning-bg, #f1e5a6);
   font-size: 12px;
   font-weight: 700;
 }
@@ -447,10 +535,10 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 12px;
-  background: #fff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -465,9 +553,9 @@ h1 {
 
 .kpi-card,
 .analytics-card {
-  border: 1px solid #d7e3df;
+  border: 1px solid var(--analytics-ui-border, #d7e3df);
   border-radius: 16px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 8px 20px rgba(23, 66, 67, 0.04);
 }
 
@@ -486,14 +574,14 @@ h1 {
   flex: 0 0 52px;
   place-items: center;
   border-radius: 14px;
-  background: #e4f0e2;
-  color: #017151;
+  background: var(--analytics-ui-soft, #e4f0e2);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 20px;
 }
 
 .kpi-label {
   display: block;
-  color: #465b57;
+  color: var(--analytics-ui-muted, #465b57);
   font-size: 13px;
   font-weight: 700;
 }
@@ -501,7 +589,7 @@ h1 {
 .kpi-card strong {
   display: block;
   margin-top: 5px;
-  color: #123f3c;
+  color: var(--analytics-ui-text, #123f3c);
   font-size: 28px;
   line-height: 1.05;
 }
@@ -509,7 +597,7 @@ h1 {
 .kpi-card small {
   display: block;
   margin-top: 8px;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 12px;
 }
 
@@ -534,7 +622,7 @@ h1 {
 .analytics-card h2 {
   margin: 0;
   font-size: 20px;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
 }
 
 .chart-title-row {
@@ -553,7 +641,7 @@ h1 {
   position: absolute;
   top: 50%;
   left: 13px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 12px;
   pointer-events: none;
   transform: translateY(-50%);
@@ -563,22 +651,22 @@ h1 {
   width: 220px;
   height: 40px;
   padding: 0 12px 0 34px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 10px;
-  background: #ffffff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #174243);
   font-size: 13px;
   font-weight: 600;
 }
 
 .chart-range-control input::placeholder {
-  color: #72837f;
+  color: var(--analytics-ui-muted, #72837f);
   font-weight: 500;
 }
 
 .card-subtitle {
   margin: 5px 0 16px;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 13px;
 }
 
@@ -595,7 +683,7 @@ h1 {
   flex-direction: column;
   justify-content: space-between;
   padding: 0;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 11px;
   text-align: right;
 }
@@ -614,7 +702,7 @@ h1 {
   inset: 18px 0 32px;
   display: grid;
   place-items: center;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 13px;
 }
 
@@ -628,7 +716,7 @@ h1 {
 }
 
 .grid-lines span {
-  border-top: 1px solid #e3ebe8;
+  border-top: 1px solid var(--analytics-ui-border, #e3ebe8);
 }
 
 .bars {
@@ -652,7 +740,7 @@ h1 {
   grid-template-rows: 18px 180px 16px;
   align-items: end;
   text-align: center;
-  color: #5f716d;
+  color: var(--analytics-ui-muted, #5f716d);
   font-size: 10px;
 }
 
@@ -682,7 +770,7 @@ h1 {
 
 .axis-title {
   margin-top: 6px;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 11px;
   text-align: center;
 }
@@ -709,7 +797,7 @@ h1 {
   height: 12px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e8efec;
+  background: var(--analytics-ui-soft, #e8efec);
 }
 
 .type-track i {
@@ -738,14 +826,14 @@ h1 {
   width: 260px;
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 10px;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
 }
 
 .table-wrap {
   overflow: auto;
-  border: 1px solid #e0e8e5;
+  border: 1px solid var(--analytics-ui-border, #e0e8e5);
   border-radius: 12px;
 }
 
@@ -757,15 +845,15 @@ table {
 
 th {
   padding: 12px;
-  background: #f0f4f2;
-  color: #174243;
+  background: var(--analytics-ui-soft, #f0f4f2);
+  color: var(--analytics-ui-text, #174243);
   text-align: left;
 }
 
 td {
   padding: 12px;
-  border-top: 1px solid #e4ebe8;
-  color: #536762;
+  border-top: 1px solid var(--analytics-ui-border, #e4ebe8);
+  color: var(--analytics-ui-muted, #536762);
 }
 
 tbody tr:hover td {
@@ -829,7 +917,7 @@ tbody tr:hover td {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -837,20 +925,20 @@ tbody tr:hover td {
 
 .sort-header-button i {
   min-width: 12px;
-  color: #5EA99E;
+  color: var(--analytics-ui-muted, #5EA99E);
   font-size: 11px;
 }
 
 .sort-header-button:hover {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 /* Match Email Monitoring page header and card rhythm */
 .resources-analytics-page {
   min-width: 0;
   padding: 32px 40px 44px;
-  background: #f7faf9;
-  color: #174243;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #174243);
 }
 
 .resources-analytics-page .page-heading {
@@ -865,7 +953,7 @@ tbody tr:hover td {
   align-items: center;
   gap: 8px;
   margin-bottom: 18px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
@@ -878,7 +966,7 @@ tbody tr:hover td {
 
 .resources-analytics-page h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -886,7 +974,7 @@ tbody tr:hover td {
 
 .resources-analytics-page .heading-copy > p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -895,10 +983,10 @@ tbody tr:hover td {
   min-height: 30px;
   align-items: center;
   padding: 0 10px;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 999px;
-  background: #F1E5A6;
-  color: #174243;
+  background: var(--analytics-ui-warning-bg, #F1E5A6);
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   font-weight: 700;
 }
@@ -919,10 +1007,10 @@ tbody tr:hover td {
   justify-content: center;
   gap: 8px;
   padding: 0 16px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 12px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-page, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 14px;
   font-weight: 700;
 }
@@ -932,8 +1020,8 @@ tbody tr:hover td {
   min-height: 100%;
   min-width: 0;
   padding: 28px 32px 40px !important;
-  background: #f7faf9;
-  color: #174243;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #174243);
 }
 
 .resources-analytics-page .page-heading {
@@ -953,12 +1041,12 @@ tbody tr:hover td {
   align-items: center !important;
   gap: 8px !important;
   margin-bottom: 18px !important;
-  color: #59706e !important;
+  color: var(--analytics-ui-muted, #59706e) !important;
   font-size: 14px !important;
 }
 
 .resources-analytics-page .breadcrumb a {
-  color: #59706e !important;
+  color: var(--analytics-ui-muted, #59706e) !important;
   text-decoration: none !important;
 }
 
@@ -972,7 +1060,7 @@ tbody tr:hover td {
 .resources-analytics-page .title-line h1,
 .resources-analytics-page .page-heading h1 {
   margin: 0 !important;
-  color: #163f3c !important;
+  color: var(--analytics-ui-text, #163f3c) !important;
   font-size: 36px !important;
   line-height: 1.15 !important;
   font-weight: 800 !important;
@@ -980,7 +1068,7 @@ tbody tr:hover td {
 
 .resources-analytics-page .heading-copy > p {
   margin: 8px 0 0 !important;
-  color: #617572 !important;
+  color: var(--analytics-ui-muted, #617572) !important;
   font-size: 16px !important;
 }
 
@@ -989,10 +1077,10 @@ tbody tr:hover td {
   align-items: center !important;
   min-height: 30px !important;
   padding: 0 10px !important;
-  border: 1px solid #BAD7B8 !important;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8) !important;
   border-radius: 999px !important;
-  background: #F1E5A6 !important;
-  color: #174243 !important;
+  background: var(--analytics-ui-warning-bg, #F1E5A6) !important;
+  color: var(--analytics-ui-text, #174243) !important;
   font-size: 12px !important;
   font-weight: 700 !important;
 }
@@ -1013,10 +1101,10 @@ tbody tr:hover td {
   justify-content: center !important;
   gap: 8px !important;
   padding: 0 16px !important;
-  border: 1px solid #9fd8c7 !important;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7) !important;
   border-radius: 12px !important;
-  background: #ffffff !important;
-  color: #017151 !important;
+  background: var(--analytics-ui-page, #ffffff) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font-size: 14px !important;
   font-weight: 700 !important;
   cursor: pointer;
@@ -1033,10 +1121,10 @@ tbody tr:hover td {
 .resources-analytics-page .resource-table-filters select,
 .resources-analytics-page .resource-table-filters input {
   height: 44px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 12px;
-  background: #ffffff;
-  color: #174243;
+  background: var(--analytics-ui-page, #ffffff);
+  color: var(--analytics-ui-text, #174243);
   font-size: 14px;
 }
 
@@ -1080,11 +1168,11 @@ tbody tr:hover td {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #f0f4f2;
+  background: var(--analytics-ui-soft, #f0f4f2);
 }
 
 .resources-analytics-page .breadcrumb a:hover {
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   text-decoration: underline !important;
 }
 
@@ -1108,12 +1196,12 @@ tbody tr:hover td {
 
 .resources-analytics-page .kpi-card > div:not(.kpi-icon) > strong:not(.resource-name) {
   width: 100%;
-  text-align: center;
+  text-align: left;
 }
 
 .resources-analytics-page .kpi-card .analytics-value-row {
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 /* Use identical title/value/helper tracks across every resource KPI, including
@@ -1124,7 +1212,7 @@ tbody tr:hover td {
   flex: 1 1 0% !important;
   align-self: stretch;
   grid-template-rows: 34px auto 34px !important;
-  align-content: center;
+  align-content: start;
 }
 
 .resources-analytics-page .kpi-grid .kpi-card .kpi-label {

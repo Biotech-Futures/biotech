@@ -339,3 +339,47 @@ export function formatSydneySlot(start: string, end: string, isoDate: string | n
   const range = `${pad(start)} - ${pad(end)}`
   return isoDate ? `${range} ${sydneyClockOn(isoDate).name}` : range
 }
+
+/** Management's dates and times are Sydney's, whatever the computer's own
+ *  time zone: entered, saved and shown in it. */
+export const SYDNEY_TIME_ZONE = 'Australia/Sydney'
+
+/** "2026-11-30T23:59": an instant as Sydney's clock shows it, as a
+ *  Management date and time (SydneyDateTimeFields) holds it; '' for none. */
+export function toSydneyDateTimeInput(value: string | null | undefined): string {
+  const p = zonedParts(value, SYDNEY_TIME_ZONE)
+  return p ? `${p.year}-${p.mm}-${p.dd}T${p.HH}:${p.MM}` : ''
+}
+
+/** Minutes Sydney's clock is ahead of UTC at an instant: 600 or 660. */
+const sydneyOffsetMinutes = (at: number) => {
+  const p = zonedParts(new Date(at), SYDNEY_TIME_ZONE)!
+  return Math.round((Date.UTC(Number(p.year), p.month - 1, p.day, p.hour, Number(p.MM)) - at) / 60_000)
+}
+
+/** The instant Sydney's clock shows as "2026-11-30T23:59", for the server;
+ *  null for none. */
+export function fromSydneyDateTimeInput(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const [, year, month, day, hour, minute] = match.map(Number)
+  const wall = Date.UTC(year!, month! - 1, day!, hour!, minute!)
+  // Sydney's offset at that time: guessed from the wall time read as UTC,
+  // then checked at the instant it gives (it differs only near a clock change).
+  let at = wall - sydneyOffsetMinutes(wall) * 60_000
+  const offset = sydneyOffsetMinutes(at)
+  at = wall - offset * 60_000
+  return new Date(at).toISOString()
+}
+
+/** Today's date in Sydney, "2026-10-24". */
+export function sydneyToday(): string {
+  return toSydneyDateTimeInput(new Date().toISOString()).slice(0, 10)
+}
+
+/** Management's statements of a date and time, in Sydney with its clock:
+ *  "20/10/2026 at 23:59 AEDT". */
+export function formatSydneyStatement(value: string | Date | null | undefined): string {
+  const text = formatStatementTime(value, SYDNEY_TIME_ZONE)
+  return text ? `${text} ${sydneyClockOn(toSydneyDateTimeInput(new Date(value!).toISOString()).slice(0, 10)).name}` : ''
+}

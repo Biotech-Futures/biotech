@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import StudentMatchingPanel from '@/components/admin/matching/StudentMatchingPanel.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 /**
  * Integration coverage for the Student Matching tab: the panel, its composable,
@@ -261,6 +262,8 @@ describe('StudentMatchingPanel', () => {
     expect(confirmCall).toBeDefined()
     const body = JSON.parse((confirmCall![1] as RequestInit).body as string)
     expect(body.assignments).toEqual([{ studentId: 1, groupId: 10 }])
+    // It placed students with no group: refused if one has joined a group since.
+    expect(body.onlyUngrouped).toBe(true)
   })
 
   it('filters the board with the group filter', async () => {
@@ -271,7 +274,7 @@ describe('StudentMatchingPanel', () => {
     expect(wrapper.text()).toContain('BTF11')
 
     // "Has recommended students" hides the group nobody was proposed for.
-    await wrapper.find('select').setValue('needs_action')
+    await pickAppSelect(wrapper, '.student-matching__select', 'Has recommended students')
     expect(wrapper.text()).toContain('BTF10')
     expect(wrapper.text()).not.toContain('BTF11')
   })

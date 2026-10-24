@@ -1,14 +1,17 @@
-"""The supervisors' daily registration status email (the client's "Supervisor
-Daily Digest"): to each supervisor with a student this year whose permission
+"""The supervisors' weekly registration status email (the spec's "Supervisor
+Weekly Digest"): to each supervisor with a student this year whose permission
 form isn't signed yet, how many of their students are complete, waiting for
 their guardian's signature, or waiting for their guardian's details, by the
-same rules as My Students. Once a day at most, until every one of their
-students is complete; a supervisor emailed today is skipped, so a repeated or
+same rules as My Students. Once a week at most, until every one of their
+students is complete. The job runs daily, so a missed run is made up the next
+day: a supervisor emailed in the last week is skipped, so a repeated or
 overlapping run emails nobody twice. Admins can switch it off on System Emails.
 """
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Q
@@ -18,21 +21,28 @@ from apps.services.system_email import SENT, is_email_enabled, send_system_email
 
 from .models import StudentProfile, SupervisorProfile, User
 
+# The day the challenge starts, as the email names it, is Sydney's.
+CHALLENGE_TZ = ZoneInfo("Australia/Sydney")
+
 logger = logging.getLogger(__name__)
 
 EMAIL_KEY = "supervisor_registration_status"
+
+# Days between one supervisor's emails.
+INTERVAL_DAYS = 7
 
 # Accounts that can still sign in (or will): theirs and their students'.
 _CAN_SIGN_IN = (User.AccountStatus.INVITED, User.AccountStatus.PENDING, User.AccountStatus.ACTIVE)
 
 
 def _students(supervisor_id: int):
-    """A supervisor's students this year (by when their account was made, as
-    the guardian emails count them) whose accounts can still sign in."""
+    """A supervisor's students this challenge year (registered for it, or
+    back for it, as the guardian emails count them) whose accounts can still
+    sign in."""
     return StudentProfile.objects.filter(
         supervisor_id=supervisor_id,
         user__account_status__in=_CAN_SIGN_IN,
-        user__date_joined__year=_cohort(),
+        challenge_year=_cohort(),
     )
 
 
@@ -49,13 +59,16 @@ def status_counts(supervisor_id: int) -> dict:
 
 
 def challenge_start_text() -> str:
-    """"27 July": this year's challenge start (Management > Challenge Start);
-    "" while it isn't set."""
+    """"27 July": the day this year's challenge starts (Management > Challenge
+    Start), in Sydney; its time isn't named. "" while it isn't set."""
     from apps.management.models import ChallengeStart
     from apps.submissions.services import current_cohort
 
-    starts_on = ChallengeStart.for_year(current_cohort()).starts_on
-    return f"{starts_on.day} {starts_on:%B}" if starts_on else ""
+    starts_at = ChallengeStart.for_year(current_cohort()).starts_at
+    if not starts_at:
+        return ""
+    day = timezone.localtime(starts_at, CHALLENGE_TZ)
+    return f"{day.day} {day:%B}"
 
 
 def status_context(user) -> dict:
@@ -72,19 +85,19 @@ def status_context(user) -> dict:
 
 
 def supervisors_due(now=None):
-    """Supervisors who can sign in, with a student still pending, not yet
-    emailed today."""
+    """Supervisors who can sign in, with a student still pending, not
+    emailed in the last week (emailed on a Monday, due again the next Monday)."""
     today = timezone.localdate(now or timezone.now())
     pending = StudentProfile.objects.filter(
         has_join_permission=False,
         user__account_status__in=_CAN_SIGN_IN,
-        user__date_joined__year=_cohort(),
+        challenge_year=_cohort(),
     ).values("supervisor_id")
     return (
         SupervisorProfile.objects.select_related("user")
         .filter(pk__in=pending, user__account_status=User.AccountStatus.ACTIVE)
         .exclude(user__email="")
-        .exclude(status_digest_sent_on=today)
+        .exclude(status_digest_sent_on__gt=today - timedelta(days=INTERVAL_DAYS))
         .order_by("pk")
     )
 

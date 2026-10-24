@@ -11,7 +11,9 @@ import {
   historyEntry,
   mountPanel,
   openPanel,
-  optionTexts,
+  offeredChoices,
+  pickChoice,
+  triageField,
   panelHost,
   pending,
   resetPanelTests,
@@ -170,7 +172,7 @@ describe('opening a ticket', () => {
     const first = await openPanel(ticketWith(), {
       roster: [ACTIVE, { id: 5, name: 'Rita Revoked', assignable: true }]
     })
-    expect(first.page.get('select[aria-label="Change assignee"]').text()).toContain('Rita Revoked')
+    expect(await offeredChoices(first, 'Change assignee')).toContain('Rita Revoked')
     first.wrapper.unmount()
 
     const again = await openPanel(ticketWith(), {
@@ -178,9 +180,7 @@ describe('opening a ticket', () => {
     })
 
     expect(api.fetchAssignees).toHaveBeenCalledTimes(2)
-    expect(again.page.get('select[aria-label="Change assignee"]').text()).not.toContain(
-      'Rita Revoked'
-    )
+    expect(await offeredChoices(again, 'Change assignee')).not.toContain('Rita Revoked')
   })
 
   it('reads the assignee list again when the panel moves to another ticket', async () => {
@@ -211,7 +211,7 @@ describe('opening a ticket', () => {
     before.resolve([ACTIVE, { id: 5, name: 'Rita Revoked', assignable: true }])
     await flushPromises()
 
-    expect(optionTexts(page.get('select[aria-label="Change assignee"]'))).toEqual([
+    expect(await offeredChoices({ page }, 'Change assignee')).toEqual([
       'Unassigned',
       'Sam Reid'
     ])
@@ -393,10 +393,10 @@ describe('when the assignee list does not load', () => {
 
     expect(api.fetchAssignees).toHaveBeenCalledTimes(2)
     expect(alertTexts(panel)).toEqual([])
-    const assignee = panel.page.get('select[aria-label="Change assignee"]')
-    expect(optionTexts(assignee)).toEqual(['Unassigned', 'Sam Reid'])
+    const assignee = panel.page.get(triageField('Change assignee'))
     // The button it was on has gone; focus did not go to the page with it.
     expect(document.activeElement).toBe(assignee.element)
+    expect(await offeredChoices(panel, 'Change assignee')).toEqual(['Unassigned', 'Sam Reid'])
   })
 
   it('names the Try again button by what it is for', async () => {
@@ -727,7 +727,7 @@ describe("the ticket's own history", () => {
     await openDetails(panel)
     expect(api.fetchTicketHistory).toHaveBeenCalledTimes(1)
 
-    await panel.page.get('select[aria-label="Change priority"]').setValue('high')
+    await pickChoice(panel, 'Change priority', 'High')
     await flushPromises()
 
     expect(api.fetchTicketHistory).toHaveBeenCalledTimes(2)
@@ -739,7 +739,7 @@ describe('telling the queue', () => {
     api.updateTicket.mockResolvedValue(ticketWith({ status: 'resolved' }))
     const { wrapper, page } = await openPanel(ticketWith({ status: 'in_progress' }))
 
-    await page.get('select[aria-label="Change status"]').setValue('resolved')
+    await pickChoice({ page }, 'Change status', 'Resolved')
     await flushPromises()
 
     expect(wrapper.emitted('changed')).toHaveLength(1)
@@ -751,7 +751,7 @@ describe('telling the queue', () => {
     api.updateTicket.mockRejectedValue(await ticketGone())
     const { wrapper, page } = await openPanel(ticketWith())
 
-    await page.get('select[aria-label="Change status"]').setValue('resolved')
+    await pickChoice({ page }, 'Change status', 'Resolved')
     await flushPromises()
 
     expect(wrapper.emitted('changed')).toBeUndefined()
@@ -766,8 +766,8 @@ describe('telling the queue', () => {
     const { wrapper, page } = await openPanel(ticketWith())
     api.fetchTicketDetail.mockResolvedValue(ticketWith({ status: 'resolved', priority: 'high' }))
 
-    await page.get('select[aria-label="Change status"]').setValue('resolved')
-    await page.get('select[aria-label="Change priority"]').setValue('high')
+    await pickChoice({ page }, 'Change status', 'Resolved')
+    await pickChoice({ page }, 'Change priority', 'High')
     second.resolve(ticketWith({ status: 'in_progress', priority: 'high' }))
     await flushPromises()
     first.resolve(ticketWith({ status: 'resolved', priority: 'normal' }))
@@ -786,8 +786,8 @@ describe('telling the queue', () => {
     const { page } = await openPanel(ticketWith())
     api.fetchTicketDetail.mockReturnValue(pending())
 
-    await page.get('select[aria-label="Change status"]').setValue('resolved')
-    await page.get('select[aria-label="Change priority"]').setValue('high')
+    await pickChoice({ page }, 'Change status', 'Resolved')
+    await pickChoice({ page }, 'Change priority', 'High')
     second.resolve(ticketWith({ status: 'in_progress', priority: 'high' }))
     await flushPromises()
     first.resolve(ticketWith({ status: 'resolved', priority: 'normal' }))
@@ -804,7 +804,7 @@ describe('telling the queue', () => {
     const answer = deferred<TicketDetail>()
     api.updateTicket.mockReturnValue(answer.promise)
     const panel = await openPanel(ticketWith())
-    await panel.page.get('select[aria-label="Change priority"]').setValue('high')
+    await pickChoice(panel, 'Change priority', 'High')
 
     api.fetchTicketDetail.mockResolvedValue(
       ticketWith({ id: 8, ticketNumber: 'SUP-2026-00008', subject: 'Eight' })
@@ -835,8 +835,8 @@ describe('a write that lands after the panel was closed (DT-39)', () => {
       listeners: { onChanged, onClose }
     })
 
-    await panel.page.get('select[aria-label="Change status"]').setValue('resolved')
-    await panel.page.get('select[aria-label="Change status"]').trigger('keydown', { key: 'Escape' })
+    await pickChoice(panel, 'Change status', 'Resolved')
+    await panel.page.get(triageField('Change status')).trigger('keydown', { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
     closeLikeTheQueue(panel)
     answer.resolve(ticketWith({ status: 'resolved' }))
@@ -868,7 +868,7 @@ describe('a write that lands after the panel was closed (DT-39)', () => {
     api.updateTicket.mockReturnValue(answer.promise)
     const panel = await openPanel(ticketWith(), { listeners: { onChanged } })
 
-    await panel.page.get('select[aria-label="Change status"]').setValue('resolved')
+    await pickChoice(panel, 'Change status', 'Resolved')
     closeLikeTheQueue(panel)
     answer.reject(await ticketGone())
     await flushPromises()
@@ -883,7 +883,7 @@ describe('a write that lands after the panel was closed (DT-39)', () => {
     api.updateTicket.mockResolvedValue(ticketWith({ priority: 'high' }))
     const panel = await openPanel(ticketWith(), { listeners: { onChanged } })
 
-    await panel.page.get('select[aria-label="Change priority"]').setValue('high')
+    await pickChoice(panel, 'Change priority', 'High')
     await flushPromises()
 
     expect(onChanged).toHaveBeenCalledTimes(1)
@@ -901,8 +901,8 @@ describe('a write that lands after the panel was closed (DT-39)', () => {
     await openDetails(panel)
     expect(api.fetchTicketHistory).toHaveBeenCalledTimes(1)
 
-    await panel.page.get('select[aria-label="Change status"]').setValue('resolved')
-    await panel.page.get('select[aria-label="Change priority"]').setValue('high')
+    await pickChoice(panel, 'Change status', 'Resolved')
+    await pickChoice(panel, 'Change priority', 'High')
     closeLikeTheQueue(panel)
     second.resolve(ticketWith({ status: 'in_progress', priority: 'high' }))
     first.resolve(ticketWith({ status: 'resolved', priority: 'normal' }))

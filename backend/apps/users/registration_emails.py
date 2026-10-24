@@ -5,9 +5,14 @@ registering doesn't wait on the mail server.
 
 So far: a student registering on their own, including with a late link
 (``registration_student``); each student registering as a team, or joining a
-group by its code (``registration_group``); and a supervisor registering
-students, once for each registration (``registration_supervisor``), never an
-admin registering them.
+group by its code (``registration_group``); a supervisor registering
+students, to each student (``registration_by_supervisor``) and once to the
+supervisor for each registration (``registration_supervisor``); an admin
+registering students, to each student, naming the supervisor the admin chose
+(``registration_by_admin``); a mentor registering (``registration_mentor``);
+a supervisor registering themselves (``registration_new_supervisor``); and a
+supervisor a student names, when their account was created for them
+(``registration_named_supervisor``).
 """
 from __future__ import annotations
 
@@ -19,9 +24,17 @@ from apps.submissions.services import current_cohort
 STUDENT_KEY = "registration_student"
 GROUP_KEY = "registration_group"
 SUPERVISOR_KEY = "registration_supervisor"
+SUPERVISED_KEY = "registration_by_supervisor"
+ADMIN_KEY = "registration_by_admin"
+MENTOR_KEY = "registration_mentor"
+NEW_SUPERVISOR_KEY = "registration_new_supervisor"
+NAMED_SUPERVISOR_KEY = "registration_named_supervisor"
 
-# Each journey's email, to each student it registered.
-STUDENT_EMAILS = {"student_individual": STUDENT_KEY, "student_team": GROUP_KEY}
+# Each journey's email, to each person it registered.
+STUDENT_EMAILS = {
+    "student_individual": STUDENT_KEY, "student_team": GROUP_KEY, "mentor": MENTOR_KEY,
+    "supervisor": NEW_SUPERVISOR_KEY,
+}
 
 
 def registration_context(user) -> dict:
@@ -35,13 +48,49 @@ def supervisor_context(user) -> dict:
     return {**registration_context(user), "STUDENTS_URL": f"{settings.FRONTEND_BASE_URL}/#/my-students"}
 
 
-def send_registration_emails(journey: str, users, *, supervisor=None) -> None:
+def names_text(users) -> str:
+    """Their names, as a sentence says them: "A", "A and B", "A, B and C"."""
+    names = [user.get_full_name() or user.email for user in users]
+    return " and ".join(names) if len(names) < 3 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def named_supervisor_context(supervisor, students) -> dict:
+    """A supervisor's a student named: who named them, and My Students."""
+    return {**supervisor_context(supervisor), "STUDENT_NAMES": names_text(students)}
+
+
+def send_named_supervisor_email(supervisor, students) -> None:
+    """To the supervisor ``students`` named registering, whose account was
+    created for them (``registration_intake.create_nominated_supervisor``)."""
+    send_system_email(
+        NAMED_SUPERVISOR_KEY, supervisor.email, named_supervisor_context(supervisor, students), background=True,
+    )
+
+
+def supervised_context(user, supervisor) -> dict:
+    """A student's, registered by ``supervisor``: who registered them."""
+    return {**registration_context(user), "SUPERVISOR_NAME": supervisor.get_full_name() or supervisor.email}
+
+
+def send_registration_emails(journey: str, users, *, supervisor=None, admin_for=None, group=None) -> None:
     """Each registration email ``journey`` sends, to the people it saved
     (``users``, in their order on the form), and to the ``supervisor`` who
-    registered them, if one did."""
+    registered them, if one did. ``admin_for``: an admin registered them,
+    for the supervisor of that name. ``group``: the group they made or
+    joined, whose code a student group's email carries."""
     key = STUDENT_EMAILS.get(journey)
     if key:
         for user in users:
-            send_system_email(key, user.email, registration_context(user), background=True)
+            context = registration_context(user)
+            if key == GROUP_KEY and group is not None and group.code:
+                context["GROUP_CODE"] = group.code
+            send_system_email(key, user.email, context, background=True)
     if supervisor is not None:
+        # Each student they registered, then the supervisor.
+        for user in users:
+            send_system_email(SUPERVISED_KEY, user.email, supervised_context(user, supervisor), background=True)
         send_system_email(SUPERVISOR_KEY, supervisor.email, supervisor_context(supervisor), background=True)
+    if admin_for is not None:
+        for user in users:
+            context = {**registration_context(user), "SUPERVISOR_NAME": admin_for}
+            send_system_email(ADMIN_KEY, user.email, context, background=True)

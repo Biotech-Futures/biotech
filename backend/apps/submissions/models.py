@@ -172,6 +172,24 @@ class SubmissionReminder(models.Model):
         return f"{self.group} last reminded {self.last_sent_on}"
 
 
+class FinalistReminder(models.Model):
+    """The last day a finalist team was reminded about its presentation, so a rerun never emails twice."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="finalist_reminder",
+    )
+    last_sent_on = models.DateField()
+
+    class Meta:
+        db_table = "finalist_reminder"
+        verbose_name = "Finalist reminder"
+
+    def __str__(self):
+        return f"{self.group} last reminded {self.last_sent_on}"
+
+
 class Submission(models.Model):
     """One team's entry. Resubmitting updates this row rather than adding one."""
 
@@ -288,11 +306,10 @@ class Submission(models.Model):
 
 
 class FinalistDeadline(models.Model):
-    """Closing time for the finalist round, separate from the main deadline.
-
-    Not used for now: the finalist round stays open. Kept so a deadline can
-    come back without recreating the table.
-    """
+    """Closing time for the finalist round, separate from the main deadline:
+    set on Management > Finalist Submissions. After it, finalist teams can't
+    change or submit their entry (admins still can, for a team). With none
+    set, the round stays open."""
 
     closes_at = models.DateTimeField()
     # Only the active row is consulted; past rows are kept on record.

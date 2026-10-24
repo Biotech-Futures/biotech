@@ -3,7 +3,8 @@
  * countries, and Australia's states and territories, as the database holds
  * them (GET registration/countries/ and registration/states/), each loaded
  * once and shared by every form on the page. Empty until they come (or if
- * they can't), when the form shows a text box instead.
+ * they can't), when the form shows a text box instead. Also the universities
+ * a mentor's University or institution suggests (registration/universities/).
  */
 import { ref, watch } from 'vue'
 
@@ -29,6 +30,17 @@ const loader = (path: string, key: string) => {
 
 const loadCountries = loader('countries/', 'countries')
 const loadAustralianStates = loader('states/?country=Australia', 'states')
+const loadUniversities = loader('universities/', 'universities')
+
+/** The universities admins keep on Management > Known Universities, offered
+ *  as a mentor types theirs; none until they come. */
+export function useUniversityNames() {
+  const names = ref<string[]>([])
+  void loadUniversities().then((universities) => {
+    names.value = universities
+  })
+  return names
+}
 
 const asOptions = (names: string[]): LocationOption[] => names.map((name) => ({ value: name, label: name }))
 

@@ -136,8 +136,9 @@ function rootClass(sfc: string): string {
 }
 
 // The first class of every element a keyboard can land on: form controls,
-// buttons, links and anything given a tabindex. Read off the template, so a
-// control added later is on this list whether or not anybody remembers it.
+// buttons, links, the platform's AppSelect dropdowns (C-29) and anything given
+// a tabindex. Read off the template, so a control added later is on this list
+// whether or not anybody remembers it.
 function focusableClasses(sfc: string): string[] {
   const template = (sfc.match(/<template>([\s\S]*?)\n<\/template>/) as RegExpMatchArray)[1].replace(
     /<!--[\s\S]*?-->/g,
@@ -145,7 +146,7 @@ function focusableClasses(sfc: string): string[] {
   )
   const tags =
     template.match(
-      /<(?:select|input|textarea|button|a|RouterLink)\b[^>]*>|<[a-zA-Z][\w-]*\s[^>]*\btabindex=[^>]*>/g
+      /<(?:select|input|textarea|button|a|RouterLink|AppSelect)\b[^>]*>|<[a-zA-Z][\w-]*\s[^>]*\btabindex=[^>]*>/g
     ) ?? []
   const classes = tags.map((tag) => {
     const found = tag.match(/\sclass="([^"]*)"/)
@@ -155,6 +156,12 @@ function focusableClasses(sfc: string): string[] {
   return [...new Set(classes)]
 }
 
+// The first class of each AppSelect in the template: the box it rings.
+function appSelectClasses(sfc: string): string[] {
+  const template = (sfc.match(/<template>([\s\S]*?)\n<\/template>/) as RegExpMatchArray)[1]
+  return [...template.matchAll(/<AppSelect\b[^>]*\sclass="([^"]*)"/g)].map((m) => m[1].trim().split(/\s+/)[0]!)
+}
+
 type Painted = { custom: string; light: string[]; dark: string[] }
 
 // What each file paints with which property, on which grounds, and which
@@ -162,9 +169,9 @@ type Painted = { custom: string; light: string[]; dark: string[] }
 const FILES: Record<string, { source: string; painted: Painted[]; focusable: string[] }> = {
   'TicketAuditPage.vue': {
     source: AUDIT_PAGE,
-    // The two filters, and the alert that takes focus when it replaces the
-    // footer.
-    focusable: ['ticket-audit__filter', 'ticket-audit__error'],
+    // The Excel export (C-26), the two filters, and the alert that takes
+    // focus when it replaces the footer.
+    focusable: ['ticket-audit__export', 'ticket-audit__filter', 'ticket-audit__error'],
     painted: [
       // Subtitle and the error line, straight on the section's .content-area.
       { custom: '--audit-muted', light: ['--bg-light'], dark: ['--bg-light'] },
@@ -192,7 +199,7 @@ const FILES: Record<string, { source: string; painted: Painted[]; focusable: str
   },
   'AuditPager.vue': {
     source: AUDIT_PAGER,
-    // The size select, the custom size box, and every button (Presets and
+    // The size dropdown, the custom size box, and every button (Presets and
     // the page buttons share one class).
     focusable: ['audit-pager__select', 'audit-pager__custom', 'audit-pager__btn'],
     painted: [{ custom: '--audit-muted', light: ['--bg-light'], dark: ['--bg-light'] }]
@@ -247,7 +254,7 @@ describe('the ticket audit page colours', () => {
         const overrides = rules(source).filter(
           ({ selector, body }) =>
             selector.startsWith(":root[data-theme='dark']") &&
-            selector.endsWith(':focus-visible') &&
+            (selector.endsWith(':focus-visible') || selector.endsWith(':has(:focus-visible)')) &&
             /outline-color:/.test(body)
         )
         expect(overrides.length).toBeGreaterThan(0)
@@ -270,12 +277,19 @@ describe('the ticket audit page colours', () => {
           .filter(
             ({ selector, body }) =>
               selector.startsWith(":root[data-theme='dark']") &&
-              selector.endsWith(':focus-visible') &&
+              (selector.endsWith(':focus-visible') || selector.endsWith(':has(:focus-visible)')) &&
               /outline-color:/.test(body)
           )
           .map(({ selector }) => selector)
+        // An AppSelect rings its box, not the field inside that has focus, so
+        // its override is on the box: .name:has(:focus-visible).
+        const boxes = appSelectClasses(source)
         for (const name of focusable) {
-          expect(overridden).toContain(`:root[data-theme='dark'] .${name}:focus-visible`)
+          expect(overridden).toContain(
+            boxes.includes(name)
+              ? `:root[data-theme='dark'] .${name}:has(:focus-visible)`
+              : `:root[data-theme='dark'] .${name}:focus-visible`
+          )
         }
       })
     })
