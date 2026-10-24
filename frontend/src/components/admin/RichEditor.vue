@@ -44,6 +44,10 @@ interface Props {
   compact?: boolean
   /** Email mode: the email's link placeholders, offered in the link dialog. */
   linkPlaceholders?: string[]
+  /** Whether the toolbar exposes uploaded-file attachments. */
+  allowAttachments?: boolean
+  /** Whether the toolbar exposes the manual insert/edit-link dialog. */
+  allowManualLinks?: boolean
 }
 
 // Inline code in an email, as the editor shows it.
@@ -57,7 +61,9 @@ const props = withDefaults(defineProps<Props>(), {
   readOnly: false,
   emailMode: false,
   compact: false,
-  linkPlaceholders: () => []
+  linkPlaceholders: () => [],
+  allowAttachments: true,
+  allowManualLinks: true
 })
 
 const emit = defineEmits<{
@@ -946,6 +952,7 @@ defineExpose({ insertText })
             <i class="fas fa-code"></i>
           </button>
           <button
+            v-if="allowManualLinks"
             type="button"
             class="toolbar-btn icon-btn"
             :class="{ active: isActive('link') }"
@@ -1097,6 +1104,7 @@ defineExpose({ insertText })
               <span>Image</span>
             </button>
             <button
+              v-if="allowAttachments"
               type="button"
               class="toolbar-btn text-icon-btn"
               title="Attach file to selected text"
@@ -1338,6 +1346,7 @@ defineExpose({ insertText })
       }"
     />
     <input
+      v-if="allowAttachments"
       ref="attachmentInputRef"
       type="file"
       multiple

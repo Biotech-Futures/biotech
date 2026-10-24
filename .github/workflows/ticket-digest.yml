@@ -1,0 +1,50 @@
+name: Open support enquiries, morning count
+
+# Emails the support inbox the number of enquiries still open, at 9am Sydney
+# time every day, weekends included (C-18: the client asked for "a daily
+# digest ... this is the number of inquiries open", and on 20 October said
+# "9am Sydney time" and "Daily everyday (weekends included)"). It goes on a
+# morning with nothing open as well. Whether it goes at all is System Emails'
+# switch for it, which the backend checks.
+#
+# A second run the same day sends a second count. That is left as it is: it
+# goes to one shared inbox, and the numbers it carries are true when sent.
+#
+# It is called the way the platform's other scheduled emails are: the backend
+# at its fixed address, with the email jobs' shared token in the
+# X-Email-Jobs-Token header (backend/apps/common/email_jobs.py). So the one
+# thing it needs is the EMAIL_JOBS_TOKEN repository secret, which those jobs
+# already use, matching the backend setting of the same name.
+#
+# The cron is read in Sydney time (timezone, below), so it stays 9am on both
+# sides of daylight saving; a plain cron is UTC and would drift to 8am in
+# April. 9:00 as the client asked, not an odd minute: GitHub says the start of
+# every hour is its busiest, so a run can start some minutes late, and under
+# heavy load a queued run can be dropped.
+on:
+  schedule:
+    - cron: "0 9 * * *"
+      timezone: "Australia/Sydney"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger the open-enquiry count
+        env:
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
+        run: |
+          if [ -z "${JOBS_TOKEN}" ]; then
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so a refused token or a
+          # server error fails the run instead of passing quietly.
+          curl -fsS -X POST \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/admin/tickets/digest/send/"

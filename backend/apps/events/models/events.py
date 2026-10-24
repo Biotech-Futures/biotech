@@ -9,6 +9,9 @@ class Events(models.Model):
         SYMPOSIUM = "symposium", "Symposium"
         NETWORKING = "networking", "Networking"
         SOCIAL = "social", "Social"
+        # Mentor-scheduled group meeting, owned by apps.meetings.
+        # Excluded from the admin programme-event list.
+        GROUP_MEETING = "group_meeting", "Group Meeting"
         OTHER = "other", "Other"
 
     class EventFormat(models.TextChoices):

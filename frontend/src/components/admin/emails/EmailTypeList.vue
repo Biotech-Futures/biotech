@@ -135,7 +135,18 @@ const GROUPS: [string, string[]][] = [
   ['Messages and events', ['unread_messages', 'rsvp_reminder', 'event_promotion', 'announcement']],
   ['Submissions', ['submission_reminder', 'submission_confirmation']],
   ['Symposium', ['finalist_notification', 'finalist_submission_reminder', 'finalist_submission_confirmation', 'nonfinalist_invitation', 'nonsubmission_notice']],
-  ['Results', ['results_team', 'results_supervisor']]
+  ['Results', ['results_team', 'results_supervisor']],
+  [
+    'Support enquiries',
+    [
+      'ticket_submitted',
+      'ticket_reply',
+      'ticket_resolved',
+      'ticket_new_for_support',
+      'ticket_flagged_for_support',
+      'ticket_digest'
+    ]
+  ]
 ]
 const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [key, heading] as const)))
 // An email not placed in a group yet still gets a heading.
