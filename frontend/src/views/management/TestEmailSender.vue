@@ -4,7 +4,7 @@
   <div class="test-email">
     <button
       type="button"
-      class="btn btn-outline btn-sm"
+      class="btn btn-outline btn-field btn-field--small"
       :disabled="sending || !recipient || !to.trim()"
       @click="send"
     >

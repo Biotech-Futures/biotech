@@ -37,7 +37,7 @@
             :max="minuteBeside(order.deadline.value, -1)"
           />
           <div class="challenge-start__actions">
-            <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Date</button>
+            <button type="submit" class="btn btn-primary btn-field" :disabled="isSaving">Save Date</button>
           </div>
         </form>
   

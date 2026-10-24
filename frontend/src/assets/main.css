@@ -497,6 +497,22 @@ h5 {
   font-size: 0.875rem;
 }
 
+/* Management's buttons (not a table's), as tall as its text boxes: one
+   beside a text box (--app-input-compact), or a small one beside a small
+   box (--app-input-small). A label too long for its place still wraps. */
+.btn-field {
+  min-height: var(--app-input-compact-height);
+  padding: 0.2rem 0.9rem;
+  font-size: var(--app-input-compact-text);
+  line-height: 1.2;
+}
+
+.btn-field--small {
+  min-height: var(--app-input-small-height);
+  padding: 0.15rem 0.75rem;
+  font-size: var(--app-input-small-text);
+}
+
 /* Forms */
 /* A required field's * (and the * in "Fields marked * are required."). */
 .required-mark {

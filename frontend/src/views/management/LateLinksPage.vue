@@ -13,7 +13,7 @@
     </p>
 
     <form class="late-links__form" @submit.prevent="create">
-      <button type="submit" class="btn btn-primary btn-sm" :disabled="isCreating">
+      <button type="submit" class="btn btn-primary btn-field" :disabled="isCreating">
         {{ isCreating ? 'Creating…' : 'Create Late Link' }}
       </button>
     </form>
@@ -21,7 +21,7 @@
     <!-- The new link, to copy and send. -->
     <div v-if="created?.url" class="late-links__created" data-test="late-link-created">
       <span class="late-links__url">{{ created.url }}</span>
-      <button type="button" class="btn btn-outline btn-sm" @click="copy(created.url, created.id)">
+      <button type="button" class="btn btn-outline btn-field" @click="copy(created.url, created.id)">
         <i
           :class="copiedId === created.id ? 'fas fa-check' : 'fas fa-copy'"
           aria-hidden="true"
