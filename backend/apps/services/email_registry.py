@@ -159,6 +159,7 @@ EMAIL_TYPES = (
         merge_tags=(
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("group_code", "The group's code, for teammates to join", "482913", "GROUP_CODE"),
             *_BRAND_TAGS,
         ),
     ),
@@ -171,6 +172,38 @@ EMAIL_TYPES = (
         merge_tags=(
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_new_supervisor",
+        name="Registration confirmation (to new supervisor)",
+        description="Sent to a supervisor once they register on the registration page.",
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_new_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_named_supervisor",
+        name="Named as supervisor (to new supervisor)",
+        description=(
+            "Sent to the supervisor a student names when registering, if that email had no account: "
+            "one is created for them. Once per registration, naming every student in it."
+        ),
+        default_subject="{{ brand_name }}: You've been named as a supervisor",
+        default_template="emails/registration_named_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("student_names", "The students who named them", "Jordan Lee and Alex Kim", "STUDENT_NAMES"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "students_url", "Link to the supervisor's Students page",
+                "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
+            ),
             *_BRAND_TAGS,
         ),
     ),
@@ -191,22 +224,6 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
-        key="registration_by_admin",
-        name="Registered by admin (to student)",
-        description=(
-            "Sent to each student an admin registers on Management > Registration: one student, "
-            "a group, or an uploaded file. Names the supervisor the admin chose."
-        ),
-        default_subject="{{ brand_name }}: Registration",
-        default_template="emails/registration_by_admin.html",
-        merge_tags=(
-            _FIRST_NAME,
-            MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
-            MergeTag("year", "Competition year", "2026", "YEAR"),
-            *_BRAND_TAGS,
-        ),
-    ),
-    EmailType(
         key="registration_supervisor",
         name="Registration confirmation (to supervisor)",
         description=(
@@ -219,7 +236,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
             MergeTag(
-                "students_url", "Link to the supervisor's My Students",
+                "students_url", "Link to the supervisor's Students page",
                 "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
             ),
             *_BRAND_TAGS,
@@ -229,7 +246,7 @@ EMAIL_TYPES = (
         key="supervisor_registration_status",
         name="Registration status (to supervisor)",
         description=(
-            "Sent daily to each supervisor with a student whose permission form isn't signed yet: "
+            "Sent weekly to each supervisor with a student whose permission form isn't signed yet: "
             "how many of their students are complete, waiting for a signature, or waiting for "
             "guardian details. Stops once all their students are complete."
         ),
@@ -251,9 +268,25 @@ EMAIL_TYPES = (
                 "CHALLENGE_START",
             ),
             MergeTag(
-                "students_url", "Link to the supervisor's My Students",
+                "students_url", "Link to the supervisor's Students page",
                 "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
             ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_admin",
+        name="Registered by admin (to student)",
+        description=(
+            "Sent to each student an admin registers on Management > Registration: one student, "
+            "a group, or an uploaded file. Names the supervisor the admin chose."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_admin.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
             *_BRAND_TAGS,
         ),
     ),
@@ -297,8 +330,9 @@ EMAIL_TYPES = (
         name="Guardian consent sent (to student)",
         description=(
             "Sent to a student when their parent or guardian is first emailed the consent form "
-            "by an admin or the daily run, asking them to remind their guardian. A student who "
-            "added the guardian themselves gets Guardian details received instead."
+            "at registration, by an admin or by the daily run, asking them to remind their "
+            "guardian. A student who added the guardian on their profile gets Guardian details "
+            "received instead."
         ),
         default_subject="Parent/Guardian Action Required - Permission Form",
         default_template="emails/guardian_consent_student_notice.html",
@@ -312,8 +346,9 @@ EMAIL_TYPES = (
         key="guardian_consent_request",
         name="Guardian consent request (to guardian)",
         description=(
-            "Sent to a student's parent or guardian with the consent form: when the student adds "
-            "them, when the student or an admin sends it, and every day until they sign."
+            "Sent to a student's parent or guardian with the consent form: once the student is "
+            "registered or adds them, when the student or an admin sends it, and every day until "
+            "they sign."
         ),
         default_subject="Action Required: Sign parent/guardian permission form",
         default_template="emails/guardian_consent_request.html",

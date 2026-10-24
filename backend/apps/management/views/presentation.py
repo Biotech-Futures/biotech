@@ -1,19 +1,31 @@
 """The Finalist Presentation tab: the times finalists can present at the
-Symposium. They change year to year, so each year has its own; the date is
+Symposium. They carry on from year to year until changed here; the date is
 the Symposium date set on Notify Finalists."""
 from __future__ import annotations
 
+import logging
+import os
+import tempfile
+import zipfile
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+
+from django.core.files import File
+from django.http import FileResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.filenames import safe_name
 from apps.common.rbac import IsStaffOrAdmin
-from apps.common.storage import serve_managed_file
+from apps.common.storage import get_slides_storage, serve_managed_file
 from apps.grading.models import FinalistFlag
 from apps.grading.services.text import natural_key
 from apps.groups.models.groups import Groups
 from apps.submissions.services import current_cohort
+from apps.submissions.finalist import finalist_deadline, finalist_round_open
+from apps.submissions.models import FinalistDeadline
 from apps.submissions.storage import FINALIST_SLIDES_FILES
 
 from ..models import (
@@ -27,6 +39,8 @@ from ..models import (
 from ..services.deadline import submissions_still_open
 from ..services.send_guard import person_name
 
+logger = logging.getLogger(__name__)
+
 
 class PresentationSlotSerializer(serializers.ModelSerializer):
     starts_at = serializers.TimeField(format="%H:%M")
@@ -35,14 +49,15 @@ class PresentationSlotSerializer(serializers.ModelSerializer):
     class Meta:
         model = PresentationSlot
         fields = ["id", "starts_at", "ends_at"]
+        # A time listed twice is refused in validate(), in the tab's words.
+        validators = []
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at", getattr(self.instance, "starts_at", None))
         ends_at = attrs.get("ends_at", getattr(self.instance, "ends_at", None))
         if ends_at <= starts_at:
             raise serializers.ValidationError({"ends_at": "The end time must be after the start time."})
-        year = self.instance.year if self.instance else self.context["year"]
-        same = PresentationSlot.objects.filter(year=year, starts_at=starts_at, ends_at=ends_at)
+        same = PresentationSlot.objects.filter(starts_at=starts_at, ends_at=ends_at)
         if self.instance is not None:
             same = same.exclude(pk=self.instance.pk)
         if same.exists():
@@ -51,12 +66,11 @@ class PresentationSlotSerializer(serializers.ModelSerializer):
 
 
 def _payload() -> dict:
-    year = current_cohort()
     return {
-        "year": year,
+        "year": current_cohort(),
         # The day they're on; None until it's set on Notify Finalists.
         "symposium_date": FinalistEmailSettings.load().symposium_date,
-        "slots": PresentationSlotSerializer(PresentationSlot.objects.filter(year=year), many=True).data,
+        "slots": PresentationSlotSerializer(PresentationSlot.objects.all(), many=True).data,
         # Whether finalists see them yet.
         "times_shown": PresentationSettings.load().times_shown,
         # While any team can still submit (extensions and grace hours
@@ -66,7 +80,7 @@ def _payload() -> dict:
 
 
 class PresentationSlotListView(APIView):
-    """GET/POST /api/v1/management/finalists/presentation-slots/ — this year's
+    """GET/POST /api/v1/management/finalists/presentation-slots/ — the
     times, earliest first, and adding one (``starts_at``, ``ends_at`` as
     "HH:MM"). Both answer with the whole list."""
 
@@ -76,23 +90,22 @@ class PresentationSlotListView(APIView):
         return Response(_payload())
 
     def post(self, request):
-        year = current_cohort()
-        serializer = PresentationSlotSerializer(data=request.data, context={"year": year})
+        serializer = PresentationSlotSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(year=year)
+        serializer.save()
         return Response(_payload(), status=status.HTTP_201_CREATED)
 
 
 class PresentationSlotDetailView(APIView):
     """PATCH/DELETE /api/v1/management/finalists/presentation-slots/<id>/ —
-    change or remove one of this year's times. Both answer with the whole
+    change or remove one of the times. Both answer with the whole
     list."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @staticmethod
     def _slot(slot_id: int) -> PresentationSlot:
-        return get_object_or_404(PresentationSlot, pk=slot_id, year=current_cohort())
+        return get_object_or_404(PresentationSlot, pk=slot_id)
 
     def patch(self, request, slot_id: int):
         serializer = PresentationSlotSerializer(self._slot(slot_id), data=request.data, partial=True)
@@ -113,7 +126,7 @@ TIMES_WAIT = (
 
 class PresentationTimesShownView(APIView):
     """PATCH /api/v1/management/finalists/presentation-times-shown/ —
-    ``{"times_shown": true}`` shows finalists this year's times to give their
+    ``{"times_shown": true}`` shows finalists the times to give their
     availability; false hides them again. Answers with the whole list.
     Showing them is refused while submissions are still open (baseline
     window or any extension, grace hours included); hiding is always allowed."""
@@ -261,9 +274,126 @@ class PresentationSlidesFileView(APIView):
         )
 
 
+# Already compressed by the program that made them, so stored as they are.
+_STORED_TYPES = frozenset({".pdf", ".pptx"})
+
+MISSING_NOTE = (
+    "These slides could not be read from storage. Try the team's own Download on "
+    "Finalist Submissions, or ask the team to upload them again.\n"
+)
+
+# Files read at once: reads wait on storage, so a few overlap well, and at
+# most this many (up to 25 MB each) are held in memory.
+_READERS = 4
+
+
+def _read_one(storage_key: str) -> bytes | None:
+    """The whole file, so a failed read leaves no half-written file; None if it can't be read."""
+    try:
+        with SLIDES_FILES.open(storage_key) as source:
+            return source.read()
+    except Exception:  # noqa: BLE001 - one unreadable file shouldn't stop the rest
+        return None
+
+
+def _read_slides(handed_in: list):
+    """Each (team, stored file) with its bytes, in order, a few read ahead at once."""
+    with ThreadPoolExecutor(max_workers=_READERS) as pool:
+        pending = deque()
+        for item in handed_in:
+            pending.append((item, pool.submit(_read_one, item[1]["storage_key"])))
+            if len(pending) == _READERS:
+                item, read = pending.popleft()
+                yield item, read.result()
+        while pending:
+            item, read = pending.popleft()
+            yield item, read.result()
+
+
+def _zip_name() -> str:
+    return f"{current_cohort()}_BTF_Finalist_Slides.zip"
+
+
+def _zip_key() -> str:
+    """Where the year's zip is kept: each build replaces the last."""
+    return f"zips/{_zip_name()}"
+
+
+class PresentationSlidesZipView(APIView):
+    """POST /api/v1/management/finalists/presentation-slides/zip/ — puts
+    every finalist team's slides in one zip, named as Grading names its files
+    ("2026_BTF01_Slides.pptx"), and keeps it for the GET below to download.
+    Slides that can't be read leave a "_MISSING.txt" note in their place.
+    404 until any team's are in.
+
+    Shape: {"file_name": "2026_BTF_Finalist_Slides.zip"}
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request):
+        teams = _finalist_teams()
+        decks = {deck.group_id: deck for deck in FinalistSlides.objects.filter(group__in=teams)}
+        handed_in = [
+            (team, decks[team.id].file)
+            for team in teams
+            if team.id in decks and (decks[team.id].file or {}).get("storage_key")
+        ]
+        if not handed_in:
+            return Response({"detail": "No slides handed in yet."}, status=status.HTTP_404_NOT_FOUND)
+
+        year = current_cohort()
+        # On disk, not in memory: each team's slides can be up to 25 MB.
+        with tempfile.TemporaryFile() as output:
+            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+                for (team, stored), payload in _read_slides(handed_in):
+                    name = f"{year}_{safe_name(team.group_name)}_Slides"
+                    if payload is None:
+                        logger.warning(
+                            "presentation_slides_zip.missing group=%s key=%s", team.id, stored["storage_key"]
+                        )
+                        archive.writestr(f"{name}_MISSING.txt", MISSING_NOTE)
+                        continue
+                    extension = os.path.splitext(stored.get("name") or stored["storage_key"])[1].lower()
+                    compress = zipfile.ZIP_STORED if extension in _STORED_TYPES else zipfile.ZIP_DEFLATED
+                    archive.writestr(name + extension, payload, compress_type=compress)
+            output.seek(0)
+            SLIDES_FILES.delete(_zip_key())
+            SLIDES_FILES.save_uploaded_file(
+                File(output, name=_zip_name()),
+                content_type_field="mime",
+                size_field="size",
+                storage_name=_zip_key(),
+            )
+        return Response({"file_name": _zip_name()})
+
+
+class PresentationSlidesZipFileView(APIView):
+    """GET /api/v1/management/finalists/presentation-slides/zip/file/ — the
+    zip the POST above last made, as a download. On Azure it redirects to a
+    short-lived signed link, so the browser downloads it straight from Azure
+    with its own progress bar. 404 until one is made."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        storage = get_slides_storage()
+        if not storage.exists(_zip_key()):
+            return Response({"detail": "The slides zip hasn't been made yet."}, status=status.HTTP_404_NOT_FOUND)
+        # Named here, as Grading's are: the shared helpers would lower-case it.
+        if storage.is_remote:
+            return HttpResponseRedirect(storage.backend.url(_zip_key(), parameters={
+                "content_disposition": f'attachment; filename="{_zip_name()}"',
+                "content_type": "application/zip",
+            }))
+        return FileResponse(
+            storage.open(_zip_key()), as_attachment=True, filename=_zip_name(), content_type="application/zip"
+        )
+
+
 class PresentationAllocationView(APIView):
     """PUT /api/v1/management/finalists/presentation-allocation/<group_id>/ —
-    give a finalist team one of this year's times, ``{"slot_id": id}``, or
+    give a finalist team one of the times, ``{"slot_id": id}``, or
     take it away, ``{"slot_id": null}``. Several teams may share a time."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
@@ -281,10 +411,47 @@ class PresentationAllocationView(APIView):
             return Response({"group_id": group_id, "slot_id": None})
         # A number only: JSON's true would otherwise pass as 1.
         is_id = isinstance(slot_id, int) and not isinstance(slot_id, bool)
-        slot = PresentationSlot.objects.filter(pk=slot_id if is_id else None, year=current_cohort()).first()
+        slot = PresentationSlot.objects.filter(pk=slot_id if is_id else None).first()
         if slot is None:
             return Response(
-                {"detail": "That time isn't one of this year's."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": "That time isn't one of the presentation times."}, status=status.HTTP_400_BAD_REQUEST
             )
         PresentationAllocation.objects.update_or_create(flag=flag, defaults={"slot": slot})
         return Response({"group_id": group_id, "slot_id": slot.id})
+
+
+def _finalist_close() -> dict | None:
+    """When finalist submissions close, as the Finalist Submissions tab shows
+    it; None while the round stays open."""
+    deadline = finalist_deadline()
+    if deadline is None:
+        return None
+    return {
+        "closes_at": deadline.closes_at,
+        "is_open": finalist_round_open(),
+        "set_by": person_name(deadline.set_by) if deadline.set_by else None,
+        "created_at": deadline.created_at,
+    }
+
+
+class _FinalistCloseSerializer(serializers.Serializer):
+    closes_at = serializers.DateTimeField()
+
+
+class FinalistSubmissionsCloseView(APIView):
+    """GET/POST /api/v1/management/finalists/submissions-close/ — when
+    finalist teams stop being able to change and submit their entries
+    (``{"close": {...} | null}``). POST ``{"closes_at"}`` sets a new time:
+    older ones are kept on record, the newest is the one in force."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        return Response({"close": _finalist_close()})
+
+    def post(self, request):
+        payload = _FinalistCloseSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        FinalistDeadline.objects.filter(is_active=True).update(is_active=False)
+        FinalistDeadline.objects.create(closes_at=payload.validated_data["closes_at"], set_by=request.user)
+        return Response({"close": _finalist_close()})

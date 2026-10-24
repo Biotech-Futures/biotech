@@ -89,6 +89,11 @@ class YearlyAverageGroupSizeSerializer(serializers.Serializer):
     average_group_size = serializers.FloatField(min_value=0)
 
 
+class YearlyGroupSizeBucketSerializer(serializers.Serializer):
+    student_count = serializers.IntegerField(min_value=0)
+    group_count = serializers.IntegerField(min_value=0)
+
+
 class YearlyGroupSummarySerializer(serializers.Serializer):
     year = serializers.IntegerField(min_value=1, max_value=9999)
     group_count = serializers.IntegerField(min_value=0)
@@ -97,6 +102,13 @@ class YearlyGroupSummarySerializer(serializers.Serializer):
     mentor_count = serializers.IntegerField(min_value=0)
     student_count = serializers.IntegerField(min_value=0)
     students_per_mentor = serializers.FloatField(min_value=0, allow_null=True)
+    group_size_distribution = YearlyGroupSizeBucketSerializer(many=True)
+    small_groups = serializers.IntegerField(min_value=0)
+    full_groups = serializers.IntegerField(min_value=0)
+    over_capacity_groups = serializers.IntegerField(min_value=0)
+    active_groups = serializers.IntegerField(min_value=0)
+    inactive_groups = serializers.IntegerField(min_value=0)
+    not_started_groups = serializers.IntegerField(min_value=0)
 
 
 class GroupActivityAnalyticsDataSerializer(serializers.Serializer):
@@ -264,6 +276,7 @@ class RecentEmailDeliverySerializer(serializers.Serializer):
     announcement_id = serializers.IntegerField(min_value=1)
     title = serializers.CharField()
     started_at = serializers.DateTimeField()
+    completed_at = serializers.DateTimeField(allow_null=True)
     status = serializers.CharField()
     recipient_count = serializers.IntegerField(min_value=0)
     success_count = serializers.IntegerField(min_value=0)
@@ -289,6 +302,12 @@ class RecentEmailSendSerializer(serializers.Serializer):
 
 
 class RecentEmailSendWithRecipientsSerializer(RecentEmailSendSerializer):
+    # An announcement send still going has no metric row yet: its ``id`` is
+    # null, ``delivery_id`` names its announcement delivery row and its status
+    # is "sending".
+    id = serializers.IntegerField(min_value=1, allow_null=True)
+    delivery_id = serializers.IntegerField(min_value=1, required=False)
+    status = serializers.ChoiceField(choices=("success", "partial", "failed", "sending"))
     # How many recipients were recorded for the send; 0 for sends made before
     # recipients were kept.
     recipients_recorded = serializers.IntegerField(min_value=0)

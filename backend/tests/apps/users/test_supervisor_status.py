@@ -1,9 +1,10 @@
-"""The supervisors' daily registration status email (the client's "Supervisor
-Daily Digest"), and Management > Challenge Start, whose date it names."""
-from datetime import date
+"""The supervisors' weekly registration status email (the spec's "Supervisor
+Weekly Digest"), and Management > Challenge Start, whose date it names."""
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.core import mail
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.management.models import ChallengeStart
@@ -52,7 +53,7 @@ class SupervisorRegistrationStatusTests(TestCase):
     def test_counts_its_students_as_my_students_does(self):
         self.assertEqual(status_counts(self.sam.id), {"complete": 1, "pending_signature": 1, "pending_contact": 1})
 
-    def test_once_a_day_to_each_supervisor_with_a_student_still_pending(self):
+    def test_once_a_week_to_each_supervisor_with_a_student_still_pending(self):
         self.assertEqual(list(supervisors_due()), [self.profile])
         self.assertEqual(send_due(), {"sent": 1, "failed": 0})
         [message] = mail.outbox
@@ -64,6 +65,13 @@ class SupervisorRegistrationStatusTests(TestCase):
         # Already emailed today: the next run sends nothing.
         self.assertEqual(send_due(), {"sent": 0, "failed": 0})
         self.assertEqual(len(mail.outbox), 1)
+
+        # Not again for a week: emailed 6 days ago, still skipped; 7, due.
+        today = timezone.localdate()
+        SupervisorProfile.objects.filter(pk=self.profile.pk).update(status_digest_sent_on=today - timedelta(days=6))
+        self.assertEqual(list(supervisors_due()), [])
+        SupervisorProfile.objects.filter(pk=self.profile.pk).update(status_digest_sent_on=today - timedelta(days=7))
+        self.assertEqual(list(supervisors_due()), [self.profile])
 
     def test_stops_once_all_their_students_are_complete(self):
         StudentProfile.objects.filter(supervisor=self.profile).update(
@@ -80,11 +88,20 @@ class SupervisorRegistrationStatusTests(TestCase):
     def test_names_the_challenge_start_once_its_set(self):
         rendered = render_system_email("supervisor_registration_status", status_context(self.sam))
         self.assertIn("by the challenge start date will not", rendered.html)
-        ChallengeStart.objects.update_or_create(year=current_cohort(), defaults={"starts_on": date(2026, 7, 27)})
+        # 13:59 UTC is 23:59 on 27 July in Sydney.
+        ChallengeStart.objects.update_or_create(
+            year=current_cohort(), defaults={"starts_at": datetime(2026, 7, 27, 13, 59, tzinfo=dt_timezone.utc)},
+        )
         rendered = render_system_email("supervisor_registration_status", status_context(self.sam))
         self.assertIn("by the challenge start date of 27 July will not", rendered.html)
+        # Its day is Sydney's: 15:00 UTC on the 27th is 1 am on the 28th there.
+        ChallengeStart.objects.filter(year=current_cohort()).update(
+            starts_at=datetime(2026, 7, 27, 15, 0, tzinfo=dt_timezone.utc),
+        )
+        rendered = render_system_email("supervisor_registration_status", status_context(self.sam))
+        self.assertIn("by the challenge start date of 28 July will not", rendered.html)
 
-    def test_the_daily_job_needs_the_token(self):
+    def test_the_job_needs_the_token(self):
         url = "/api/v1/admin/send-supervisor-registration-status/"
         self.assertEqual(APIClient().post(url).status_code, 401)
         response = APIClient().post(url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
@@ -102,12 +119,12 @@ class ChallengeStartTests(TestCase):
         self.client.force_authenticate(self.staff)
 
     def test_staff_set_and_clear_it_and_see_who_did(self):
-        self.assertEqual(self.client.get(self.URL).json()["starts_on"], None)
-        state = self.client.put(self.URL, {"starts_on": "2026-07-27"}, format="json").json()
-        self.assertEqual((state["starts_on"], state["set_by"]), ("2026-07-27", "Staff Member"))
-        self.assertEqual(self.client.get(self.URL).json()["starts_on"], "2026-07-27")
-        self.assertEqual(self.client.put(self.URL, {"starts_on": None}, format="json").json()["starts_on"], None)
-        self.assertEqual(self.client.put(self.URL, {"starts_on": "soon"}, format="json").status_code, 400)
+        self.assertEqual(self.client.get(self.URL).json()["starts_at"], None)
+        state = self.client.put(self.URL, {"starts_at": "2026-07-27T13:59:00Z"}, format="json").json()
+        self.assertEqual((state["starts_at"], state["set_by"]), ("2026-07-27T13:59:00+00:00", "Staff Member"))
+        self.assertEqual(self.client.get(self.URL).json()["starts_at"], "2026-07-27T13:59:00+00:00")
+        self.assertEqual(self.client.put(self.URL, {"starts_at": None}, format="json").json()["starts_at"], None)
+        self.assertEqual(self.client.put(self.URL, {"starts_at": "soon"}, format="json").status_code, 400)
 
     def test_only_staff(self):
         member = User.objects.create_user(email="member@example.test")

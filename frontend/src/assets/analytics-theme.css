@@ -53,6 +53,37 @@
   --analytics-white: var(--btf-white);
 }
 
+/* Analytics uses the same dark surfaces as main.css. These semantic tokens
+   are consumed only by Analytics; every use retains its original light value
+   as a fallback. Keep chart series and solid button colours independent. */
+:root[data-theme="dark"] {
+  --analytics-ui-page: var(--bg-light);
+  --analytics-ui-surface: var(--white);
+  --analytics-ui-soft: var(--surface-elevated);
+  --analytics-ui-selected: #243d34;
+  --analytics-ui-text: var(--teal);
+  --analytics-ui-muted: #a5b5af;
+  --analytics-ui-accent: #80d4b4;
+  --analytics-ui-secondary: #9ec9df;
+  --analytics-ui-border: var(--border-light);
+  --analytics-ui-control-border: #49685d;
+  --analytics-ui-warning: #f3d985;
+  --analytics-ui-warning-bg: #3a3320;
+  --analytics-ui-danger: #f6a99f;
+  --analytics-ui-danger-bg: #3b2927;
+  --analytics-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2380d4b4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+}
+
+:root[data-theme="dark"] :is(
+  .analytics-page, .users-analytics-page, .groups-analytics-page,
+  .activity-analytics-page, .registration-analytics-page,
+  .messages-analytics-page, .resources-analytics-page,
+  .mentors-analytics-page, .email-monitoring-page, .report-export-dialog
+) {
+  color-scheme: dark;
+}
+
 /* Keep every analytics KPI on the same three horizontal tracks: title,
    number and helper share one left edge beside the icon, and start from the
    top of the card so numbers stay level across a row even when a title or
@@ -229,9 +260,9 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: var(--btf-dark-green);
-  background: var(--btf-white);
-  border: 1px solid var(--btf-mint-green);
+  color: var(--analytics-ui-accent, var(--btf-dark-green));
+  background: var(--analytics-ui-surface, var(--btf-white));
+  border: 1px solid var(--analytics-ui-control-border, var(--btf-mint-green));
   border-radius: 9px;
   font: 700 14px Arial, sans-serif;
   cursor: pointer;
@@ -274,7 +305,7 @@
 }
 
 .analytics-refresh-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--btf-light-green) 45%, white);
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 45%, var(--analytics-ui-surface, white));
 }
 
 .analytics-refresh-button:disabled,
@@ -330,8 +361,8 @@
 .messages-analytics-page,
 .activity-analytics-page,
 .email-monitoring-page {
-  color: var(--btf-teal);
-  background: var(--btf-surface);
+  color: var(--analytics-ui-text, var(--btf-teal));
+  background: var(--analytics-ui-page, var(--btf-surface));
 }
 
 .analytics-page h1,
@@ -352,7 +383,7 @@
 .email-monitoring-page h1,
 .email-monitoring-page h2,
 .email-monitoring-page h3 {
-  color: var(--btf-teal) !important;
+  color: var(--analytics-ui-text, var(--btf-teal)) !important;
   font-family: Arial, sans-serif !important;
   font-style: normal !important;
 }
@@ -374,8 +405,8 @@
 .email-monitoring-page .kpi-card,
 .email-monitoring-page .analytics-card,
 .email-monitoring-page .overall-stat-card {
-  background: var(--btf-white) !important;
-  border-color: var(--btf-border) !important;
+  background: var(--analytics-ui-surface, var(--btf-white)) !important;
+  border-color: var(--analytics-ui-border, var(--btf-border)) !important;
 }
 
 /* Controls */
@@ -395,9 +426,9 @@
 .activity-analytics-page .export-button,
 .activity-analytics-page .reset-button,
 .activity-analytics-page .filter-card select {
-  color: var(--btf-dark-green) !important;
-  border-color: var(--btf-mint-green) !important;
-  background: var(--btf-white) !important;
+  color: var(--analytics-ui-accent, var(--btf-dark-green)) !important;
+  border-color: var(--analytics-ui-control-border, var(--btf-mint-green)) !important;
+  background: var(--analytics-ui-surface, var(--btf-white)) !important;
 }
 
 .analytics-page .export-button:hover,
@@ -407,7 +438,7 @@
 .messages-analytics-page .reset-button:hover,
 .activity-analytics-page .export-button:hover,
 .activity-analytics-page .reset-button:hover {
-  background: color-mix(in srgb, var(--btf-light-green) 45%, white) !important;
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 45%, var(--analytics-ui-page, white)) !important;
 }
 
 /* Demo/mock badge */
@@ -417,9 +448,9 @@
 .groups-analytics-page .demo-badge,
 .messages-analytics-page .demo-badge,
 .activity-analytics-page .demo-badge {
-  color: var(--btf-teal) !important;
-  border-color: var(--btf-light-green) !important;
-  background: color-mix(in srgb, var(--btf-yellow) 55%, white) !important;
+  color: var(--analytics-ui-text, var(--btf-teal)) !important;
+  border-color: var(--analytics-ui-border, var(--btf-light-green)) !important;
+  background: color-mix(in srgb, var(--analytics-ui-warning-bg, var(--btf-yellow)) 55%, var(--analytics-ui-page, white)) !important;
 }
 
 /* Icons */
@@ -432,7 +463,7 @@
 .analytics-page .summary-icon,
 .analytics-page .module-icon,
 .analytics-page .attention-icon {
-  color: var(--btf-dark-green) !important;
+  color: var(--analytics-ui-accent, var(--btf-dark-green)) !important;
 }
 
 .users-analytics-page .kpi-icon,
@@ -442,7 +473,7 @@
 .analytics-page .summary-icon,
 .analytics-page .module-icon,
 .analytics-page .attention-icon {
-  background: color-mix(in srgb, var(--btf-light-green) 55%, white) !important;
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 55%, var(--analytics-ui-page, white)) !important;
 }
 
 /* Secondary / inactive items */
@@ -453,8 +484,8 @@
 .groups-analytics-page .muted,
 .messages-analytics-page .muted,
 .activity-analytics-page .muted {
-  background: var(--btf-track) !important;
-  color: var(--btf-muted) !important;
+  background: var(--analytics-ui-soft, var(--btf-track)) !important;
+  color: var(--analytics-ui-muted, var(--btf-muted)) !important;
 }
 
 /* Progress / bars */
@@ -466,7 +497,7 @@
 .messages-analytics-page .rank-track,
 .activity-analytics-page .rate-track,
 .activity-analytics-page .recency-track {
-  background: var(--btf-track) !important;
+  background: var(--analytics-ui-soft, var(--btf-track)) !important;
 }
 
 .analytics-page .progress-track span,
@@ -506,7 +537,7 @@
 .groups-analytics-page .grid-line,
 .messages-analytics-page .grid-line,
 .activity-analytics-page .grid-line {
-  stroke: var(--btf-border) !important;
+  stroke: var(--analytics-ui-border, var(--btf-border)) !important;
 }
 
 .analytics-page .y-axis,
@@ -524,7 +555,7 @@
 .groups-analytics-page .y-axis-title,
 .messages-analytics-page .y-axis-title,
 .activity-analytics-page .y-axis-title {
-  color: var(--btf-muted) !important;
+  color: var(--analytics-ui-muted, var(--btf-muted)) !important;
 }
 
 /* Donut/ring charts
@@ -535,21 +566,21 @@
 .messages-analytics-page .breakdown-toggle button.active,
 .users-analytics-page .interactive-role-row.selected,
 .groups-analytics-page .donut-legend-row.selected {
-  color: var(--btf-dark-green) !important;
-  border-color: var(--btf-light-green) !important;
-  background: color-mix(in srgb, var(--btf-light-green) 42%, white) !important;
+  color: var(--analytics-ui-accent, var(--btf-dark-green)) !important;
+  border-color: var(--analytics-ui-border, var(--btf-light-green)) !important;
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 42%, var(--analytics-ui-page, white)) !important;
 }
 
 /* Tables */
 .messages-analytics-page th,
 .activity-analytics-page th {
-  background: color-mix(in srgb, var(--btf-light-green) 35%, white) !important;
-  color: var(--btf-teal) !important;
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 35%, var(--analytics-ui-page, white)) !important;
+  color: var(--analytics-ui-text, var(--btf-teal)) !important;
 }
 
 .messages-analytics-page tbody tr:hover,
 .activity-analytics-page tbody tr:hover {
-  background: color-mix(in srgb, var(--btf-light-green) 28%, white) !important;
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 28%, var(--analytics-ui-page, white)) !important;
 }
 
 /* Insights / attention */
@@ -557,8 +588,8 @@
 .messages-analytics-page .insights-card,
 .activity-analytics-page .insights-card,
 .groups-analytics-page [class*="insight-"] {
-  border-color: var(--btf-border) !important;
-  background: var(--btf-white) !important;
+  border-color: var(--analytics-ui-border, var(--btf-border)) !important;
+  background: var(--analytics-ui-surface, var(--btf-white)) !important;
 }
 
 .messages-analytics-page .insight-icon,
@@ -566,7 +597,7 @@
 .activity-analytics-page .insight-row strong,
 .groups-analytics-page .insight-row strong,
 .analytics-page .attention-icon {
-  color: var(--btf-dark-green) !important;
+  color: var(--analytics-ui-accent, var(--btf-dark-green)) !important;
 }
 
 /* Tooltip */
@@ -578,7 +609,7 @@
 
 /* Scrollbars */
 .messages-analytics-page .horizontal-bars::-webkit-scrollbar-thumb {
-  background: var(--btf-light-green) !important;
+  background: var(--analytics-ui-selected, var(--btf-light-green)) !important;
 }
 
 /* Muted content */
@@ -592,7 +623,7 @@
 .messages-analytics-page p,
 .activity-analytics-page small,
 .activity-analytics-page p {
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
 }
 
 
@@ -610,13 +641,13 @@
 .analytics-page .positive,
 .users-analytics-page .positive,
 .groups-analytics-page .trend-up {
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
 }
 
 .analytics-page .negative,
 .users-analytics-page .negative,
 .groups-analytics-page .trend-down {
-  color: #39687B !important;
+  color: var(--analytics-ui-secondary, #39687B) !important;
 }
 
 .analytics-page .breadcrumb a:hover,
@@ -624,7 +655,7 @@
 .groups-analytics-page .breadcrumb a:hover,
 .messages-analytics-page .breadcrumb a:hover,
 .activity-analytics-page .breadcrumb a:hover {
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
 }
 
 .analytics-page .details-button,
@@ -632,21 +663,21 @@
 .users-analytics-page .expand-button,
 .groups-analytics-page .export-button,
 .messages-analytics-page .breakdown-toggle button.active {
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
 }
 
 .messages-analytics-page .breakdown-toggle button.active {
-  background: #FFFFFF !important;
-  border-color: #BAD7B8 !important;
+  background: var(--analytics-ui-page, #FFFFFF) !important;
+  border-color: var(--analytics-ui-border, #BAD7B8) !important;
 }
 
 .groups-analytics-page .insight-red strong {
-  background: #BAD7B8 !important;
-  color: #174243 !important;
+  background: var(--analytics-ui-soft, #BAD7B8) !important;
+  color: var(--analytics-ui-text, #174243) !important;
 }
 .groups-analytics-page .insight-orange strong {
-  background: #F1E5A6 !important;
-  color: #174243 !important;
+  background: var(--analytics-ui-warning-bg, #F1E5A6) !important;
+  color: var(--analytics-ui-text, #174243) !important;
 }
 .groups-analytics-page .insight-purple strong {
   background: #5EA99E !important;
@@ -927,7 +958,7 @@
 
 .resources-analytics-page h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -935,17 +966,17 @@
 
 .resources-analytics-page .heading-copy > p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
 .resources-analytics-page .export-button {
   width: 142px;
   height: 46px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 12px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-page, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 14px;
   font-weight: 700;
 }
@@ -994,8 +1025,8 @@
 
 .registration-analytics-page,
 .mentors-analytics-page {
-  color: var(--btf-teal);
-  background: var(--btf-surface);
+  color: var(--analytics-ui-text, var(--btf-teal));
+  background: var(--analytics-ui-page, var(--btf-surface));
 }
 
 .registration-analytics-page h1,
@@ -1004,7 +1035,7 @@
 .mentors-analytics-page h1,
 .mentors-analytics-page h2,
 .mentors-analytics-page h3 {
-  color: var(--btf-teal) !important;
+  color: var(--analytics-ui-text, var(--btf-teal)) !important;
   font-family: Arial, sans-serif !important;
   font-style: normal !important;
 }
@@ -1014,8 +1045,8 @@
 .registration-analytics-page .analytics-card,
 .mentors-analytics-page .kpi-card,
 .mentors-analytics-page .analytics-card {
-  background: var(--btf-white) !important;
-  border-color: var(--btf-border) !important;
+  background: var(--analytics-ui-surface, var(--btf-white)) !important;
+  border-color: var(--analytics-ui-border, var(--btf-border)) !important;
 }
 
 .registration-analytics-page .export-button,
@@ -1025,46 +1056,46 @@
 .mentors-analytics-page .range-control,
 .mentors-analytics-page .export-button,
 .mentors-analytics-page .custom-range input {
-  color: var(--btf-dark-green) !important;
-  border-color: var(--btf-mint-green) !important;
-  background: var(--btf-white) !important;
+  color: var(--analytics-ui-accent, var(--btf-dark-green)) !important;
+  border-color: var(--analytics-ui-control-border, var(--btf-mint-green)) !important;
+  background: var(--analytics-ui-surface, var(--btf-white)) !important;
 }
 
 .registration-analytics-page .export-button:hover,
 .registration-analytics-page .reset-button:hover,
 .mentors-analytics-page .export-button:hover {
-  background: color-mix(in srgb, var(--btf-light-green) 45%, white) !important;
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 45%, var(--analytics-ui-page, white)) !important;
 }
 
 .registration-analytics-page .demo-badge,
 .mentors-analytics-page .demo-badge {
-  color: var(--btf-teal) !important;
-  border-color: var(--btf-light-green) !important;
-  background: color-mix(in srgb, var(--btf-yellow) 55%, white) !important;
+  color: var(--analytics-ui-text, var(--btf-teal)) !important;
+  border-color: var(--analytics-ui-border, var(--btf-light-green)) !important;
+  background: color-mix(in srgb, var(--analytics-ui-warning-bg, var(--btf-yellow)) 55%, var(--analytics-ui-page, white)) !important;
 }
 
 .registration-analytics-page .kpi-icon,
 .mentors-analytics-page .kpi-icon {
-  color: var(--btf-dark-green) !important;
-  background: color-mix(in srgb, var(--btf-light-green) 55%, white) !important;
+  color: var(--analytics-ui-accent, var(--btf-dark-green)) !important;
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 55%, var(--analytics-ui-page, white)) !important;
 }
 
 .registration-analytics-page .funnel-track,
 .mentors-analytics-page .progress-track,
 .mentors-analytics-page .rank-track {
-  background: var(--btf-track) !important;
+  background: var(--analytics-ui-soft, var(--btf-track)) !important;
 }
 
 .registration-analytics-page .grid-line,
 .mentors-analytics-page .grid-line {
-  stroke: var(--btf-border) !important;
+  stroke: var(--analytics-ui-border, var(--btf-border)) !important;
 }
 
 .registration-analytics-page small,
 .registration-analytics-page p,
 .mentors-analytics-page small,
 .mentors-analytics-page p {
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
 }
 
 /* Keep the two added pages at the same desktop density as the rest
@@ -1209,8 +1240,8 @@
 
   .groups-analytics-page .group-status-card,
   .groups-analytics-page .mentor-coverage-card,
+  .groups-analytics-page .student-assignment-card,
   .groups-analytics-page .group-size-card,
-  .groups-analytics-page .ratio-card,
   .groups-analytics-page .compact-insights-card,
   .groups-analytics-page .group-activity-card {
     grid-column: auto !important;
@@ -1270,7 +1301,7 @@
   -webkit-appearance: none !important;
   appearance: none !important;
   padding-right: 34px !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23017151' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-image: var(--analytics-select-chevron, url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23017151' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")) !important;
   background-repeat: no-repeat !important;
   background-position: right 12px center !important;
   background-size: 12px 12px !important;

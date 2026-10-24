@@ -98,10 +98,11 @@
         </template>
         <!-- Group by, beside Search. -->
         <template #filters>
-          <div class="admin-view-executed__group-by">
-            <label class="admin-view-executed__group-by-label" for="view-group-by">Group by</label>
+          <div class="table-filter-field">
+            <label class="table-filter-label" for="view-group-by">Group by</label>
             <AppSelect
               id="view-group-by"
+              class="table-filter"
               :model-value="groupBy"
               :options="GROUP_BY_OPTIONS"
               @change="(value) => onGroupByChange(value as GroupByOption)"
@@ -147,7 +148,7 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div v-if="bulkForce" class="admin-view-executed__delete-type">
-        <label class="admin-view-executed__delete-label" for="bulk-delete-confirm">
+        <label class="table-filter-label" for="bulk-delete-confirm">
           Type <span class="admin-view-executed__delete-keyword">DELETE</span> to confirm
         </label>
         <input
@@ -160,12 +161,12 @@
       </div>
     </ConfirmDialog>
 
-    <!-- Single deactivate confirm -->
+    <!-- Single deactivate confirm, or activating a student from an earlier year -->
     <ConfirmDialog
       v-model="singleToggle.open"
-      title="Deactivate user"
+      :title="singleToggle.active ? 'Activate user' : 'Deactivate user'"
       :message="singleToggle.message"
-      confirm-label="Deactivate"
+      :confirm-label="singleToggle.active ? 'Activate' : 'Deactivate'"
       variant="warning"
       :busy="busy"
       @confirm="runSingleToggle"
@@ -193,7 +194,7 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div v-if="singleDelete.force" class="admin-view-executed__delete-type">
-        <label class="admin-view-executed__delete-label" for="single-delete-confirm">
+        <label class="table-filter-label" for="single-delete-confirm">
           Type <span class="admin-view-executed__delete-keyword">DELETE</span> to confirm
         </label>
         <input
@@ -452,31 +453,6 @@ onMounted(() => {
 }
 
 /* Group by beside Search in the table's search card, drawn like it. */
-.admin-view-executed__group-by {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.admin-view-executed__group-by-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.admin-view-executed__group-by .app-select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
-}
-
 .admin-view-executed__group-by-hint {
   align-self: center;
   max-width: 220px;
@@ -513,14 +489,6 @@ onMounted(() => {
   flex-direction: column;
   gap: 0.3rem;
   margin-top: 0.75rem;
-}
-
-.admin-view-executed__delete-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .admin-view-executed__delete-keyword {

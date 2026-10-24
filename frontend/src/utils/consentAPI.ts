@@ -22,6 +22,9 @@ export interface ConsentFormData {
   expiresAt: string
   supportEmail: string
   form: ConsentFormWording
+  /** For a minute after the form is signed (a refresh, say): that signing.
+   *  The link then carries only this, studentName and supportEmail. */
+  completed?: ConsentSigned
 }
 
 export interface ConsentSignature {

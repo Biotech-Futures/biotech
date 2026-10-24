@@ -36,6 +36,9 @@ class PrecheckTestCase(MultiStudentSetup, TestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
+        # No supervisor named, so these count the student's and guardian's
+        # addresses alone (SupervisorTests check the named supervisor's).
+        self.body["payload"].pop("supervisor", None)
         # The lookups are mocked: "bad..." addresses don't exist, "down..." can't be checked.
         self.checked = []
         verify = patch.object(email_precheck.email_verification, "verify_email", side_effect=self.fake_verify)
@@ -59,6 +62,12 @@ class PrecheckTestCase(MultiStudentSetup, TestCase):
 
     def poll(self, job_id):
         return self.client.get(status_url(job_id))
+
+    @staticmethod
+    def unsupervised(body):
+        """``body`` without the supervisor its students named."""
+        body["payload"].pop("supervisor", None)
+        return body
 
     def supervisor_start(self, body, **kwargs):
         return self.start(body, client=self.supervisor_client, **kwargs)
@@ -137,6 +146,8 @@ class StartTests(PrecheckTestCase):
         self.assertEqual(self.checked, [
             "learner0@students.example.test", "parent0@guardians.example.test",
             "learner1@students.example.test", "learner2@students.example.test",
+            # And the supervisor the team named, once.
+            "teacher@example.com",
         ])
 
     def test_an_invalid_registration_is_refused_and_starts_nothing(self):
@@ -226,7 +237,7 @@ class LimitTests(PrecheckTestCase):
     @override_settings(EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=3)
     def test_over_the_hourly_budget_the_rest_are_left_unchecked(self):
         # A team of 4 and its creator's guardian: 5 addresses.
-        response = self.start(batch("student_team", 4))
+        response = self.start(self.unsupervised(batch("student_team", 4)))
 
         self.assertEqual(len(self.checked), 3)
         job = EmailCheckJob.objects.get(pk=response.data["jobId"])
@@ -234,9 +245,9 @@ class LimitTests(PrecheckTestCase):
 
     @override_settings(EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=3)
     def test_the_budget_is_per_ip_and_per_hour(self):
-        self.start(batch("student_team", 2))
-        spent = self.start(batch("student_team", 1, offset=10))
-        other_ip = self.start(batch("student_team", 1, offset=20), REMOTE_ADDR="198.51.100.7")
+        self.start(self.unsupervised(batch("student_team", 2)))
+        spent = self.start(self.unsupervised(batch("student_team", 1, offset=10)))
+        other_ip = self.start(self.unsupervised(batch("student_team", 1, offset=20)), REMOTE_ADDR="198.51.100.7")
 
         self.assertEqual(spent.data["status"], "done")
         self.assertEqual(EmailCheckJob.objects.get(pk=spent.data["jobId"]).skipped, 2)
@@ -246,7 +257,7 @@ class LimitTests(PrecheckTestCase):
     @override_settings(EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=3)
     def test_a_signed_in_supervisor_isnt_held_to_the_ip_budget(self):
         supervised = self.supervisor_start(batch("supervisor_csv", 10))
-        anonymous = self.start(batch("student_team", 4, offset=50))
+        anonymous = self.start(self.unsupervised(batch("student_team", 4, offset=50)))
 
         self.assertEqual(EmailCheckJob.objects.get(pk=supervised.data["jobId"]).skipped, 0)
         self.assertEqual(EmailCheckJob.objects.get(pk=anonymous.data["jobId"]).skipped, 2)
@@ -264,6 +275,22 @@ class LimitTests(PrecheckTestCase):
 
         self.assertEqual(EmailCheckJob.objects.get(pk=response.data["jobId"]).skipped, 0)
         self.assertEqual(self.checked, [GUARDIAN])
+
+
+class SupervisorTests(PrecheckTestCase):
+    def test_the_supervisor_a_student_named_is_checked_too(self):
+        self.body["payload"]["supervisor"] = {"firstName": "Sam", "lastName": "Teacher", "email": "teacher@example.com"}
+
+        response = self.start()
+
+        self.assertEqual(response.status_code, 202, response.data)
+        self.assertEqual(self.checked, [STUDENT, GUARDIAN, "teacher@example.com"])
+
+    def test_a_supervisor_registering_their_own_students_isnt_checked(self):
+        response = self.supervisor_start(batch("supervisor_csv", 2))
+
+        self.assertEqual(response.status_code, 202, response.data)
+        self.assertNotIn(self.supervisor.email, self.checked)
 
 
 class PollTests(PrecheckTestCase):

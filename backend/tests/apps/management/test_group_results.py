@@ -78,7 +78,7 @@ class GroupResultsTests(_GradingFixture):
         # A marked report still stays out, as on the marks summary.
         report = SubmissionComponent.objects.get(code="REPORT")
         RubricCriterion.objects.create(
-            rubric=Rubric.objects.create(component=report, year=self.group.year, active=True),
+            rubric=Rubric.objects.create(component=report, active=True),
             name="Structure", max_mark=Decimal("5.00"), order=1,
         )
         _release(MarksRelease)

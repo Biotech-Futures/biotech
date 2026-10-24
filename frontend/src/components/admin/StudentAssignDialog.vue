@@ -18,7 +18,7 @@
       <AppSelect
         id="assign-group-select"
         v-model="selectedGroupId"
-        class="form-input"
+        class="form-input app-input"
         :options="groupOptions"
         :placeholder="loadingGroups ? 'Loading groups...' : 'Select a group'"
         searchable

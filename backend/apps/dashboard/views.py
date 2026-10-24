@@ -22,6 +22,7 @@ from .services import (
 )
 
 class DashboardProgressView(APIView):
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -45,6 +46,7 @@ class DashboardProgressView(APIView):
 
 
 class DashboardViewSet(GenericViewSet):
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     @action(detail=False, methods=["get"], url_path="summary")
@@ -55,6 +57,7 @@ class DashboardViewSet(GenericViewSet):
 
 
 class DashboardNextEventView(APIView):
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(request=None, responses={200: DashboardNextEventSerializer, 204: None})
@@ -66,6 +69,7 @@ class DashboardNextEventView(APIView):
 
 
 class GroupsPreviewView(APIView):
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(request=None, responses={200: DashboardGroupPreviewSerializer(many=True)})

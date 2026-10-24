@@ -46,7 +46,6 @@ class RubricSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "component",
-            "year",
             "active",
             "criteria",
         ]

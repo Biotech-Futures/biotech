@@ -32,6 +32,9 @@ from ..models import EmailDelivery, EmailSendRun
 logger = logging.getLogger(__name__)
 
 UNREACHABLE = "couldn't reach the mail server"
+LIMIT_REACHED = "sending limit reached"
+SERVER_BUSY = "mail server busy"
+ADDRESS_REFUSED = "address refused"
 
 
 def _reply(exc: Exception) -> tuple[int | None, str]:
@@ -54,15 +57,23 @@ def failure_reason(exc: Exception) -> str:
         return "mail server login failed"
     code, text = _reply(exc)
     if code and any(word in text for word in ("limit", "quota", "too many", "exceeded")):
-        return "sending limit reached"
+        return LIMIT_REACHED
     if isinstance(exc, smtplib.SMTPRecipientsRefused):
-        return "mail server busy" if code and code < 500 else "address refused"
+        return SERVER_BUSY if code and code < 500 else ADDRESS_REFUSED
     if code:
-        return "mail server busy" if code < 500 else "mail server refused it"
+        return SERVER_BUSY if code < 500 else "mail server refused it"
     if isinstance(exc, OSError):
         # Disconnects, resets and timeouts (smtplib's disconnect is one too).
         return "lost the mail server connection"
     return "couldn't be sent"
+
+
+def server_trouble(reason: str) -> bool:
+    """Whether a copy failing for ``reason`` says the mail server is in
+    trouble (busy, at a limit, refusing, dropping the connection), rather
+    than that one address was refused: a run sending over several
+    connections then drops one (see send_guard)."""
+    return bool(reason) and reason != ADDRESS_REFUSED
 
 
 def _send_noting_refused(message) -> dict[str, str]:

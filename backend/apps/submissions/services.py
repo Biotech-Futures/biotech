@@ -34,11 +34,19 @@ class DeadlineInfo:
 
 
 def active_deadline() -> Deadline | None:
-    return Deadline.objects.filter(is_active=True).order_by("-created_at").first()
+    # The newest; two set in the same clock tick, the later saved (higher id).
+    return Deadline.objects.filter(is_active=True).order_by("-created_at", "-id").first()
 
 
 def current_cohort() -> int:
-    """The competition year, from the active deadline so grace windows and extensions stay in it."""
+    """The competition year: the one Start new year last moved on to. Before
+    it's first pressed, the active deadline's year, so grace windows and
+    extensions stay in it, else the calendar year."""
+    from apps.management.models import ChallengeYear  # management imports this module
+
+    started = ChallengeYear.objects.order_by("-year").values_list("year", flat=True).first()
+    if started is not None:
+        return started
     deadline = active_deadline()
     if deadline is not None:
         return timezone.localtime(deadline.closes_at).year

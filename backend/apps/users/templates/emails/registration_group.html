@@ -21,4 +21,11 @@
               <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
                 This email serves as confirmation of registering for the {{ YEAR }} {{ BRAND_NAME }} Challenge as a team.
               </p>
+{% if GROUP_CODE %}
+              <p style="margin:16px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Your group code is <strong style="color:#1a2e23;">{{ GROUP_CODE }}</strong>. Share it with
+                teammates who haven't registered yet, so they can join your group. It works until
+                registration closes.
+              </p>
+{% endif %}
 {% endblock %}

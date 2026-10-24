@@ -364,17 +364,17 @@ function stateLabel(state: ReportState) {
   justify-content: center;
   gap: 8px;
   padding: 0 16px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 12px;
-  background: var(--btf-white);
-  color: var(--btf-dark-green);
+  background: var(--analytics-ui-surface, var(--btf-white));
+  color: var(--analytics-ui-accent, var(--btf-dark-green));
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .report-export-trigger:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .report-export-backdrop {
@@ -393,8 +393,8 @@ function stateLabel(state: ReportState) {
   overflow-y: auto;
   padding: 24px;
   border-radius: 14px;
-  background: var(--btf-white);
-  color: #153f3c;
+  background: var(--analytics-ui-surface, var(--btf-white));
+  color: var(--analytics-ui-text, #153f3c);
   box-shadow: 0 24px 60px rgb(0 0 0 / 22%);
 }
 
@@ -411,7 +411,7 @@ function stateLabel(state: ReportState) {
 }
 .report-export-header p {
   margin: 6px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
 }
 
 .report-export-close {
@@ -419,8 +419,8 @@ function stateLabel(state: ReportState) {
   height: 36px;
   border: 0;
   border-radius: 8px;
-  background: #f2f6f5;
-  color: #355652;
+  background: var(--analytics-ui-soft, #f2f6f5);
+  color: var(--analytics-ui-text, #355652);
   font-size: 24px;
   cursor: pointer;
 }
@@ -429,8 +429,8 @@ function stateLabel(state: ReportState) {
   margin: 18px 0;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #fff7df;
-  color: #795d0b;
+  background: var(--analytics-ui-soft, #fff7df);
+  color: var(--analytics-ui-warning, #795d0b);
   font-size: 13px;
 }
 
@@ -445,7 +445,7 @@ function stateLabel(state: ReportState) {
   gap: 6px;
 }
 .report-export-grid label span {
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 12px;
   font-weight: 600;
 }
@@ -454,15 +454,15 @@ function stateLabel(state: ReportState) {
   width: 100%;
   height: 40px;
   padding: 0 10px;
-  border: 1px solid #d7e3e0;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0);
   border-radius: 8px;
-  background: var(--btf-white);
-  color: #234844;
+  background: var(--analytics-ui-surface, var(--btf-white));
+  color: var(--analytics-ui-text, #234844);
   font: inherit;
 }
 
 .report-export-grid select:disabled {
-  background: #f2f5f4;
+  background: var(--analytics-ui-soft, #f2f5f4);
   cursor: wait;
 }
 .report-export-warning,
@@ -472,13 +472,13 @@ function stateLabel(state: ReportState) {
   font-size: 13px;
 }
 .report-export-warning {
-  color: #795d0b;
+  color: var(--analytics-ui-warning, #795d0b);
 }
 .report-export-error {
-  color: #b42318;
+  color: var(--analytics-ui-danger, #b42318);
 }
 .report-export-success {
-  color: #08765d;
+  color: var(--analytics-ui-accent, #08765d);
 }
 
 .report-export-actions {
@@ -497,9 +497,9 @@ function stateLabel(state: ReportState) {
 }
 
 .report-export-cancel {
-  border: 1px solid #ccd9d6;
-  background: var(--btf-white);
-  color: #355652;
+  border: 1px solid var(--analytics-ui-border, #ccd9d6);
+  background: var(--analytics-ui-surface, var(--btf-white));
+  color: var(--analytics-ui-text, #355652);
 }
 .report-export-download {
   border: 1px solid #08765d;

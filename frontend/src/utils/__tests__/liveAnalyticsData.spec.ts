@@ -158,6 +158,131 @@ describe('buildRecipientEmailLogs', () => {
       [7, 'Amy Chen', 'amy@example.com', 'Delivered', ''],
       [8, '—', 'bo@example.com', 'Failed', 'address refused'],
     ])
-    expect(logs[0]).toMatchObject({ sender: 'System', senderEmail: 'info@biotechfutures.org', title: 'Week 3' })
+    expect(logs[0]).toMatchObject({ sender: 'System', senderEmail: '—', title: 'Week 3' })
+  })
+})
+
+describe('buildEmailMonitoring', () => {
+  const baseEmailAnalytics: api.EmailDeliveryAnalyticsResponse = {
+    snapshot_at: '2026-10-20T00:00:00Z',
+    mailboxes: [],
+    totals: { attempted: 0, delivered: 0, failed: 0, delivery_runs: 0 },
+    hourly: [],
+    daily: [],
+    recent_deliveries: [],
+  }
+
+  const bundle = (emailAnalytics: api.EmailDeliveryAnalyticsResponse): data.EmailAnalyticsBundle => ({
+    users: [],
+    groupActivity: fullActivity,
+    loginActivity: undefined,
+    emailAnalytics,
+  })
+
+  it('uses completed counts instead of a stale failed status', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_sends: [{
+        id: 1,
+        email_type: 'announcement',
+        email_type_label: 'Announcement notification',
+        title: 'Programme update',
+        announcement_id: 5,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-20T00:00:00Z',
+        status: 'failed',
+        attempted: 1,
+        delivered: 1,
+        failed: 0,
+        initiated_by_name: 'System',
+        initiated_by_email: '',
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Delivered', senderEmail: '—' })
+  })
+
+  it('shows an announcement send still going as sending, with no recipients to export yet', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_sends: [{
+        id: null,
+        delivery_id: 4,
+        email_type: 'announcement',
+        email_type_label: 'Announcement notification',
+        title: 'Programme update',
+        announcement_id: 5,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-20T00:00:00Z',
+        status: 'sending',
+        attempted: 12,
+        delivered: 0,
+        failed: 0,
+        initiated_by_name: 'Ada Admin',
+        initiated_by_email: 'ada@example.com',
+        recipients_recorded: 0,
+      }, {
+        id: 4,
+        email_type: 'announcement',
+        email_type_label: 'Announcement notification',
+        title: 'Earlier update',
+        announcement_id: 3,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-19T00:00:00Z',
+        status: 'success',
+        attempted: 2,
+        delivered: 2,
+        failed: 0,
+        initiated_by_name: 'Ada Admin',
+        initiated_by_email: 'ada@example.com',
+        recipients_recorded: 2,
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Sending', recipient: '12 recipients', sendId: null })
+    expect(result.logs[1]).toMatchObject({ status: 'Delivered', sendId: 4 })
+    expect(result.logs[0]!.id).not.toBe(result.logs[1]!.id)
+  })
+
+  it('shows an unfinished legacy announcement send as sending, not failed', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_deliveries: [{
+        id: 2,
+        announcement_id: 5,
+        title: 'Programme update',
+        started_at: '2026-10-20T00:00:00Z',
+        completed_at: null,
+        status: 'failed',
+        recipient_count: 12,
+        success_count: 0,
+        failure_count: 0,
+        initiated_by_name: 'Ada Admin',
+        initiated_by_email: 'ada@example.com',
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Sending', senderEmail: 'ada@example.com' })
+  })
+
+  it('shows an abandoned legacy announcement send as failed after 30 minutes', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_deliveries: [{
+        id: 3,
+        announcement_id: 5,
+        title: 'Programme update',
+        started_at: '2026-10-19T23:00:00Z',
+        completed_at: null,
+        status: 'failed',
+        recipient_count: 12,
+        success_count: 0,
+        failure_count: 0,
+        initiated_by_name: 'Ada Admin',
+        initiated_by_email: 'ada@example.com',
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Failed' })
   })
 })

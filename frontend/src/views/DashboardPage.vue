@@ -8,120 +8,113 @@
     <div class="dashboard-page-inner">
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
 
-      <section class="dashboard-welcome-header">
-          <h1 class="hero-title">Welcome back, {{ welcomeName }}</h1>
-        </section>
+      <section class="dashboard-welcome-header dashboard-hero-card">
+        <h1 class="hero-title">Welcome back, {{ welcomeName }}</h1>
+
+        <p class="dashboard-hero-message">
+          Welcome to {{ BRAND_CONNECT }} - your central hub for the {{ BRAND_NAME }} Challenge.
+          Connect with your team, collaborate and share ideas, access program-wide
+          resources, register for events, and stay up to date with the latest announcements
+          and opportunities across the program.
+        </p>
+      </section>
+
+        <div
+          v-if="!roleTasksLoading && incompleteRoleTasksCount > 0"
+          class="dashboard-alert dashboard-alert--role-tasks"
+        >
+          <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+          <span>
+            {{ incompleteRoleTasksCount }} incomplete role task{{ incompleteRoleTasksCount === 1 ? '' : 's' }}.
+          </span>
+          <a href="#role-tasks-section" class="dashboard-alert-link" @click.prevent="scrollToRoleTasks">
+            Click here to view
+          </a>
+        </div>
 
         <section class="dashboard-hero-shell">
-          <div class="dashboard-hero-card interactive-surface">
-            <div class="dashboard-hero-main">
-              <div class="dashboard-hero-copy">
-                <p class="dashboard-hero-message">
-                  Welcome to {{ BRAND_CONNECT }} - your central hub for the {{ BRAND_NAME }} Challenge.
-                  Connect with your team, collaborate and share ideas, access program-wide
-                  resources, register for events, and stay up to date with the latest announcements
-                  and opportunities across the program.
-                </p>
-
-                <div class="hero-highlight-wrap" role="status" aria-live="polite">
-                  <template v-if="highlightsLoading">
-                    <span
-                      v-for="item in 3"
-                      :key="`highlight-skeleton-${item}`"
-                      class="status-pill dashboard-highlight-skeleton"
-                    >
-                      <span class="dashboard-skeleton-chip"></span>
-                    </span>
-                  </template>
-                  <template v-else>
-                    <span v-for="item in headerHighlights" :key="item.key" class="status-pill">
-                      {{ item.label }}
-                    </span>
-                  </template>
+          <div class="dashboard-hero-card interactive-surface dashboard-groups-card">
+            <div v-if="groupsLoading" class="dashboard-groups-loading" role="status" aria-live="polite">
+              <div class="surface-card-header">
+                <p class="surface-kicker">Groups</p>
+                <h3 class="surface-card-title">Loading groups...</h3>
+              </div>
+              <div class="groups-grid dashboard-hero-groups-grid">
+                <div
+                  v-for="item in 3"
+                  :key="`group-skeleton-${item}`"
+                  class="group-skeleton-card"
+                >
+                  <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
+                  <div
+                    class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+                  ></div>
                 </div>
               </div>
-              <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
             </div>
 
-          <div v-if="groupsLoading" class="dashboard-hero-groups" role="status" aria-live="polite">
-            <div class="surface-card-header">
-              <p class="surface-kicker">Groups</p>
-              <h3 class="surface-card-title">Loading groups...</h3>
-            </div>
-            <div class="groups-grid dashboard-hero-groups-grid">
-              <div
-                v-for="item in 3"
-                :key="`group-skeleton-${item}`"
-                class="group-skeleton-card"
-              >
-                <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
-                <div
-                  class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
-                ></div>
+            <div v-else class="dashboard-groups-body">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Groups</p>
+                  <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
+                </div>
+                <button
+                  v-if="shouldBlockGroupsNavigation"
+                  type="button"
+                  class="surface-link surface-link-button"
+                  @click="showNoMembershipPopup"
+                >
+                  View all
+                </button>
+                <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
               </div>
-            </div>
-          </div>
 
-          <div v-else class="dashboard-hero-groups">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Groups</p>
-                <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
-              </div>
-              <button
-                v-if="shouldBlockGroupsNavigation"
-                type="button"
-                class="surface-link surface-link-button"
-                @click="showNoMembershipPopup"
-              >
-                View all
-              </button>
-              <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
-            </div>
+              <div v-if="groupsPreview.length" class="groups-grid dashboard-hero-groups-grid">
+                <RouterLink
+                  v-for="group in groupsPreview"
+                  :key="group.id || getGroupName(group)"
+                  :to="group.id ? '/groups/' + group.id : '/groups'"
+                  class="group-card-link"
+                >
+                  <div class="group-card-surface interactive-surface">
+                    <div class="group-card-top">
+                      <div class="group-avatars">
+                        <div class="group-avatar primary-avatar">
+                          {{ getInitials(getGroupName(group)) }}
+                        </div>
 
-            <div v-if="groupsPreview.length" class="groups-grid dashboard-hero-groups-grid">
-              <RouterLink
-                v-for="group in groupsPreview"
-                :key="group.id || getGroupName(group)"
-                :to="group.id ? '/groups/' + group.id : '/groups'"
-                class="group-card-link"
-              >
-                <div class="group-card-surface interactive-surface">
-                  <div class="group-card-top">
-                    <div class="group-avatars">
-                      <div class="group-avatar primary-avatar">
-                        {{ getInitials(getGroupName(group)) }}
+                        <div class="group-avatar secondary-avatar">
+                          {{ getGroupSecondaryLabel(group) }}
+                        </div>
+
+                        <div class="group-avatar tertiary-avatar">
+                          +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
+                        </div>
                       </div>
 
-                      <div class="group-avatar secondary-avatar">
-                        {{ getGroupSecondaryLabel(group) }}
-                      </div>
-
-                      <div class="group-avatar tertiary-avatar">
-                        +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
-                      </div>
+                      <span class="group-open-indicator">
+                        <i class="fas fa-arrow-up-right-from-square"></i>
+                      </span>
                     </div>
 
-                    <span class="group-open-indicator">
-                      <i class="fas fa-arrow-up-right-from-square"></i>
-                    </span>
+                    <div class="group-name">{{ getGroupName(group) }}</div>
+
+                    <div class="group-meta">
+                      {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
+                    </div>
                   </div>
+                </RouterLink>
+              </div>
 
-                  <div class="group-name">{{ getGroupName(group) }}</div>
-
-                  <div class="group-meta">
-                    {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
-                  </div>
-                </div>
-              </RouterLink>
-            </div>
-
-            <div v-else class="empty-state">
-              <i class="fas fa-users-slash"></i>
-              <p>No group is available yet.</p>
+              <div v-else class="empty-state">
+                <i class="fas fa-users-slash"></i>
+                <p>No group is available yet.</p>
+              </div>
             </div>
           </div>
-          </div>
+
+          <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
         </section>
 
         <div v-if="loadError" class="dashboard-alert">
@@ -379,6 +372,62 @@
             </article>
           </div>
         </section>
+
+        <section id="role-tasks-section" class="dashboard-section">
+          <div class="dashboard-section-grid">
+            <article class="surface-card interactive-surface">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Role Tasks</p>
+                  <h3 class="surface-card-title">My Role Tasks</h3>
+                </div>
+              </div>
+
+              <div v-if="roleTasksLoading" class="dashboard-section-skeleton" role="status" aria-live="polite">
+                <div class="dashboard-skeleton-list">
+                  <div
+                    v-for="row in 3"
+                    :key="`role-task-skeleton-row-${row}`"
+                    class="dashboard-skeleton-list-row"
+                  >
+                    <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                    <div class="dashboard-skeleton-list-copy">
+                      <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <template v-else>
+                <ul v-if="roleTasks.length" class="role-task-list">
+                  <li v-for="roleTask in roleTasks" :key="roleTask.id" class="role-task-item">
+                    <div class="role-task-main">
+                      <label class="role-task-checkbox">
+                        <input
+                          type="checkbox"
+                          :checked="roleTask.completed"
+                          :disabled="togglingRoleTaskIds.has(roleTask.id)"
+                          @change="onToggleRoleTask(roleTask)"
+                        />
+                        <span :class="{ 'role-task-done': roleTask.completed }">{{ roleTask.name }}</span>
+                      </label>
+                      <span v-if="roleTask.due_date" class="role-task-due">
+                        Due {{ formatDayMonth(roleTask.due_date) }}
+                      </span>
+                    </div>
+                    <p v-if="roleTask.description" class="role-task-description">
+                      {{ roleTask.description }}
+                    </p>
+                  </li>
+                </ul>
+                <div v-else class="empty-state">
+                  <i class="fas fa-circle-check"></i>
+                  <p>No role tasks right now.</p>
+                </div>
+              </template>
+            </article>
+          </div>
+        </section>
     </div>
 
     <div
@@ -434,6 +483,7 @@ import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { getAccentClass } from '@/utils/ui'
+import { listMyRoleTasks, toggleRoleTaskCompletion } from '@/utils/roleTasksAPI'
 import MiniCalendar from '@/components/MiniCalendar.vue'
 
 const auth = useAuthStore()
@@ -463,15 +513,22 @@ const announcementsLoading = ref(true)
 const eventsLoading = ref(true)
 const adminLoading = ref(true)
 const progressLoading = ref(true)
+const roleTasksLoading = ref(true)
+
+const roleTasks = ref([])
+const togglingRoleTaskIds = ref(new Set())
+const incompleteRoleTasksCount = computed(
+  () => roleTasks.value.filter((task) => !task.completed).length,
+)
+
+function scrollToRoleTasks() {
+  document.getElementById('role-tasks-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 const loadError = ref('')
 
 // Progressive rendering gates — each dashboard section reveals itself as its
 // own request completes instead of waiting for the slowest endpoint.
-const highlightsLoading = computed(() =>
-  groupsLoading.value || eventsLoading.value || progressLoading.value || adminLoading.value,
-)
-
 const summaryLoading = computed(() =>
   groupsLoading.value ||
   resourcesLoading.value ||
@@ -584,33 +641,6 @@ const dashboardThemeStyle = computed(() => {
     '--page-glow-three': dashboardPalette.pageGlowThree,
     '--dashboard-fx-opacity': dashboardPalette.fxOpacity,
   }
-})
-
-const headerHighlights = computed(() => {
-  if (isAdmin.value) {
-    return [
-      { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
-      { key: 'matches', label: `${adminWorkflow.value.pendingMatches} pending matches` },
-      { key: 'approvals', label: `${adminWorkflow.value.pendingApprovals} approvals` },
-    ]
-  }
-
-  if (isMentoringRole.value) {
-    return [
-      { key: 'groups', label: `${dashboardSummary.value.activeGroups} mentoring groups` },
-      { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming sessions` },
-      { key: 'progress', label: `${progressSnapshot.value.completionRate}% progress` },
-    ]
-  }
-
-  return [
-    { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
-    { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming events` },
-    {
-      key: 'tasks',
-      label: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks} tasks done`,
-    },
-  ]
 })
 
 const announcementsCount = computed(() => announcements.value.length)
@@ -1232,6 +1262,7 @@ async function loadDashboardData() {
     loadEvents(),
     loadAdminWorkflow(),
     loadProgress(groupsPromise),
+    loadRoleTasks(),
   ])
   loadSummary()
 }
@@ -1287,6 +1318,35 @@ async function loadResources() {
     resources.value = []
   } finally {
     resourcesLoading.value = false
+  }
+}
+
+// TK4: role tasks are defined once per role and picked up live by whoever
+// currently holds it — this list is just "what applies to me right now".
+async function loadRoleTasks() {
+  try {
+    roleTasks.value = await listMyRoleTasks()
+  } catch {
+    roleTasks.value = []
+  } finally {
+    roleTasksLoading.value = false
+  }
+}
+
+async function onToggleRoleTask(roleTask) {
+  if (togglingRoleTaskIds.value.has(roleTask.id)) return
+  const next = new Set(togglingRoleTaskIds.value)
+  next.add(roleTask.id)
+  togglingRoleTaskIds.value = next
+  try {
+    const updated = await toggleRoleTaskCompletion(roleTask.id)
+    roleTasks.value = roleTasks.value.map((task) => (task.id === updated.id ? updated : task))
+  } catch {
+    // Leave the list as-is; the checkbox simply won't have moved.
+  } finally {
+    const after = new Set(togglingRoleTaskIds.value)
+    after.delete(roleTask.id)
+    togglingRoleTaskIds.value = after
   }
 }
 
@@ -1564,15 +1624,24 @@ onMounted(async () => {
    § 5  HERO CARD
    ────────────────────────────────────────────────────────────── */
 .dashboard-hero-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.4rem;
+  align-items: stretch;
   margin-bottom: 1.5rem;
 }
 
 .dashboard-welcome-header {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .dashboard-welcome-header .hero-title {
   margin: 0;
+}
+
+.dashboard-welcome-header .dashboard-hero-message {
+  max-width: none;
+  margin-bottom: 0;
 }
 
 .dashboard-hero-card {
@@ -1627,32 +1696,9 @@ onMounted(async () => {
 /* ──────────────────────────────────────────────────────────────
    § 7  HERO CONTENT
    ────────────────────────────────────────────────────────────── */
-.dashboard-hero-main {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
-  gap: 1.4rem;
-  align-items: stretch;
-}
-
-.dashboard-hero-copy,
 .dashboard-hero-calendar {
   min-width: 0;
   display: flex;
-}
-
-.dashboard-hero-copy {
-  position: relative;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 100%;
-  padding: 1.35rem 1.45rem 1.4rem;
-  border-radius: 28px;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  box-shadow: 0 2px 4px var(--shadow);
-  overflow: hidden;
 }
 
 .hero-eyebrow-row {
@@ -1827,55 +1873,6 @@ onMounted(async () => {
   line-height: 1.8;
   font-size: 1rem;
   max-width: 64ch;
-}
-
-.hero-highlight-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-  margin-top: 1.18rem;
-}
-
-.status-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0.42rem 0.94rem;
-  border-radius: 999px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
-  color: var(--text-primary);
-  font-size: 0.7rem;
-  font-weight: 800;
-  /* Its height from its text, not the page's looser line spacing. */
-  line-height: 1.2;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-.status-pill::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  margin-right: 0.56rem;
-  border-radius: 999px;
-  background: currentColor;
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, currentColor 18%, transparent),
-    0 0 18px color-mix(in srgb, currentColor 30%, transparent);
-}
-
-.status-pill:nth-child(1) {
-  border: 1px solid rgba(96, 165, 250, 0.24);
-  color: #bfdbfe;
-}
-.status-pill:nth-child(2) {
-  border: 1px solid rgba(45, 212, 191, 0.24);
-  color: #99f6e4;
-}
-.status-pill:nth-child(3) {
-  border: 1px solid rgba(244, 114, 182, 0.24);
-  color: #fbcfe8;
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -2766,6 +2763,42 @@ onMounted(async () => {
   backdrop-filter: blur(16px);
 }
 
+.dashboard-alert-link {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(252, 211, 77, 0.5);
+  cursor: pointer;
+}
+
+.dashboard-alert-link:hover {
+  text-decoration-color: currentColor;
+}
+
+/* Distinct from the amber load-error alert above — this is a reminder, not
+   a failure, so it gets its own color rather than reading as "something's
+   wrong." Uses the site's actual brand green (--dark-green), not
+   --light-green — that token is a peach/cream color in the live light
+   theme, not green, despite the name.
+   !important + the compound .dashboard-alert.dashboard-alert--role-tasks
+   selector (specificity 0-2-0) are both required to beat the later
+   "flatten everything to white/grey" override further down this same
+   style block (an unconditional `.dashboard-alert { ... !important }` that
+   otherwise wins outright over any non-important rule, regardless of
+   where it sits in the cascade). */
+.dashboard-alert.dashboard-alert--role-tasks {
+  background: rgba(1, 113, 81, 0.1) !important;
+  border: 1px solid rgba(1, 113, 81, 0.32) !important;
+  color: var(--dark-green) !important;
+}
+
+.dashboard-alert.dashboard-alert--role-tasks .dashboard-alert-link {
+  color: var(--dark-green) !important;
+  text-decoration-color: rgba(1, 113, 81, 0.5) !important;
+}
+
 .dashboard-skeleton-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
@@ -2886,12 +2919,6 @@ onMounted(async () => {
   margin-top: 1rem;
 }
 
-.dashboard-skeleton-chip {
-  width: 142px;
-  height: 2.35rem;
-  border-radius: 999px;
-}
-
 .dashboard-skeleton-line {
   width: 100%;
   height: 1rem;
@@ -2983,23 +3010,6 @@ onMounted(async () => {
   padding: 0.5rem 0;
 }
 
-.dashboard-highlight-skeleton {
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--border-default);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.dashboard-highlight-skeleton::before {
-  display: none;
-}
-
-.dashboard-highlight-skeleton .dashboard-skeleton-chip {
-  display: block;
-  margin: 0;
-  width: 118px;
-  height: 1.7rem;
-}
-
 .group-skeleton-card {
   min-height: 136px;
   display: flex;
@@ -3034,6 +3044,65 @@ onMounted(async () => {
 .empty-state i {
   font-size: 1.4rem;
   color: var(--text-muted);
+}
+
+.role-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.role-task-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.role-task-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.role-task-description {
+  margin: 0;
+  padding-left: 1.7rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.role-task-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.role-task-checkbox input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent-teal);
+}
+
+.role-task-done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.role-task-due {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 .dashboard-modal-backdrop {
@@ -3123,11 +3192,8 @@ onMounted(async () => {
 }
 
 @media (max-width: 1180px) {
-  .dashboard-hero-main {
+  .dashboard-hero-shell {
     grid-template-columns: 1fr;
-  }
-  .dashboard-hero-copy {
-    padding: 1.2rem 1.15rem 1.22rem;
   }
   .two-col-layout {
     grid-template-columns: 1fr;
@@ -3161,7 +3227,6 @@ onMounted(async () => {
     align-items: center;
     gap: 0.72rem;
   }
-  .dashboard-hero-copy,
   .dashboard-hero-calendar {
     display: block;
   }
@@ -3274,13 +3339,11 @@ onMounted(async () => {
 .dashboard-alert,
 .hero-meta-chip-label,
 .summary-label,
-.status-pill,
 .hero-eyebrow {
   color: var(--text-secondary);
 }
 .hero-eyebrow,
 .hero-meta-chip,
-.status-pill,
 .summary-card,
 .surface-card,
 .group-card-surface,
@@ -3294,7 +3357,6 @@ onMounted(async () => {
 .resource-card-surface,
 .list-row,
 .hero-meta-chip,
-.status-pill,
 .hero-eyebrow {
   background: linear-gradient(
     165deg,
@@ -3305,7 +3367,6 @@ onMounted(async () => {
   -webkit-backdrop-filter: blur(24px);
 }
 .hero-meta-chip:hover,
-.status-pill:hover,
 .summary-card:hover,
 .surface-card:hover,
 .group-card-link:hover .group-card-surface,
@@ -3409,8 +3470,7 @@ onMounted(async () => {
 }
 
 @media (max-width: 680px) {
-  .hero-meta-row,
-  .hero-highlight-wrap {
+  .hero-meta-row {
     gap: 0.55rem;
   }
 
@@ -3466,7 +3526,6 @@ onMounted(async () => {
 .summary-label,
 .hero-meta-chip-label,
 .progress-label,
-.status-pill,
 .event-date-rest {
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -3497,7 +3556,6 @@ onMounted(async () => {
   color: var(--accent-blue);
 }
 .hero-meta-chip,
-.status-pill,
 .summary-card,
 .surface-card,
 .group-card-surface,
@@ -3586,7 +3644,6 @@ onMounted(async () => {
   z-index: 1;
 }
 .dashboard-hero-card,
-.dashboard-hero-copy,
 .surface-card,
 .summary-card,
 .group-card-surface,
@@ -3594,7 +3651,6 @@ onMounted(async () => {
 .list-row,
 .hero-meta-chip,
 .hero-eyebrow,
-.status-pill,
 .event-detail-card,
 .dashboard-alert {
   background: var(--white) !important;
@@ -3617,23 +3673,24 @@ onMounted(async () => {
 .group-card-link:hover .group-card-surface,
 .resource-card-link:hover .resource-card-surface,
 .list-row:hover,
-.hero-meta-chip:hover,
-.status-pill:hover {
+.hero-meta-chip:hover {
   transform: translateY(-2px) !important;
   border-color: var(--border-light) !important;
   box-shadow: 0 4px 12px var(--shadow) !important;
 }
+/* The welcome box is informational — it stays put on hover. */
+.dashboard-welcome-header:hover {
+  transform: none !important;
+  box-shadow: 0 2px 4px var(--shadow) !important;
+}
 .dashboard-hero-card::before,
 .dashboard-hero-card::after,
-.dashboard-hero-copy::before,
 .summary-card::before,
 .summary-card::after,
 .group-card-surface::after,
 .resource-card-surface::before,
 .hero-meta-chip::before,
 .hero-meta-chip::after,
-.status-pill::before,
-.status-pill::after,
 .progress-card::after {
   display: none !important;
   content: none !important;
@@ -3644,8 +3701,7 @@ onMounted(async () => {
   padding: 1.5rem;
 }
 
-.dashboard-hero-shell,
-.dashboard-hero-main {
+.dashboard-hero-shell {
   background: transparent !important;
   box-shadow: none !important;
 }
@@ -3685,7 +3741,6 @@ onMounted(async () => {
 .empty-state,
 .hero-meta-chip-label,
 .summary-label,
-.status-pill,
 .list-row-meta,
 .progress-detail-row span,
 .progress-label,
@@ -3825,36 +3880,29 @@ onMounted(async () => {
   display: none !important;
 }
 
-.dashboard-hero-groups {
-  margin-top: 1.35rem;
-  padding: 1.25rem 0 0.1rem;
-  border-top: 1px solid var(--border-light);
-}
-
-.dashboard-hero-groups .surface-card-header {
+.dashboard-groups-card .surface-card-header {
   margin-bottom: 1rem;
 }
 
-.dashboard-hero-groups .surface-card-title {
+.dashboard-groups-card .surface-card-title {
   font-size: clamp(1.35rem, 2vw, 1.72rem);
 }
 
 .dashboard-hero-groups-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.15rem;
 }
 
-.dashboard-hero-groups .group-card-surface {
+/* A single group (e.g. a student's own team) spans the full card width. */
+.dashboard-hero-groups-grid .group-card-link:only-child {
+  grid-column: 1 / -1;
+}
+
+.dashboard-groups-card .group-card-surface {
   min-height: 154px;
   padding: 1.18rem;
   border: 1px solid var(--border-light) !important;
   box-shadow: 0 2px 4px var(--shadow) !important;
-}
-
-@media (max-width: 1400px) {
-  .dashboard-hero-groups-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 880px) {

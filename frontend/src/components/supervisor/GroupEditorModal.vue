@@ -34,7 +34,7 @@
       <section v-if="isCreate" class="group-editor-section">
         <p class="group-editor-label">
           <i class="fas fa-tags" aria-hidden="true"></i>
-          Shared Areas of Interest
+          Shared Area(s) of Interest
         </p>
         <SharedInterestChips v-if="sharedAreas.length" :interests="sharedAreas" :total="students.length" />
         <p v-else class="group-editor-hint">Add students to see the areas of interest they share.</p>
