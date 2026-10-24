@@ -113,7 +113,7 @@ const fetchMockFor = (
   })
 }
 
-const mountPage = () => mount(AdminPlanTasksPage, { global: { stubs: { Teleport: true } } })
+const mountPage = () => mount(AdminPlanTasksPage, { global: { stubs: { Teleport: true, RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
 
 const buttonByText = (wrapper: VueWrapper, text: string) =>
   wrapper.findAll('button').find((button) => button.text().trim() === text)
@@ -155,6 +155,7 @@ describe('AdminPlanTasksPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Group Plans')
+    expect(wrapper.get('a[href="/admin/plan/progress"]').text()).toBe('View progress')
     expect(wrapper.text()).toContain('Getting started')
     expect(wrapper.text()).toContain('Next step')
     expect(wrapper.find('.data-table').exists()).toBe(true)

@@ -2,6 +2,7 @@
   <div class="content-area admin-plan">
     <header class="page-header">
       <h1 class="page-title">Group Plans</h1>
+      <RouterLink to="/admin/plan/progress" class="btn btn-outline">View progress</RouterLink>
       <p class="page-subtitle">
         Build the shared plan every group works through: stages, then the tasks inside them.
       </p>
@@ -229,6 +230,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
