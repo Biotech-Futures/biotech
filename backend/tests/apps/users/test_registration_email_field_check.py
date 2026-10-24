@@ -1,7 +1,9 @@
-"""Checking a registration's email boxes as the person leaves each one
-(apps.users.email_field_check): Submit's hard problems only, in Submit's order,
-always on. All HTTP is mocked (QevTestCase), so no test can spend real credits."""
+"""A registration page's check when Continue is pressed (apps.users.email_field_check):
+Submit's hard problems and warnings, in Submit's order, always on; and a mentor's
+warnings at Submit. All HTTP is mocked (QevTestCase), so no test can spend real credits."""
+import uuid
 
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
@@ -9,7 +11,9 @@ from apps.resources.models import Roles
 from apps.users.email_field_check import MAX_FIELDS
 from apps.users.mentor_registration import MENTOR_EMAIL_TAKEN
 from apps.users.models import EmailVerification, MentorProfile, SupervisorProfile, User
-from apps.users.serializers import GUARDIAN_IS_SELF, GUARDIAN_IS_STUDENT, PLACEHOLDER_EMAIL, SUPERVISOR_IS_SELF
+from apps.users.serializers import (
+    GUARDIAN_HAS_ACCOUNT, GUARDIAN_IS_SELF, GUARDIAN_IS_STUDENT, PLACEHOLDER_EMAIL, SUPERVISOR_IS_SELF,
+)
 from tests.apps.users.test_email_verification import QevTestCase, qev
 from tests.apps.users.test_registration_email_warnings import answer
 from tests.apps.users.test_registration_email_rules import GUARDIAN_INVALID, STUDENT_INVALID
@@ -26,7 +30,13 @@ def ok():
 
 
 def problem(code, message):
-    return {"ok": False, "code": code, "message": message}
+    return {"ok": False, "severity": "hard", "code": code, "message": message}
+
+
+def warned(code, message, field, override_field):
+    return {"ok": False, "severity": "soft", "warnings": [
+        {"code": code, "message": message, "field": field, "override_field": override_field},
+    ]}
 
 
 class FieldCheckSetup(RegistrationSetup):
@@ -129,10 +139,12 @@ class GuardianTests(FieldCheckSetup, QevTestCase):
         self.assertEqual(
             self.one("guardian", email, "kid@example.test"), problem("guardian_email_is_student", GUARDIAN_IS_STUDENT),
         )
-        # These only warn at Submit, so say nothing here.
         for other in ("last.year@students.example.test", supervisor, "no.role@example.test"):
             with self.subTest(account=other):
-                self.assertEqual(self.one("guardian", other, "kid@example.test"), ok())
+                self.assertEqual(self.one("guardian", other, "kid@example.test"), warned(
+                    "guardian_email_has_account", GUARDIAN_HAS_ACCOUNT, "students.0.guardian.email",
+                    "students.0.overrides.ConfirmGuardianEmailHasAccountOverride",
+                ))
 
     def test_mailbox(self):
         answer(NEW)
@@ -213,7 +225,7 @@ class MailboxTests(FieldCheckSetup, QevTestCase):
 
         self.assertEqual(self.one("student", "invalid@example.test")["code"], "email_invalid_address")
         self.assertEqual(self.one("student", "valid@example.test"), ok())
-        self.assertEqual(self.one("student", "unknown@example.test"), ok())
+        self.assertEqual(self.one("student", "unknown@example.test")["severity"], "soft")
         self.assertEqual(self.lookups(), 0)
 
     def test_an_answer_too_old_is_looked_up_again_and_stored(self):
@@ -225,12 +237,12 @@ class MailboxTests(FieldCheckSetup, QevTestCase):
         self.assertEqual(EmailVerification.objects.get(email=NEW).status, "invalid")
 
     def test_a_live_answer(self):
-        for status, said in (("invalid", "email_invalid_address"), ("unknown", None), ("valid", None)):
+        for status, said in (("invalid", "hard"), ("unknown", "soft"), ("valid", None)):
             with self.subTest(status=status):
                 address = f"{status}@example.test"
                 self.answer_always(qev(status, "rejected_email" if status == "invalid" else "accepted_email"))
                 result = self.one("student", address)
-                self.assertEqual(result.get("code"), said)
+                self.assertEqual(result.get("severity"), said)
                 self.assertEqual(EmailVerification.objects.get(email=address).status, status)
 
     def test_an_error_says_nothing_and_stores_nothing(self):
@@ -348,3 +360,230 @@ class MentorSubmitTests(RegistrationSetup, TestCase):
         self.assertEqual(refused.data["fields"]["mentor.email"], [PLACEHOLDER_EMAIL])
         self.assertFalse(User.objects.filter(email__iexact="mentor@example.invalid").exists())
         self.assertEqual(self.submit(body=mentor_body()).status_code, 201)
+
+
+UNKNOWN_STUDENT = "This email address couldn't be verified. Please check it, or confirm if this is correct."
+MISMATCH = "This email looks like it might have a typo compared to the student's name. Please confirm."
+
+
+class SoftTests(FieldCheckSetup, QevTestCase):
+    def item(self, kind, email="", **extra):
+        return {"field": "box", "kind": kind, "email": email, **extra}
+
+    def result(self, *items, **extra):
+        response = self.check(*items, **extra)
+        self.assertEqual(response.status_code, 200, response.data)
+        return response.data["results"]
+
+    def test_an_unknown_students_address_warns_at_its_place(self):
+        answer(NEW, "unknown")
+
+        self.assertEqual(self.result(self.item("student", NEW, student=2))["box"], warned(
+            "email_invalid", UNKNOWN_STUDENT, "students.2.email", "students.2.overrides.ConfirmEmailInvalidOverride",
+        ))
+
+    def test_the_mailbox_warning_first_then_the_name_once_it_is_ticked(self):
+        answer("jordn.lee@example.test", "unknown")
+        item = self.item("student", "jordn.lee@example.test", firstName="Jordan", lastName="Lee")
+
+        self.assertEqual(self.result(item)["box"]["warnings"][0]["code"], "email_invalid")
+        item["overrides"] = {"ConfirmEmailInvalidOverride": True}
+        self.assertEqual(self.result(item)["box"], warned(
+            "name_email_mismatch", MISMATCH, "students.0.email", "students.0.overrides.ConfirmNameEmailOverride",
+        ))
+        item["overrides"]["ConfirmNameEmailOverride"] = True
+        self.assertEqual(self.result(item)["box"], ok())
+
+    def test_no_name_no_name_check(self):
+        self.assertEqual(self.result(self.item("student", "jo@example.test"))["box"], ok())
+
+    def test_a_guardians_mailbox_warning_comes_before_its_account_warning(self):
+        User.objects.create_user(email="no.role@example.test")
+        answer("no.role@example.test", "unknown")
+        item = self.item("guardian", "no.role@example.test", student=1, studentEmail="kid@example.test")
+
+        self.assertEqual(self.result(item)["box"], warned(
+            "guardian_email_invalid",
+            "The guardian's email address couldn't be verified. Please check it, or confirm if this is correct.",
+            "students.1.guardian.email", "students.1.overrides.ConfirmGuardianEmailInvalidOverride",
+        ))
+        item["overrides"] = {"ConfirmGuardianEmailInvalidOverride": True}
+        self.assertEqual(self.result(item)["box"]["warnings"][0]["code"], "guardian_email_has_account")
+        item["overrides"]["ConfirmGuardianEmailHasAccountOverride"] = True
+        self.assertEqual(self.result(item)["box"], ok())
+
+    def test_the_supervisors_warning_is_the_registrations(self):
+        answer(NEW, "unknown")
+
+        self.assertEqual(self.result(self.item("supervisor", NEW, student=3, studentEmail="kid@example.test"))["box"], warned(
+            "supervisor_email_invalid",
+            "The supervisor's email address couldn't be verified. Please check it, or confirm if this is correct.",
+            "supervisor.email", "students.0.overrides.ConfirmSupervisorEmailInvalidOverride",
+        ))
+
+    def test_a_mentors_warnings_say_mentor(self):
+        answer("jordn.ng@example.test", "unknown")
+        item = self.item("mentor", "jordn.ng@example.test", firstName="Jordan", lastName="Ng")
+
+        self.assertEqual(self.result(item)["box"], warned(
+            "email_invalid", UNKNOWN_STUDENT, "mentor.email", "mentor.overrides.ConfirmEmailInvalidOverride",
+        ))
+        item["overrides"] = {"ConfirmEmailInvalidOverride": True}
+        mismatch = self.result(item)["box"]["warnings"][0]
+        self.assertEqual(mismatch["override_field"], "mentor.overrides.ConfirmNameEmailOverride")
+        self.assertEqual(
+            mismatch["message"],
+            "This email looks like it might have a typo compared to the mentor's name. Please confirm.",
+        )
+        self.assertNotIn("student", mismatch["message"])
+
+    def test_a_school_is_its_own_kind(self):
+        item = {"field": "school", "kind": "school", "school": "University of Sydney", "student": 1}
+
+        self.assertEqual(self.result(item)["school"], warned(
+            "university_school", "This looks like a university, not a school. Please confirm if this is correct.",
+            "students.1.school", "students.1.overrides.ConfirmSchoolOverride",
+        ))
+        self.assertEqual(self.result({**item, "overrides": {"ConfirmSchoolOverride": True}})["school"], ok())
+        self.assertEqual(self.result({**item, "school": "Example High"})["school"], ok())
+        no_email = self.client.post(URL, {"fields": [{"field": "f", "kind": "student"}]}, format="json")
+        self.assertEqual(no_email.status_code, 400, no_email.data)
+        self.assertIn("fields.0.email", no_email.data["fields"])
+
+    def test_a_hard_problem_anywhere_holds_back_every_warning(self):
+        User.objects.create_user(email="taken@example.test")
+        answer(NEW, "unknown")
+
+        results = self.result(
+            {"field": "a", "kind": "student", "email": "taken@example.test"},
+            {"field": "b", "kind": "guardian", "email": NEW, "studentEmail": "taken@example.test"},
+            {"field": "c", "kind": "school", "school": "University of Sydney"},
+        )
+
+        self.assertEqual(results["a"]["severity"], "hard")
+        self.assertEqual((results["b"], results["c"]), (ok(), ok()))
+
+    def test_a_whole_page_at_once(self):
+        answer("learner1@example.test", "unknown")
+        answer("parent0@example.test", "unknown")
+
+        results = self.result(
+            {"field": "s0", "kind": "student", "email": "learner0@example.test", "student": 0,
+             "firstName": "Learner", "lastName": "Zero"},
+            {"field": "g0", "kind": "guardian", "email": "parent0@example.test", "student": 0,
+             "studentEmail": "learner0@example.test"},
+            {"field": "sc0", "kind": "school", "school": "Example High", "student": 0},
+            {"field": "s1", "kind": "student", "email": "learner1@example.test", "student": 1},
+            {"field": "sc1", "kind": "school", "school": "University of Sydney", "student": 1},
+            {"field": "sup", "kind": "supervisor", "email": "", "studentEmail": "learner0@example.test"},
+            journey="student_team",
+        )
+
+        self.assertEqual(
+            {field: (result.get("severity"), result.get("warnings", [{}])[0].get("override_field"))
+             for field, result in results.items()},
+            {
+                "s0": (None, None),
+                "g0": ("soft", "students.0.overrides.ConfirmGuardianEmailInvalidOverride"),
+                "sc0": (None, None),
+                "s1": ("soft", "students.1.overrides.ConfirmEmailInvalidOverride"),
+                "sc1": ("soft", "students.1.overrides.ConfirmSchoolOverride"),
+                "sup": (None, None),
+            },
+        )
+
+    def test_an_unknown_override_is_refused(self):
+        response = self.check(self.item("student", NEW, overrides={"ConfirmNothing": True}))
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("fields.0.overrides", response.data["fields"])
+
+
+class MentorWarningTests(RegistrationSetup, TestCase):
+    EMAIL = "jordan.ng@uni.example.test"
+
+    def setUp(self):
+        super().setUp()
+        Roles.objects.get_or_create(role_name="mentor")
+
+    def submit(self, *args, **kwargs):
+        cache.clear()
+        return super().submit(*args, **kwargs)
+
+    def test_an_invalid_answer_is_a_hard_error_that_cant_be_confirmed(self):
+        answer(self.EMAIL, did_you_mean="jordan.ng@uni.example.org")
+        body = mentor_body(overrides={"ConfirmEmailInvalidOverride": True})
+
+        refused = self.submit(body=body)
+
+        self.assertEqual(refused.status_code, 400, refused.data)
+        self.assertNotIn("warnings", refused.data)
+        self.assertEqual(refused.data["fields"]["mentor.email"], [
+            "This email address doesn't appear to exist. Did you mean jordan.ng@uni.example.org? Please correct it.",
+        ])
+        self.assertFalse(User.objects.filter(email=self.EMAIL).exists())
+
+    def test_an_account_comes_before_the_mailbox(self):
+        User.objects.create_user(email=self.EMAIL)
+        answer(self.EMAIL)
+
+        self.assertEqual(self.submit(body=mentor_body()).data["fields"]["mentor.email"], [MENTOR_EMAIL_TAKEN])
+
+    def test_unknown_and_name_mismatch_warn_and_saves_nothing_until_confirmed(self):
+        email = "jordn.ng@uni.example.test"
+        answer(email, "unknown")
+        body = mentor_body(email=email)
+
+        held = self.submit(body=body)
+
+        self.assertEqual(held.status_code, 400, held.data)
+        self.assertEqual(held.data["warnings"], [
+            {"code": "name_email_mismatch", "field": "mentor.email",
+             "override_field": "mentor.overrides.ConfirmNameEmailOverride",
+             "message": "This email looks like it might have a typo compared to the mentor's name. Please confirm."},
+            {"code": "email_invalid", "field": "mentor.email",
+             "override_field": "mentor.overrides.ConfirmEmailInvalidOverride", "message": UNKNOWN_STUDENT},
+        ])
+        self.assertFalse(User.objects.filter(email=email).exists())
+        body["payload"]["mentor"]["overrides"] = {"ConfirmNameEmailOverride": True}
+        self.assertEqual(
+            [w["code"] for w in self.submit(body=body).data["warnings"]], ["email_invalid"],
+        )
+        body["payload"]["mentor"]["overrides"]["ConfirmEmailInvalidOverride"] = True
+        self.assertEqual(self.submit(body=body).status_code, 201)
+        self.assertTrue(MentorProfile.objects.filter(user__email=email).exists())
+
+    def test_no_school_warning_for_a_mentor(self):
+        self.assertEqual(self.submit(body=mentor_body(institution="University of Sydney")).status_code, 201)
+
+    @override_settings(EMAIL_PRECHECK_ENABLED=False)
+    def test_answers_on_file_count_with_the_switch_off(self):
+        answer(self.EMAIL, "unknown")
+
+        self.assertEqual([w["code"] for w in self.submit(body=mentor_body()).data["warnings"]], ["email_invalid"])
+
+    def test_a_retry_after_warnings(self):
+        answer(self.EMAIL, "unknown")
+        key = uuid.uuid4()
+        body = mentor_body()
+
+        def attempt(sent):
+            return RegistrationSetup.submit(self, body=sent, key=key)
+
+        cache.clear()
+        self.assertEqual(attempt(body).status_code, 400)
+        self.assertEqual(attempt(body).status_code, 400)
+        body["payload"]["mentor"]["overrides"] = {"ConfirmEmailInvalidOverride": True}
+        first = attempt(body)
+        self.assertEqual(first.status_code, 201, first.data)
+        again = attempt(body)
+        self.assertEqual((again.status_code, again.data), (200, first.data))
+        self.assertEqual(MentorProfile.objects.count(), 1)
+        # Every attempt counted, the warned ones too; a repeat of a saved one doesn't.
+        self.assertEqual(cache.get("registration_ip:127.0.0.1"), 3)
+
+    def test_only_the_mentors_overrides_are_taken(self):
+        for name in ("ConfirmSchoolOverride", "ConfirmNothing"):
+            with self.subTest(name=name):
+                refused = self.submit(body=mentor_body(overrides={name: True}))
+                self.assertEqual(refused.status_code, 400, refused.data)
+                self.assertEqual(refused.data["fields"]["mentor.overrides"], ["Unknown registration override."])

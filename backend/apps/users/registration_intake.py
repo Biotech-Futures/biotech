@@ -39,7 +39,7 @@ from .models import (
 from .profile_images import save_profile_image, validate_profile_image
 from .returning import restart_guardian_permission, returning_student
 from .serializers import (
-    GUARDIAN_TOGETHER, REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
+    GUARDIAN_TOGETHER, REGISTRATION_OVERRIDES, UNKNOWN_OVERRIDE, StrictBooleanField, UserRegisterBodySerializer,
     registration_warnings, stored_email_answers,
 )
 
@@ -122,7 +122,7 @@ class StudentInput(StrictInput):
 
     def validate_overrides(self, value):
         if set(value) - REGISTRATION_OVERRIDES:
-            raise serializers.ValidationError("Unknown registration override.")
+            raise serializers.ValidationError(UNKNOWN_OVERRIDE)
         return value
 
     def validate(self, data):

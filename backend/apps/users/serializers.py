@@ -45,6 +45,7 @@ REGISTRATION_OVERRIDES = {
     "ConfirmSupervisorEmailInvalidOverride", "ConfirmGuardianEmailHasAccountOverride",
 }
 GUARDIAN_IS_STUDENT = "This email address belongs to a student account, so it can't be used as a guardian's email."
+UNKNOWN_OVERRIDE = "Unknown registration override."
 GUARDIAN_IS_SELF = "The guardian cannot be the same person as the student."
 SUPERVISOR_IS_SELF = "The supervisor cannot be the same person as the student."
 GUARDIAN_HAS_ACCOUNT = "This email address already has an account. Please confirm it is the guardian's own address."
@@ -52,6 +53,11 @@ MAILBOX_WHOSE = {
     "Title": "This email address",
     "GuardianEmail": "The guardian's email address",
     "SupervisorEmail": "The supervisor's email address",
+}
+MAILBOX_WARNINGS = {
+    "Title": ("email_invalid", "ConfirmEmailInvalidOverride"),
+    "GuardianEmail": ("guardian_email_invalid", "ConfirmGuardianEmailInvalidOverride"),
+    "SupervisorEmail": ("supervisor_email_invalid", "ConfirmSupervisorEmailInvalidOverride"),
 }
 
 
@@ -120,6 +126,67 @@ def _invalid_email_warning(answers, address, *, code, field, override, whose, in
     return {"code": code, "field": field, "override_field": override, "message": message}
 
 
+def school_warning(school, known_schools=None):
+    """``known_schools`` is ``KnownUniversity.matching`` for a submission's
+    school names; without it, this one is looked up on its own."""
+    school = (school or "").strip().lower()
+    known = (
+        KnownUniversity.normalise(school).lower() in known_schools if known_schools is not None
+        else KnownUniversity.matches(school)
+    )
+    if "university" not in school and not known:
+        return None
+    return {
+        "code": "university_school",
+        "field": "SchoolName",
+        "override_field": "ConfirmSchoolOverride",
+        "message": "This looks like a university, not a school. Please confirm if this is correct.",
+    }
+
+
+def name_email_warning(first_name, surname, email, whose="the student's"):
+    name = ((first_name or "").strip() + (surname or "").strip()).lower().replace(" ", "")
+    local = (email or "").strip().lower().split("@")[0].replace(".", "").replace("_", "")
+    if not 1 <= _edit_distance(name, local) <= 2:
+        return None
+    return {
+        "code": "name_email_mismatch",
+        "field": "Title",
+        "override_field": "ConfirmNameEmailOverride",
+        "message": f"This email looks like it might have a typo compared to {whose} name. Please confirm.",
+    }
+
+
+def guardian_account_warning(email, guardian_accounts=None):
+    """``guardian_accounts``: a submission's guardian addresses that have an
+    account; without it, this one is looked up on its own. A current student's
+    address is refused before this (validate_GuardianEmail)."""
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    has_account = (
+        email in guardian_accounts if guardian_accounts is not None
+        else User.objects.filter(email__iexact=email).exists()
+    )
+    if not has_account:
+        return None
+    return {
+        "code": "guardian_email_has_account",
+        "field": "GuardianEmail",
+        "override_field": "ConfirmGuardianEmailHasAccountOverride",
+        "message": GUARDIAN_HAS_ACCOUNT,
+    }
+
+
+def mailbox_warning(answers, address, field, *, invalid_is_error=False):
+    """The mailbox warning for ``field`` (Title, GuardianEmail or SupervisorEmail)."""
+    code, override = MAILBOX_WARNINGS[field]
+    return _invalid_email_warning(
+        answers, address, code=code, field=field, override=override, whose=MAILBOX_WHOSE[field],
+        invalid_is_error=invalid_is_error,
+    )
+
+
 def registration_warnings(
     data, email_answers=None, known_schools=None, *, check_supervisor=False, invalid_is_error=False,
     guardian_accounts=None,
@@ -130,67 +197,25 @@ def registration_warnings(
     or unknown gets a warning, and one with no answer gets none (it isn't blocked).
     ``check_supervisor`` adds the supervisor the student named (once, on the
     first student; never a supervisor registering their own students).
-    ``known_schools`` is ``KnownUniversity.matching`` for the submission's
-    school names; without it, this student's is looked up on its own.
     ``invalid_is_error``: a doesn't-exist answer is a hard error, so only
-    unknown warns. ``guardian_accounts``: the submission's guardian addresses
-    that have an account; without it, this student's is looked up on its own."""
-    warnings = []
-    school = data.get("SchoolName", "").strip().lower()
-    known = (
-        KnownUniversity.normalise(school).lower() in known_schools if known_schools is not None
-        else KnownUniversity.matches(school)
-    )
-    if ("university" in school or known) and not data.get("ConfirmSchoolOverride"):
-        warnings.append({
-            "code": "university_school",
-            "field": "SchoolName",
-            "override_field": "ConfirmSchoolOverride",
-            "message": "This looks like a university, not a school. Please confirm if this is correct.",
-        })
-    name = (data.get("FirstName", "").strip() + data.get("Surname", "").strip()).lower().replace(" ", "")
-    local = data.get("Title", "").strip().lower().split("@")[0].replace(".", "").replace("_", "")
-    if 1 <= _edit_distance(name, local) <= 2 and not data.get("ConfirmNameEmailOverride"):
-        warnings.append({
-            "code": "name_email_mismatch",
-            "field": "Title",
-            "override_field": "ConfirmNameEmailOverride",
-            "message": "This email looks like it might have a typo compared to the student's name. Please confirm.",
-        })
-    guardian_email = data.get("GuardianEmail", "").strip().lower()
-    if guardian_email and not data.get("ConfirmGuardianEmailHasAccountOverride"):
-        # A current student's address is refused before this (validate_GuardianEmail).
-        has_account = (
-            guardian_email in guardian_accounts if guardian_accounts is not None
-            else User.objects.filter(email__iexact=guardian_email).exists()
-        )
-        if has_account:
-            warnings.append({
-                "code": "guardian_email_has_account",
-                "field": "GuardianEmail",
-                "override_field": "ConfirmGuardianEmailHasAccountOverride",
-                "message": GUARDIAN_HAS_ACCOUNT,
-            })
+    unknown warns. ``known_schools`` and ``guardian_accounts``: see
+    school_warning and guardian_account_warning."""
+    warnings = [
+        school_warning(data.get("SchoolName"), known_schools),
+        name_email_warning(data.get("FirstName"), data.get("Surname"), data.get("Title")),
+        guardian_account_warning(data.get("GuardianEmail"), guardian_accounts),
+    ]
     if email_answers:
-        for warning, confirmed in (
-            (_invalid_email_warning(
-                email_answers, data.get("Title"), code="email_invalid", field="Title",
-                override="ConfirmEmailInvalidOverride", whose="This email address", invalid_is_error=invalid_is_error,
-            ), data.get("ConfirmEmailInvalidOverride")),
-            (_invalid_email_warning(
-                email_answers, data.get("GuardianEmail"), code="guardian_email_invalid", field="GuardianEmail",
-                override="ConfirmGuardianEmailInvalidOverride", whose="The guardian's email address",
-                invalid_is_error=invalid_is_error,
-            ), data.get("ConfirmGuardianEmailInvalidOverride")),
-            (check_supervisor and _invalid_email_warning(
-                email_answers, data.get("SupervisorEmail"), code="supervisor_email_invalid",
-                field="SupervisorEmail", override="ConfirmSupervisorEmailInvalidOverride",
-                whose="The supervisor's email address", invalid_is_error=invalid_is_error,
-            ), data.get("ConfirmSupervisorEmailInvalidOverride")),
-        ):
-            if warning and not confirmed:
-                warnings.append(warning)
-    return warnings
+        warnings += [
+            mailbox_warning(email_answers, data.get("Title"), "Title", invalid_is_error=invalid_is_error),
+            mailbox_warning(
+                email_answers, data.get("GuardianEmail"), "GuardianEmail", invalid_is_error=invalid_is_error,
+            ),
+            check_supervisor and mailbox_warning(
+                email_answers, data.get("SupervisorEmail"), "SupervisorEmail", invalid_is_error=invalid_is_error,
+            ),
+        ]
+    return [warning for warning in warnings if warning and not data.get(warning["override_field"])]
 
 
 def _has_role(user, profile_model, role_name) -> bool:
