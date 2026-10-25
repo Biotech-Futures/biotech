@@ -149,7 +149,8 @@ describe('canonical registration intake', () => {
       const joinContinue = () => wrapper.get('.group-join__actions button')
       expect(html.indexOf('group-join__actions')).toBeLessThan(html.indexOf('or-divider'))
       await joinContinue().trigger('click')
-      expect(wrapper.text()).toContain('Enter the 6-digit group code.')
+      expect(wrapper.text()).toContain('Enter the group code.')
+      expect(wrapper.text()).not.toContain('digit')
       // Add member beside the step's Continue.
       expect(wrapper.get('.form-footer').text()).toContain('Add member')
 
@@ -179,7 +180,7 @@ describe('canonical registration intake', () => {
       expect(setup.validateCurrentStep()).toBe(false)
       await check('12')
       expect(setup.validateCurrentStep()).toBe(false)
-      expect(setup.errors['studentTeam.joinCode']).toBe('Enter the 6-digit group code.')
+      expect(setup.errors['studentTeam.joinCode']).toBe('No group has this code. Check it with your group.')
 
       // Cleared: back to creating one.
       await check('')
@@ -426,7 +427,8 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).toContain(
       'before you can access most features of the program.',
     )
-    expect(wrapper.text()).toContain('It does not send a permission email or record consent.')
+    expect(wrapper.text()).toContain('Registration saves their contact details.')
+    expect(wrapper.text()).not.toContain('It does not send a permission email')
     // A nominated supervisor is their name and email: no type or school.
     expect(wrapper.text()).not.toContain('Teacher / school supervisor')
     expect(wrapper.text()).not.toContain('Nominated parent-supervisor')
@@ -551,7 +553,7 @@ describe('canonical registration intake', () => {
     expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Submit registration')
   })
 
-  it("lets a student leave out their supervisor, but asks for all of one that's started", async () => {
+  it('asks a student for all of their supervisor: each part is required', async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Student')
     await clickButton(wrapper, "I don't have a group")
@@ -564,18 +566,22 @@ describe('canonical registration intake', () => {
     setup.currentStep = 2
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('A supervisor is usually a teacher, but can also be a guardian.')
-    // No * on the supervisor's fields.
+    // A * on each of the supervisor's fields.
     for (const id of ['first', 'last', 'email']) {
-      expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).not.toContain('*')
+      expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).toContain('*')
     }
 
     setup.validateCurrentStep()
-    expect(Object.keys(setup.errors).some((key) => key.includes('.supervisor.'))).toBe(false)
+    expect(setup.errors).toMatchObject({
+      'studentIndividual.supervisor.firstName': 'Enter the supervisor first name.',
+      'studentIndividual.supervisor.lastName': 'Enter the supervisor last name.',
+    })
+    expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
 
     setup.forms.studentIndividual.supervisor.firstName = 'Sam'
     setup.validateCurrentStep()
+    expect(setup.errors['studentIndividual.supervisor.firstName']).toBeUndefined()
     expect(setup.errors['studentIndividual.supervisor.lastName']).toBeTruthy()
-    expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
   })
 
   it("starts each member in Member 1's country, and offers the group's schools", async () => {
@@ -758,6 +764,100 @@ describe('canonical registration intake', () => {
     vi.unstubAllGlobals()
   })
 
+  it('asks a University of Sydney student whether they study Engineering there, and their ID', async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      errors: Record<string, string>
+      validateCurrentStep: () => boolean
+      forms: { mentor: Record<string, string> }
+    }
+    Object.assign(setup.forms.mentor, {
+      affiliation: 'undergraduate',
+      institution: 'The University of Sydney',
+      universityYear: '2',
+      fieldOfStudy: 'Engineering',
+    })
+    setup.currentStep = 1
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Are you studying Engineering at USYD?')
+    expect(wrapper.text()).toContain('5 PEP hours per group you mentor, up to 15hrs')
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.usydEngineering']).toBeTruthy()
+
+    setup.forms.mentor.usydEngineering = 'yes'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('#mentor-student-id').exists()).toBe(true)
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.studentId']).toBe('Enter your student ID, in numbers.')
+    setup.forms.mentor.studentId = '530123456'
+    expect(setup.validateCurrentStep()).toBe(true)
+
+    // Not at Western Sydney University, nor of an academic.
+    setup.forms.mentor.institution = 'Western Sydney University'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('Are you studying Engineering at USYD?')
+    Object.assign(setup.forms.mentor, { institution: 'USYD', affiliation: 'academic' })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('Are you studying Engineering at USYD?')
+  })
+
+  it("adds a mentor in Australia a step for their state's check before Review", async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      maxReachedStep: number
+      errors: Record<string, string>
+      validateCurrentStep: () => boolean
+      forms: { mentor: Record<string, string | string[]> }
+    }
+    expect(wrapper.findAll('.step-navigation li')).toHaveLength(4)
+    Object.assign(setup.forms.mentor, { country: 'Australia' })
+    await wrapper.vm.$nextTick()
+    setup.forms.mentor.state = 'QLD'
+    await wrapper.vm.$nextTick()
+    // Contact, Affiliation, Mentoring, Checks, Review.
+    expect(wrapper.findAll('.step-navigation li').map((step) => step.text())).toEqual([
+      expect.stringContaining('Contact'),
+      expect.stringContaining('Affiliation'),
+      expect.stringContaining('Mentoring'),
+      expect.stringContaining('Checks'),
+      expect.stringContaining('Review'),
+    ])
+
+    setup.currentStep = setup.maxReachedStep = 3
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Date of Birth')
+    expect(wrapper.text()).toContain('This is used for WWCC verification and is deleted after use.')
+    expect(wrapper.text()).toContain('Blue Card (QLD)')
+    expect(wrapper.get('#mentor-wwcc-description a').attributes('href')).toBe('https://www.qld.gov.au/bluecard')
+    expect(wrapper.text()).toContain('Do you identify as Aboriginal or Torres Strait Islander?')
+    expect(wrapper.text()).toContain('Languages Spoken')
+    expect(setup.validateCurrentStep()).toBe(false)
+    for (const field of ['dateOfBirth', 'wwccNumber', 'indigenous', 'languages'])
+      expect(setup.errors[`mentor.${field}`], field).toBeTruthy()
+
+    Object.assign(setup.forms.mentor, {
+      dateOfBirth: '1999-04-12',
+      wwccNumber: '12345678',
+      indigenous: 'prefer_not',
+      languages: ['English', 'Other (please specify)'],
+    })
+    await wrapper.vm.$nextTick()
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.languagesOther']).toBe('Enter the other language.')
+    setup.forms.mentor.languagesOther = 'Tagalog'
+    expect(setup.validateCurrentStep()).toBe(true)
+
+    // Elsewhere, no such step: Review is the fourth again.
+    setup.forms.mentor.country = 'New Zealand'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.step-navigation li')).toHaveLength(4)
+    expect(setup.maxReachedStep).toBe(3)
+  })
+
   it("asks a mentor only why they'd mentor, in 150 words at most", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
@@ -820,7 +920,7 @@ describe('canonical registration intake', () => {
     const block = wrapper.get('.group-code')
     expect(block.get('.group-code__value').text()).toBe('482915')
     expect(block.text()).toContain('Save this code for future reference and share it with your teammates.')
-    expect(block.text()).toContain('held for you for 24 hours until you register')
+    expect(block.text()).toContain("It's held for you for 4 months.")
     // Before the group's interests.
     const html = wrapper.html()
     expect(html.indexOf('group-code')).toBeLessThan(html.indexOf('Group members'))
@@ -1076,9 +1176,12 @@ describe('canonical registration intake', () => {
     expect(
       wrapper.get('#studentTeam-creator-guardian-firstName').attributes('required'),
     ).toBeDefined()
-    expect(html.indexOf('studentTeam-creator-profilePhoto')).toBeLessThan(
+    expect(html.indexOf('studentTeam-creator-state')).toBeLessThan(
       html.indexOf('studentTeam-creator-guardian-firstName'),
     )
+    // No pronouns or photo asked for.
+    expect(wrapper.find('#studentTeam-creator-pronouns').exists()).toBe(false)
+    expect(wrapper.find('#studentTeam-creator-profilePhoto').exists()).toBe(false)
     setup.currentStep = 2
     setup.maxReachedStep = 2
     await wrapper.vm.$nextTick()
@@ -1136,29 +1239,26 @@ describe('canonical registration intake', () => {
     Object.assign(setup.forms.supervisor, { firstName: 'Sam', lastName: 'Teacher', email: 'teacher@example.com' })
     expect(setup.validateCurrentStep()).toBe(true)
 
-    // Then their school with teacher or parent beside it, where it is (a
-    // state in Australia), and a student's optional pronouns and photo.
+    // Then their school with teacher or parent beside it and where it is (a
+    // state in Australia). No pronouns or photo.
     setup.currentStep = 1
     await wrapper.vm.$nextTick()
     expect(wrapper.find('#supervisor-email').exists()).toBe(false)
     const grid = wrapper.findAll('.field-grid .registration-field__label').map((label) => label.text())
     expect(grid.slice(0, 2)).toEqual(['School *', 'Teacher or parent *'])
-    expect(wrapper.find('#supervisor-pronouns').exists()).toBe(true)
-    expect(wrapper.find('#supervisor-profilePhoto').exists()).toBe(true)
+    expect(wrapper.find('#supervisor-pronouns').exists()).toBe(false)
+    expect(wrapper.find('#supervisor-profilePhoto').exists()).toBe(false)
     setup.forms.supervisor.country = 'Australia'
-    setup.forms.supervisor.pronouns = 'Other'
     expect(setup.validateCurrentStep()).toBe(false)
     expect(setup.errors).toMatchObject({
       'supervisor.school': 'Enter your school.',
       'supervisor.relationship': 'Choose teacher or parent.',
       'supervisor.state': 'Enter your state.',
-      'supervisor.pronounsOther': 'Enter your pronouns.',
     })
     Object.assign(setup.forms.supervisor, {
       school: 'Example High',
       relationship: 'parent',
       state: 'NSW',
-      pronouns: 'she/her',
     })
     expect(setup.validateCurrentStep()).toBe(true)
 
@@ -1184,7 +1284,6 @@ describe('canonical registration intake', () => {
         submittedAt: '2026-10-24T00:00:00Z',
       },
     }))
-    const blobUrls = { createObjectURL: URL.createObjectURL, revokeObjectURL: URL.revokeObjectURL }
     const wrapper = mount(RegistrationPage, {
       props: { mode: 'canonical' },
       global: {
@@ -1208,13 +1307,6 @@ describe('canonical registration intake', () => {
         relationship: 'teacher',
         country: 'New Zealand',
       })
-      // Their photo, chosen on the School & profile step (jsdom has no blob URLs).
-      Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:photo'), revokeObjectURL: vi.fn() })
-      setup.currentStep = setup.maxReachedStep = 1
-      await wrapper.vm.$nextTick()
-      const photo = new File(['png'], 'portrait.png', { type: 'image/png' })
-      Object.defineProperty(wrapper.get('#supervisor-profilePhoto').element, 'files', { value: [photo] })
-      await wrapper.get('#supervisor-profilePhoto').trigger('change')
       setup.currentStep = setup.maxReachedStep = 2
       await wrapper.vm.$nextTick()
       await wrapper.get('[data-test="policies-agree"]').setValue(true)
@@ -1231,14 +1323,9 @@ describe('canonical registration intake', () => {
             relationship: 'teacher',
             country: 'New Zealand',
             state: '',
-            pronouns: '',
-            pronounsOther: '',
-            profilePhoto: { name: 'portrait.png', type: 'image/png', size: 3 },
           },
         },
       })
-      // The file itself goes with it, as a student's does.
-      expect(submit.mock.calls[0]?.[1]?.attachments).toEqual({ supervisor: photo })
       // Active at once: no "we'll activate it", but sign in.
       expect(wrapper.get('.success-intro h3').text()).toBe('Registration Complete')
       expect(wrapper.get('.success-note').text()).toBe('You can now sign in to register your students.')
@@ -1246,7 +1333,6 @@ describe('canonical registration intake', () => {
       expect(wrapper.get('.form-footer .primary-action').attributes('href')).toBe('/login')
     } finally {
       wrapper.unmount()
-      Object.assign(URL, blobUrls)
     }
   })
 
@@ -1293,6 +1379,12 @@ describe('canonical registration intake', () => {
       setup.currentStep = setup.maxReachedStep = 3
       await wrapper.vm.$nextTick()
       await wrapper.get('[data-test="policies-agree"]').setValue(true)
+      // Not without signing.
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(submit).not.toHaveBeenCalled()
+      expect(wrapper.get('.mentor-sign').text()).toContain('Sign in the box to confirm your details.')
+      setup.forms.mentor.signature = 'data:image/png;base64,iVBORw0KGgo='
       await wrapper.get('form').trigger('submit')
       await flushPromises()
       expect(submit).toHaveBeenCalledOnce()
@@ -1303,75 +1395,6 @@ describe('canonical registration intake', () => {
       wrapper.unmount()
       sessionStorage.clear()
     }
-  })
-
-  describe('a supervisor from an earlier year', () => {
-    const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
-    const mockServer = (confirm: () => Response) => {
-      const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
-        const url = String(input)
-        if (url.includes('/services/csrf/')) return answer({ csrfToken: 'token' })
-        if (url.endsWith('/registration/returning-supervisor/')) return answer({ message: 'sent' })
-        if (url.endsWith('/registration/returning-supervisor/confirm/')) return confirm()
-        if (url.includes('/users/me/')) return answer({ id: 7, email: 'sam@school.edu' })
-        return answer({})
-      })
-      vi.stubGlobal('fetch', fetchMock)
-      return fetchMock
-    }
-    const submit = async (wrapper: VueWrapper) => {
-      await wrapper.get('form.returning-supervisor').trigger('submit')
-      await flushPromises()
-    }
-
-    beforeEach(() => routerPush.mockReset())
-
-    it('confirms their email with a code and goes on to register students', async () => {
-      const fetchMock = mockServer(() => answer({ success: true, csrfToken: 'fresh' }))
-      const wrapper = mountPage()
-
-      await clickButton(wrapper, 'Confirm your email')
-      expect(wrapper.get('h1').text()).toBe('Supervising Again')
-      expect(wrapper.find('#returning-supervisor-code').exists()).toBe(false)
-
-      await wrapper.get('#returning-supervisor-email').setValue('Sam@School.edu')
-      await submit(wrapper)
-      const sent = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/returning-supervisor/'))
-      expect(JSON.parse(String(sent?.[1]?.body))).toEqual({ email: 'sam@school.edu' })
-      expect(wrapper.text()).toContain("If that's a supervisor's email, we've emailed it a code.")
-      // The email stays as sent while the code is entered.
-      expect(wrapper.get('#returning-supervisor-email').attributes('disabled')).toBeDefined()
-
-      await wrapper.get('#returning-supervisor-code').setValue('123456')
-      await submit(wrapper)
-      const confirmed = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/confirm/'))
-      expect(JSON.parse(String(confirmed?.[1]?.body))).toEqual({ email: 'sam@school.edu', code: '123456' })
-      expect(routerPush).toHaveBeenCalledWith('/supervisor/registration')
-    })
-
-    it('says so when the code is wrong, and stays to try again', async () => {
-      mockServer(() => answer({ error: 'Invalid or expired code.', code: 'invalid_or_expired_code' }, 400))
-      const wrapper = mountPage()
-
-      await clickButton(wrapper, 'Confirm your email')
-      await wrapper.get('#returning-supervisor-email').setValue('sam@school.edu')
-      await submit(wrapper)
-      // Not six digits: checked before it's sent.
-      await wrapper.get('#returning-supervisor-code').setValue('12')
-      await submit(wrapper)
-      expect(wrapper.get('.server-error').text()).toBe('Enter the 6-digit code from the email.')
-
-      await wrapper.get('#returning-supervisor-code').setValue('654321')
-      await submit(wrapper)
-      expect(wrapper.get('.server-error').text()).toBe('Invalid or expired code.')
-      expect(routerPush).not.toHaveBeenCalled()
-
-      // Another email starts again, and Back returns to the roles.
-      await clickButton(wrapper, 'Use Another Email')
-      expect(wrapper.find('#returning-supervisor-code').exists()).toBe(false)
-      await clickButton(wrapper, 'Back to Roles')
-      expect(wrapper.text()).toContain('Who are you registering as?')
-    })
   })
 
   it('gives every logical radio group a shared native name', async () => {

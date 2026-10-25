@@ -1,4 +1,6 @@
 export interface StudentImportRow {
+  /** Its row in the file (the header is row 1). */
+  rowNumber: number
   firstName: string
   lastName: string
   email: string
@@ -213,6 +215,7 @@ export function parseStudentCsv(text: string): {
       }
 
       valid.push({
+        rowNumber,
         firstName,
         lastName,
         email,

@@ -103,7 +103,7 @@
 
       <button
         type="button"
-        class="btn btn-outline btn-sm"
+        class="btn btn-outline btn-field"
         :disabled="!canStart"
         data-test="start-new-year"
         @click="openConfirm"

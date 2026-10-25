@@ -398,13 +398,15 @@ describe('the email warnings', () => {
     })
   })
 
-  it('knows all five overrides and nothing else', () => {
+  it("knows the backend's seven overrides and nothing else", () => {
     expect(REGISTRATION_OVERRIDE_NAMES).toEqual([
       'ConfirmSchoolOverride',
       'ConfirmNameEmailOverride',
       'ConfirmEmailInvalidOverride',
       'ConfirmGuardianEmailInvalidOverride',
+      'ConfirmGuardianEmailHasAccountOverride',
       'ConfirmSupervisorEmailInvalidOverride',
+      'ConfirmSupervisorNameEmailOverride',
     ])
     expect(parseOverridePath('students.2.overrides.ConfirmGuardianEmailInvalidOverride')).toEqual({
       index: 2,

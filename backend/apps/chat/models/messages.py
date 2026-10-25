@@ -23,6 +23,12 @@ class Messages(models.Model):
     sent_at = models.DateTimeField(default=timezone.now)
     edited_at = models.DateTimeField(null=True, blank=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    # AI-flagged messages stay persisted for evidence and review, but are not
+    # visible to anybody except their sender until a support decision is made.
+    # This is deliberately separate from ``deleted_at``: suppression is
+    # reversible, deletion is the moderator's final decision.
+    is_suppressed = models.BooleanField(default=False, db_index=True)
+    suppressed_at = models.DateTimeField(null=True, blank=True)
     deleted_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -94,6 +100,16 @@ class Messages(models.Model):
         self.deleted_at = None
         self.deleted_by = None
         self.save(update_fields=["deleted_at", "deleted_by"])
+
+    def suppress(self):
+        self.is_suppressed = True
+        self.suppressed_at = timezone.now()
+        self.save(update_fields=["is_suppressed", "suppressed_at"])
+
+    def approve_suppressed(self):
+        self.is_suppressed = False
+        self.suppressed_at = None
+        self.save(update_fields=["is_suppressed", "suppressed_at"])
 
     def can_be_self_actioned_by(self, user) -> bool:
         """Sender's self-edit / self-delete window check. The 10-minute

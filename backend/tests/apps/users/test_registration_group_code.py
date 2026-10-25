@@ -64,26 +64,43 @@ class GroupCodeExpiryTests(TestCase):
         return GroupCodeReservation.objects.get(code=response.json()["code"])
 
     def test_a_held_code_lasts_until_registration_closes(self):
-        closes = timezone.now() + timedelta(days=30)
+        closes = timezone.now() + timedelta(days=200)
         RegistrationWindow.objects.create(year=self.year, closes_at=closes)
         self.assertEqual(self.hold().expires_at, closes)
 
+    def test_a_held_code_lasts_4_months_at_least(self):
+        # As a registered group's is: even when registration closes sooner.
+        RegistrationWindow.objects.create(year=self.year, closes_at=timezone.now() + timedelta(days=30))
+        held = self.hold()
+        self.assertEqual(held.expires_at, held.created_at + timedelta(days=122))
+
     def test_with_no_closing_date_a_held_code_lasts_the_year(self):
-        self.assertEqual(self.hold().expires_at, datetime(self.year + 1, 1, 1, tzinfo=dt_timezone.utc))
+        held = self.hold()
+        self.assertEqual(held.expires_at, max(
+            datetime(self.year + 1, 1, 1, tzinfo=dt_timezone.utc), held.created_at + timedelta(days=122),
+        ))
 
     def test_a_held_code_moves_with_the_closing_date(self):
-        RegistrationWindow.objects.create(year=self.year, closes_at=timezone.now() + timedelta(days=30))
+        RegistrationWindow.objects.create(year=self.year, closes_at=timezone.now() + timedelta(days=200))
         held = self.hold()
         admin = User.objects.create_user(email="staff@example.com", password="pw-123456789", is_staff=True)
         client = APIClient()
         client.force_login(admin)
-        later = timezone.now() + timedelta(days=60)
+        later = timezone.now() + timedelta(days=300)
         response = client.post(
             "/api/v1/registration-management/", {"action": "window", "closes_at": later.isoformat()}, format="json",
         )
         self.assertEqual(response.status_code, 200, response.data)
         held.refresh_from_db()
         self.assertEqual(held.expires_at, later)
+        # Brought nearer than 4 months from when it was held: those 4 months.
+        sooner = timezone.now() + timedelta(days=10)
+        response = client.post(
+            "/api/v1/registration-management/", {"action": "window", "closes_at": sooner.isoformat()}, format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        held.refresh_from_db()
+        self.assertEqual(held.expires_at, held.created_at + timedelta(days=122))
 
 
 class StudentGroupCodeTests(MultiStudentSetup, TestCase):

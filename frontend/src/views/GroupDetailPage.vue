@@ -207,8 +207,31 @@
 
       <!-- Desktop: two columns; mobile: single column via tabs -->
       <div class="split" :data-active="activeTab">
-        <!-- Left column: Tasks -->
+        <!-- Left column: Tasks / Meetings workspace -->
+        <div class="workspace-column">
+
+          <div class="workspace-switch">
+          <button
+            type="button"
+            class="workspace-switch-btn"
+            :class="{ active: workspaceView === 'tasks' }"
+            @click="workspaceView = 'tasks'"
+          >
+            Tasks
+          </button>
+
+          <button
+            type="button"
+            class="workspace-switch-btn"
+            :class="{ active: workspaceView === 'meetings' }"
+            @click="workspaceView = 'meetings'"
+          >
+            Meetings
+          </button>
+        </div>
+
         <section class="pane pane--tasks card">
+          <template v-if="workspaceView === 'tasks'">
           <div class="card-header">
             <h3 class="card-title subheading">Tasks</h3>
             <div class="task-header-actions">
@@ -861,7 +884,13 @@
               </form>
             </div>
           </Transition>
+        </template>
+        <GroupMeetingsPage
+          v-if="workspaceView === 'meetings'"
+          embedded
+        />
         </section>
+      </div> <!-- Close workspace-column -->
 
         <!-- Right column: Discussion -->
         <section class="pane pane--discussion">
@@ -1161,6 +1190,7 @@
                     {
                       own: message.isOwn,
                       pending: message.isLocalOnly,
+                      suppressed: message.isSuppressed,
                       'message--same-sender': followsSameSender(index),
                       'search-hit': String(highlightedSearchMessageId) === String(message.id),
                     },
@@ -1185,6 +1215,35 @@
                     <span class="message-author">{{ message.author }}</span>
                     <span class="message-meta">
                       <span v-if="message.editedAt" class="message-edited">edited</span>
+                      <span
+                        v-if="message.isSuppressed"
+                        class="message-suppressed-label"
+                        :title="
+                          isModerationRemoval(message)
+                            ? 'This message was reviewed and removed by an administrator because it did not meet the community guidelines. It is no longer visible to other group members.'
+                            : 'This message has been flagged as potentially inappropriate and is pending review by administration. It is not visible to other group members while the review is underway.'
+                        "
+                        :aria-label="
+                          isModerationRemoval(message)
+                            ? 'Removed after review. This message was reviewed and removed by an administrator because it did not meet the community guidelines. It is no longer visible to other group members.'
+                            : 'Hidden pending review. This message has been flagged as potentially inappropriate and is pending review by administration. It is not visible to other group members while the review is underway.'
+                        "
+                      >
+                        <i
+                          :class="[
+                            'fas',
+                            isModerationRemoval(message)
+                              ? 'fa-ban'
+                              : 'fa-eye-slash',
+                          ]"
+                          aria-hidden="true"
+                        ></i>
+                        {{
+                          isModerationRemoval(message)
+                            ? 'Removed after review'
+                            : 'Hidden pending review'
+                        }}
+                      </span>
                       <span class="message-date">{{ formatDayMonthTime(message.date) }}</span>
                       <!-- Inline action cluster: always-visible reply + smile,
                            and a kebab menu (Edit/Delete) shown only while the
@@ -1192,7 +1251,7 @@
                            an admin (``canManageMessage``). -->
                       <span class="message-inline-actions">
                         <button
-                          v-if="!message.isDeleted"
+                          v-if="!message.isDeleted && !message.isSuppressed"
                           type="button"
                           class="inline-action-btn"
                           title="Reply"
@@ -1202,7 +1261,7 @@
                           <i class="fas fa-reply"></i>
                         </button>
                         <button
-                          v-if="!message.isDeleted && supportsMessageReactions"
+                          v-if="!message.isDeleted && !message.isSuppressed && supportsMessageReactions"
                           type="button"
                           class="inline-action-btn"
                           :class="{ active: activeReactionPickerMessageId === message.id }"
@@ -1783,6 +1842,7 @@
 </template>
 
 <script setup>
+import GroupMeetingsPage from './GroupMeetingsPage.vue'
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppDatePicker from '../components/AppDatePicker.vue'
@@ -1793,6 +1853,10 @@ import GroupSubmissionSection from '@/components/submission/GroupSubmissionSecti
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { splitTextIntoLinkSegments, firstLinkHref } from '@/utils/linkify'
+import {
+  hideModerationDeletionFromViewer,
+  isModerationRemoval,
+} from '@/utils/chatModeration'
 import {
   applyCursorToMessage,
   getReceiptAriaLabel as receiptAriaLabel,
@@ -1814,9 +1878,9 @@ import {
 } from '@/utils/tasksAPI'
 
 const route = useRoute()
-// Submission, Finalist or Results open: the page scrolls as a whole, rather
-// than holding the group's card and tabs while the section scrolls below.
-const SECTION_ROUTES = ['group-submission', 'group-finalist', 'group-results']
+// Submission, Finalist, Results or Plan open: the page scrolls as a whole,
+// rather than holding the group's card and tabs while the section scrolls below.
+const SECTION_ROUTES = ['group-submission', 'group-finalist', 'group-results', 'group-plan']
 const onSectionPage = computed(() => SECTION_ROUTES.includes(String(route.name)))
 const router = useRouter()
 const auth = useAuthStore()
@@ -1849,6 +1913,9 @@ const showGroupMembersDialog = ref(false)
 
 // Active mobile tab
 const activeTab = ref('tasks')
+const workspaceView = ref(
+  route.query.tab === 'meetings' ? 'meetings' : 'tasks'
+)
 
 // Live task state
 const tasks = ref([])
@@ -2473,7 +2540,7 @@ const loadGroupOptions = async () => {
 
 const switchGroup = (id) => {
   if (!id || id === routeGroupId.value) return
-  // Stays on the section open (Submission, Finalist or Results).
+  // Stays on the section open (Submission, Finalist, Results or Plan).
   const name = onSectionPage.value ? String(route.name) : 'group-detail'
   void router.push({ name, params: { id } })
 }
@@ -3319,6 +3386,8 @@ const normalizeMessage = (item) => {
     deletedByName,
     deletedByIsAdmin,
     isEdited: Boolean(raw?.is_edited || raw?.isEdited || raw?.edited_at),
+    isSuppressed: Boolean(raw?.is_suppressed || raw?.isSuppressed),
+    suppressedAt: raw?.suppressed_at || raw?.suppressedAt || null,
     isDeleted,
     readCount: Number(raw?.read_count || raw?.readCount || 0),
     deliveredCount: Number(raw?.delivered_count || raw?.deliveredCount || 0),
@@ -3334,7 +3403,9 @@ const normalizeMessage = (item) => {
 
 const getDeletedMessageText = (message) => {
   if (!message?.isDeleted) return ''
-  if (message.deletedByIsAdmin) return 'Admin deleted a message'
+  if (isModerationRemoval(message) || message.deletedByIsAdmin) {
+    return 'Admin deleted a message'
+  }
   const deletedById = Number(message.deletedById || 0)
   if ((deletedById > 0 && deletedById === currentUserId.value) || (!deletedById && message.isOwn)) {
     return 'You deleted a message'
@@ -4756,7 +4827,7 @@ const clearReplyTarget = () => {
 }
 
 const canManageMessage = (message) => {
-  if (!message || isPendingMessage(message) || message.isDeleted) return false
+  if (!message || isPendingMessage(message) || message.isDeleted || message.isSuppressed) return false
   if (auth.isAdmin) return true
   if (!message.isOwn) return false
 
@@ -4950,6 +5021,32 @@ const handleSocketPayload = async (payload) => {
     payload.message && typeof payload.message === 'object' ? payload.message : null
   const socketMessageId = socketMessage?.id ?? payload.message_id
 
+  if (eventName === 'message.suppressed' && socketMessageId) {
+    // The server deliberately sends no text in this event. Everybody except
+    // the sender removes the row; the sender keeps their existing local copy
+    // in a muted state while support reviews the linked ticket.
+    if (Number(payload.sender_user_id || 0) === Number(auth.user?.id || 0)) {
+      applyMessageUpdate(socketMessageId, (message) => ({
+        ...message,
+        isSuppressed: true,
+        suppressedAt: payload.suppressed_at || new Date().toISOString(),
+      }))
+    } else {
+      messages.value = messages.value.filter(
+        (message) => String(message.id) !== String(socketMessageId),
+      )
+      mentionItems.value = mentionItems.value.filter(
+        (mention) => String(mention.message_id) !== String(socketMessageId),
+      )
+    }
+    return
+  }
+
+  if (eventName === 'message.moderation_approved' && socketMessage) {
+    upsertMessage(socketMessage)
+    return
+  }
+
   if (eventName === 'message.created' && socketMessage) {
     upsertMessage(socketMessage)
     removeTypingUser(payload.user_name || socketMessage.sender_name || '')
@@ -4994,6 +5091,15 @@ const handleSocketPayload = async (payload) => {
 
   if (eventName === 'message.deleted') {
     if (!socketMessageId) return
+    if (hideModerationDeletionFromViewer(socketMessage, payload, auth.user?.id)) {
+      messages.value = messages.value.filter(
+        (message) => String(message.id) !== String(socketMessageId),
+      )
+      mentionItems.value = mentionItems.value.filter(
+        (mention) => String(mention.message_id) !== String(socketMessageId),
+      )
+      return
+    }
     if (socketMessage) {
       upsertMessage(socketMessage)
     } else {
@@ -6149,7 +6255,63 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
+<style>
+/* Tasks / Meetings workspace switch */
+
+.workspace-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding: 5px;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+.workspace-switch-btn {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.workspace-switch-btn:hover:not(.active) {
+  background: var(--accent-green-soft);
+  color: var(--teal);
+}
+
+.workspace-switch-btn.active {
+  background: var(--dark-green) !important;
+  color: #ffffff !important;
+}
+
+.pane--tasks > .card-header {
+  flex: 0 0 auto;
+}
+
+.pane--tasks > .tasks-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane--tasks > .meetings-page--embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* Header */
 .gd-head {
   display: flex;
@@ -6184,7 +6346,8 @@ onBeforeUnmount(() => {
   padding: 0.12rem 0.45rem;
   border: 1px solid var(--border-light);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--gd-meta-background, rgba(255, 255, 255, 0.65));
+  color: var(--gd-meta-color, inherit);
 }
 .gd-onboarding-notice {
   display: flex;
@@ -6419,6 +6582,29 @@ onBeforeUnmount(() => {
   border-bottom-color: var(--dark-green);
 }
 
+/* Left workspace: switch above scrollable card */
+.workspace-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace-column > .workspace-switch {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-bottom: 0;
+}
+
+.workspace-column > .pane--tasks {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Split layout */
 .split {
   display: grid;
@@ -6437,6 +6623,13 @@ onBeforeUnmount(() => {
   min-height: 320px;
   position: relative;
   container-type: inline-size;
+}
+
+.pane--tasks > .meetings-page--embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Discussion pane */
@@ -8796,16 +8989,20 @@ onBeforeUnmount(() => {
 }
 
 .message-edited {
+  color: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+  opacity: 0.68;
+}
+
+.message-suppressed-label {
   display: inline-flex;
   align-items: center;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
-  color: var(--text-primary);
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  gap: 0.25rem;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: #5f6b70;
+  cursor: help;
 }
 
 .message-attachments {
@@ -9482,6 +9679,7 @@ onBeforeUnmount(() => {
   background: var(--air-force-blue);
   color: var(--white);
   border-color: var(--white);
+  margin-left: 12px;
 }
 
 @media (min-width: 1181px) {
@@ -9762,6 +9960,35 @@ onBeforeUnmount(() => {
 
 .message.own:hover .message-content {
   box-shadow: 0 4px 14px rgba(31, 122, 63, 0.16);
+}
+
+.message.suppressed .message-content,
+.message.own.suppressed .message-content {
+  background: #f4f5f5;
+  border-color: #b9c2c5;
+  border-style: dashed;
+  color: #59656a;
+  box-shadow: none;
+  opacity: 0.58;
+  filter: saturate(0.25);
+}
+
+.message.suppressed .message-avatar {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+.message.suppressed:hover .message-content,
+.message.suppressed:focus-within .message-content {
+  opacity: 0.72;
+}
+
+.pane--discussion .message.own.suppressed .message-text,
+.message.own.suppressed .message-author,
+.message.own.suppressed .message-time,
+.message.own.suppressed .message-date,
+.message.own.suppressed .message-action-btn {
+  color: #59656a !important;
 }
 
 /* Resource chip + open/download popover */
@@ -10180,8 +10407,8 @@ onBeforeUnmount(() => {
 }
 
 .message-edited {
-  background: #eef3f5;
-  color: var(--air-force-blue);
+  background: transparent;
+  color: inherit;
 }
 
 .reaction-pick-group {
@@ -10592,6 +10819,369 @@ onBeforeUnmount(() => {
   .skeleton-filter {
     width: 100%;
   }
+}
+
+/* =========================================================
+   Group workspace — dark mode
+   ========================================================= */
+
+html[data-theme='dark'] .group-detail {
+  color: #e8eeee;
+
+  --gd-meta-background: #26332f;
+  --gd-meta-color: #c8d0ce;
+}
+
+html[data-theme='dark'] .group-hero-card,
+html[data-theme='dark'] .pane--tasks {
+  background: #111d1a;
+  border-color: #2b3835;
+}
+
+/* Task empty areas */
+html[data-theme='dark'] .task-empty-state {
+  background: #18231f;
+  border-color: #34413d;
+  color: #c8d0ce;
+}
+
+html[data-theme='dark'] .task-empty-state i {
+  color: #788783;
+}
+
+html[data-theme='dark'] .task-empty-cta {
+  background: transparent;
+  color: #b9d0ca;
+  border-color: #667773;
+}
+
+html[data-theme='dark'] .task-empty-cta:hover {
+  background: #22302c;
+  color: #ffffff;
+}
+
+/* Tabs */
+html[data-theme='dark'] .mobile-tabs {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .tab-btn {
+  color: #aeb9b6;
+}
+
+html[data-theme='dark'] .tab-btn.active {
+  color: #ffffff;
+}
+
+/* Tasks */
+html[data-theme='dark'] .task-list {
+  color: #e8eeee;
+}
+
+html[data-theme='dark'] .task-state-menu {
+  background: #18231f;
+  border-color: #34413d;
+  color: #e8eeee;
+}
+
+/* =========================================================
+   Group workspace — dark mode controls
+   ========================================================= */
+
+/* Tasks / Meetings tab bar */
+:global(html[data-theme='dark']) .mobile-tabs {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+:global(html[data-theme='dark']) .tab-btn {
+  background: transparent;
+  color: #aeb9b6;
+}
+
+:global(html[data-theme='dark']) .tab-btn.active {
+  background: #0b8f73;
+  color: #ffffff;
+  border-color: #20c9a6;
+}
+
+/* Task search input */
+:global(html[data-theme='dark']) .task-search,
+:global(html[data-theme='dark']) .task-search input {
+  background: #18231f;
+  color: #e8eeee;
+  border-color: #34413d;
+}
+
+:global(html[data-theme='dark']) .task-search input::placeholder {
+  color: #8e9b97;
+}
+
+/* Filter button */
+:global(html[data-theme='dark']) .filter-btn {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+/* Sort dropdown */
+:global(html[data-theme='dark']) .sort-select,
+:global(html[data-theme='dark']) select {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+/* =========================================================
+   DARK MODE — remaining workspace controls
+   ========================================================= */
+
+/* Tasks / Meetings switch */
+html[data-theme='dark'] .workspace-switch {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .workspace-switch button {
+  background: transparent;
+  color: #aeb9b6;
+}
+
+html[data-theme='dark'] .workspace-switch button.active,
+html[data-theme='dark'] .workspace-switch button.is-active {
+  background: #0b8f73;
+  color: #ffffff;
+}
+
+/* Select button */
+html[data-theme='dark'] .task-mode-toggle {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-mode-toggle:hover {
+  background: #22302c;
+}
+
+html[data-theme='dark'] .task-mode-toggle.is-active {
+  background: #0b8f73;
+  color: #ffffff;
+  border-color: #0b8f73;
+}
+
+
+/* Search tasks */
+html[data-theme='dark'] .task-search {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-search-input {
+  background: #18231f;
+  color: #e8eeee;
+}
+
+html[data-theme='dark'] .task-search-input::placeholder {
+  color: #899793;
+}
+
+html[data-theme='dark'] .task-search-icon {
+  color: #899793;
+}
+
+
+/* Filters button */
+html[data-theme='dark'] .task-toolbar-btn {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-toolbar-btn:hover {
+  background: #22302c;
+}
+
+
+/* Sort: Due date */
+html[data-theme='dark'] .task-toolbar-sort select {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+  color-scheme: dark;
+}
+
+
+/* Members button */
+html[data-theme='dark'] .group-members-btn {
+  background: #18231f;
+  color: #b9d0ca;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .group-members-btn:hover {
+  background: #22302c;
+}
+
+
+/* Number beside Members */
+html[data-theme='dark'] .group-members-btn span {
+  background: #263733;
+  color: #e8eeee;
+  border-color: #3b4d48;
+}
+
+
+
+/* Dropdown options */
+html[data-theme='dark'] .task-toolbar-sort select option,
+html[data-theme='dark'] .task-filter-panel select option {
+  background: #18231f;
+  color: #e8eeee;
+}
+
+/* =========================================================
+   Embedded Meetings — dark mode
+   ========================================================= */
+
+/* Meeting cards */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-card) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+/* Meeting title */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-header h2) {
+  color: #e8eeee !important;
+}
+
+/* Meeting date/time */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-time) {
+  color: #aeb9b6 !important;
+}
+
+/* Meeting description */
+:global(html[data-theme='dark']) .group-detail :deep(.description) {
+  color: #d4dcda !important;
+}
+
+/* You can manage */
+:global(html[data-theme='dark']) .group-detail :deep(.manage-badge) {
+  background: #26332f !important;
+  color: #c8d5d1 !important;
+  border: 1px solid #3c4b47 !important;
+}
+
+/* Upcoming / Past */
+:global(html[data-theme='dark']) .group-detail :deep(.tab-button) {
+  background: transparent !important;
+  color: #aeb9b6 !important;
+}
+
+:global(html[data-theme='dark']) .group-detail :deep(.tab-button.active) {
+  background: #26332f !important;
+  color: #ffffff !important;
+}
+
+/* Join Meeting */
+:global(html[data-theme='dark']) .group-detail :deep(.primary-button) {
+  background: #26332f !important;
+  color: #ffffff !important;
+  border: 1px solid #45534f !important;
+}
+
+/* View Details */
+:global(html[data-theme='dark']) .group-detail :deep(.secondary-button) {
+  background: #18231f !important;
+  color: #e8eeee !important;
+  border-color: #53625e !important;
+}
+
+/* Schedule Meeting form */
+:global(html[data-theme='dark']) .group-detail :deep(.create-form) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark']) .group-detail :deep(.form-input) {
+  background: #111d1a !important;
+  color: #e8eeee !important;
+  border-color: #45534f !important;
+}
+
+/* =========================================================
+   Group workspace — dark mode finishing touches
+   ========================================================= */
+
+/* =========================================================
+   Dark mode scrollbars
+   ========================================================= */
+
+/* Meetings panel */
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded) {
+  scrollbar-color: #53615d #18231f;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar) {
+  width: 8px;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar-track) {
+  background: #18231f;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border-radius: 999px;
+}
+
+/* Tasks panel */
+:global(html[data-theme='dark'] .card-content) {
+  scrollbar-color: #53615d #18231f;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar) {
+  width: 8px;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar-track) {
+  background: #18231f;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border-radius: 999px;
+}
+
+/* =========================================================
+   Group page scrollbar — dark mode
+   ========================================================= */
+
+:global(html[data-theme='dark'] .group-detail) {
+  scrollbar-color: #53615d #111d1a;
+  scrollbar-width: thin;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar) {
+  width: 10px;
+  height: 10px;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-track) {
+  background: #111d1a;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border: 2px solid #111d1a;
+  border-radius: 999px;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-thumb:hover) {
+  background: #687773;
 }
 
 /* Dark theme: the task and chat boxes take the grey other pages give their

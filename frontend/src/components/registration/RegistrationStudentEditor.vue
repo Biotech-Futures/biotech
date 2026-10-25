@@ -26,20 +26,34 @@
         :error="fieldError('email')"
         :required="markRequired"
         wide
+        @blur="emit('box-left', 'email')"
+      />
+      <!-- Checked as it's left: a warning, under it (Submit asks for it to be ticked). -->
+      <EmailCheckNote
+        class="student-editor__note"
+        :state="emailState?.(`${prefix}.email`, student.email)"
       />
     </div>
 
     <template v-if="showProfile">
       <div class="student-editor__grid">
-        <RegistrationTextField
-          :id="fieldId('school')"
-          v-model="student.school"
-          label="School"
-          autocomplete="organization"
-          :suggestions="schoolSuggestions"
-          :error="fieldError('school')"
-          :required="markRequired"
-        />
+        <!-- Checked as it's left too: a university gets a warning. -->
+        <div class="student-editor__cell">
+          <RegistrationTextField
+            :id="fieldId('school')"
+            v-model="student.school"
+            label="School"
+            autocomplete="organization"
+            :suggestions="schoolSuggestions"
+            :error="fieldError('school')"
+            :required="markRequired"
+            @blur="emit('box-left', 'school')"
+          />
+          <EmailCheckNote
+            subject="school"
+            :state="emailState?.(`${prefix}.school`, student.school)"
+          />
+        </div>
         <label class="select-field">
           <span>Year level <span v-if="markRequired" class="required-mark" aria-hidden="true">*</span></span>
           <AppSelect
@@ -99,17 +113,6 @@
         :show-required="false"
         :error="fieldError('interests')"
       />
-
-      <RegistrationProfileExtras
-        v-if="showOptionalProfile"
-        v-model:pronouns="student.pronouns"
-        v-model:pronouns-other="student.pronounsOther"
-        :prefix="prefix"
-        :errors="errors"
-        :preview-url="previewUrl"
-        @photo-selected="emit('photo-selected', $event)"
-        @remove-photo="emit('remove-photo')"
-      />
     </template>
 
     <div v-if="showGuardian" class="guardian-editor">
@@ -147,6 +150,11 @@
           :error="fieldError('guardian.email')"
           :required="markRequired"
           wide
+          @blur="emit('box-left', 'guardian.email')"
+        />
+        <EmailCheckNote
+          class="student-editor__note"
+          :state="emailState?.(`${prefix}.guardian.email`, student.guardian.email)"
         />
       </div>
     </div>
@@ -157,14 +165,15 @@
 import { computed, watch } from 'vue'
 
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
-import RegistrationProfileExtras from '@/components/registration/RegistrationProfileExtras.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import {
   isAustralia,
   stateLabel,
   type StudentDetails,
 } from '@/registration/registration'
+import type { EmailBoxState, StudentBoxField } from '@/registration/emailFieldCheck'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 
 const props = withDefaults(
@@ -173,28 +182,29 @@ const props = withDefaults(
     section: 'identity' | 'profile' | 'guardian' | 'full' | 'teammate'
     errors: Record<string, string>
     allowGuardianDefer?: boolean
-    showOptionalProfile?: boolean
     showInterests?: boolean
-    previewUrl?: string
     /** Schools the others in their group gave, offered as theirs is typed. */
     schoolSuggestions?: string[]
     /** States the others in their group gave, for a typed state (outside
      *  Australia, whose states are a dropdown). */
     regionSuggestions?: string[]
+    /** Its boxes' checks, by their paths (registration/emailFieldCheck): the
+     *  state for the address (or school) there now. */
+    emailState?: (path: string, email: string) => EmailBoxState | undefined
   }>(),
   {
     allowGuardianDefer: false,
-    showOptionalProfile: false,
     showInterests: true,
-    previewUrl: '',
     schoolSuggestions: () => [],
     regionSuggestions: () => [],
+    emailState: undefined,
   },
 )
 
 const emit = defineEmits<{
-  'photo-selected': [file: File]
-  'remove-photo': []
+  // Its student's or guardian's email box, or the School, left: the page
+  // checks it (registration/emailFieldCheck).
+  'box-left': [field: StudentBoxField]
 }>()
 const student = defineModel<StudentDetails>('student', { required: true })
 
@@ -244,6 +254,18 @@ const fieldError = (field: string) => props.errors[`${props.prefix}.${field}`]
   gap: 30px;
 }
 
+/* A box's check, the whole row under it. */
+.student-editor__note {
+  grid-column: 1 / -1;
+}
+
+/* A box with its check's note under it, in one cell. */
+.student-editor__cell {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+}
+
 .student-editor__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -276,6 +298,15 @@ const fieldError = (field: string) => props.errors[`${props.prefix}.${field}`]
   color: var(--registration-muted);
   font-size: 0.78rem;
   font-weight: 500;
+}
+
+/* Its error, red as every other box's: not the label's dark bold. */
+.select-field > .student-editor__error {
+  display: block;
+  color: #982c27;
+  font-size: 0.82rem;
+  font-weight: 400;
+  line-height: 1.35;
 }
 
 /* The shared box (app-input), as the text boxes beside it, in

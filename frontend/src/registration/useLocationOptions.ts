@@ -42,6 +42,10 @@ export function useUniversityNames() {
   return names
 }
 
+/** Every country's name, and Australia's states' (none if they can't come). */
+export const countryNames = () => loadCountries()
+export const australianStateNames = () => loadAustralianStates()
+
 const asOptions = (names: string[]): LocationOption[] => names.map((name) => ({ value: name, label: name }))
 
 /** Every country, as dropdown options. */

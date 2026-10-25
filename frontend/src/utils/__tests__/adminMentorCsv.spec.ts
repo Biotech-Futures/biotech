@@ -37,6 +37,7 @@ describe('parseMentorCsv', () => {
     expect(result.invalid).toEqual([])
     expect(result.valid).toEqual([
       {
+        rowNumber: 2,
         firstName: 'Mary',
         lastName: 'Somerville',
         email: 'm.somerville@example.edu',

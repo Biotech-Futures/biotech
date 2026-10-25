@@ -1,7 +1,8 @@
 """The warning for an address QuickEmailVerification answered as not existing
-(apps.users.serializers.registration_warnings, stored_email_answers), which a
-registration can confirm past. Only stored answers are read: nothing here
-makes a lookup, so no test can reach the network."""
+or unknown (apps.users.serializers.registration_warnings, stored_email_answers),
+which a registration can confirm past. Outside the CSV journey a not-existing
+answer is a hard error instead (test_registration_email_rules). Only stored
+answers are read: nothing here makes a lookup, so no test can reach the network."""
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -19,10 +20,10 @@ GUARDIAN = "guardian@example.com"
 SUPERVISOR = "teacher@example.com"
 
 
-def answer(email, status="invalid", *, did_you_mean="", days_old=0):
+def answer(email, status="invalid", *, did_you_mean="", days_old=0, hours_old=0):
     return EmailVerification.objects.create(
         email=email, status=status, reason="rejected_email" if status == "invalid" else "accepted_email",
-        did_you_mean=did_you_mean, checked_at=timezone.now() - timedelta(days=days_old),
+        did_you_mean=did_you_mean, checked_at=timezone.now() - timedelta(days=days_old, hours=hours_old),
     )
 
 
@@ -79,11 +80,42 @@ class WarningTests(TestCase):
 
         self.assertEqual(self.codes(), ["email_invalid", "guardian_email_invalid"])
 
-    def test_no_warning_for_a_valid_or_unknown_answer(self):
+    def test_no_warning_for_a_valid_answer(self):
         answer(STUDENT, "valid")
-        answer(GUARDIAN, "unknown")
+        answer(GUARDIAN, "valid")
 
         self.assertEqual(self.codes(), [])
+
+    def test_an_unknown_answer_warns_as_invalid_does_with_its_own_wording(self):
+        answer(STUDENT, "unknown", did_you_mean="jordan.lee@example.org")
+        answer(GUARDIAN, "unknown")
+
+        self.assertEqual(self.warnings(), [
+            {
+                "code": "email_invalid",
+                "field": "Title",
+                "override_field": "ConfirmEmailInvalidOverride",
+                "message": "This email address couldn't be verified. Please check it, or confirm if this is correct.",
+            },
+            {
+                "code": "guardian_email_invalid",
+                "field": "GuardianEmail",
+                "override_field": "ConfirmGuardianEmailInvalidOverride",
+                "message": "The guardian's email address couldn't be verified. Please check it, or confirm if this is correct.",
+            },
+        ])
+
+    def test_an_unknown_answer_is_confirmed_with_the_same_override(self):
+        answer(STUDENT, "unknown")
+
+        self.assertEqual(self.codes(ConfirmEmailInvalidOverride=True), [])
+
+    @override_settings(QEV_UNKNOWN_MAX_AGE_HOURS=24)
+    def test_an_unknown_answer_older_than_its_window_is_no_answer(self):
+        answer(STUDENT, "unknown", hours_old=25)
+        answer(GUARDIAN, "unknown", hours_old=23)
+
+        self.assertEqual(self.codes(), ["guardian_email_invalid"])
 
     def test_no_warning_without_a_stored_answer(self):
         # A failed check is never stored, so it looks the same: no answer, no warning.
@@ -116,13 +148,15 @@ class WarningTests(TestCase):
         self.assertEqual(registration_warnings(details()), [])
 
     @override_settings(EMAIL_PRECHECK_ENABLED=False)
-    def test_with_the_switch_off_there_are_none_even_with_answers_on_file(self):
+    def test_with_the_switch_off_answers_on_file_are_still_read(self):
         answer(STUDENT)
-        on_file = {STUDENT: EmailVerification.objects.get()}
+        answer(GUARDIAN, "unknown")
 
-        self.assertEqual(registration_warnings(details(), on_file), [])
-        with self.assertNumQueries(0):
-            self.assertEqual(stored_email_answers([STUDENT]), {})
+        with self.assertNumQueries(1):
+            on_file = stored_email_answers([STUDENT, GUARDIAN])
+        self.assertEqual(
+            [w["code"] for w in registration_warnings(details(), on_file)], ["email_invalid", "guardian_email_invalid"],
+        )
 
     def test_the_lookup_is_one_query_and_none_for_nothing(self):
         answer(STUDENT)
@@ -154,12 +188,35 @@ class WarningTests(TestCase):
         confirmed = details(SupervisorEmail=SUPERVISOR, ConfirmSupervisorEmailInvalidOverride=True)
         self.assertEqual(registration_warnings(confirmed, answers, check_supervisor=True), [])
 
+    def test_the_supervisor_a_student_named_is_checked_against_their_name_when_asked(self):
+        data = details(SupervisorEmail="samteachr@example.com", SupervisorFirstName="Sam", SupervisorSurname="Teacher")
+
+        self.assertEqual(registration_warnings(data), [])
+        self.assertEqual(registration_warnings(data, check_supervisor=True), [{
+            "code": "name_email_mismatch",
+            "field": "SupervisorEmail",
+            "override_field": "ConfirmSupervisorNameEmailOverride",
+            "message": "This email looks like it might have a typo compared to the supervisor's name. Please confirm.",
+        }])
+        data["ConfirmSupervisorNameEmailOverride"] = True
+        self.assertEqual(registration_warnings(data, check_supervisor=True), [])
+
+    def test_where_invalid_is_an_error_only_unknown_warns(self):
+        answer(STUDENT)
+        answer(GUARDIAN, "unknown")
+        answers = stored_email_answers([STUDENT, GUARDIAN])
+
+        self.assertEqual(
+            [w["code"] for w in registration_warnings(details(), answers, invalid_is_error=True)],
+            ["guardian_email_invalid"],
+        )
+
 
 @override_settings(EMAIL_PRECHECK_ENABLED=True, QEV_RESULT_MAX_AGE_DAYS=180)
 class RegistrationTests(MultiStudentSetup, TestCase):
-    def test_an_address_answered_invalid_holds_the_registration_with_a_warning(self):
-        answer(STUDENT, did_you_mean="jordan.lee@example.org")
-        answer(GUARDIAN)
+    def test_an_address_answered_unknown_holds_the_registration_with_a_warning(self):
+        answer(STUDENT, "unknown")
+        answer(GUARDIAN, "unknown")
 
         response = self.post_batch(self.body)
 
@@ -172,20 +229,19 @@ class RegistrationTests(MultiStudentSetup, TestCase):
                  "students.0.overrides.ConfirmGuardianEmailInvalidOverride"),
             ],
         )
-        self.assertIn("Did you mean jordan.lee@example.org?", response.data["warnings"][0]["message"])
         self.assertFalse(User.objects.filter(email=STUDENT).exists())
 
     def test_confirming_both_lets_it_through(self):
-        answer(STUDENT)
-        answer(GUARDIAN)
+        answer(STUDENT, "unknown")
+        answer(GUARDIAN, "unknown")
         self.body["payload"]["students"][0]["overrides"] = {
             "ConfirmEmailInvalidOverride": True, "ConfirmGuardianEmailInvalidOverride": True,
         }
 
         self.assertEqual(self.post_batch(self.body).status_code, 201)
 
-    def test_a_supervisor_address_answered_invalid_holds_it_until_confirmed(self):
-        answer(SUPERVISOR)
+    def test_a_supervisor_address_answered_unknown_holds_it_until_confirmed(self):
+        answer(SUPERVISOR, "unknown")
 
         response = self.post_batch(self.body)
 
@@ -196,6 +252,19 @@ class RegistrationTests(MultiStudentSetup, TestCase):
               "students.0.overrides.ConfirmSupervisorEmailInvalidOverride")],
         )
         self.body["payload"]["students"][0]["overrides"] = {"ConfirmSupervisorEmailInvalidOverride": True}
+        self.assertEqual(self.post_batch(self.body).status_code, 201)
+
+    def test_a_supervisor_address_like_a_typo_of_their_name_holds_it_until_confirmed(self):
+        self.body["payload"]["supervisor"]["email"] = "samteachr@example.com"
+
+        response = self.post_batch(self.body)
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(
+            [(w["code"], w["field"], w["override_field"]) for w in response.data["warnings"]],
+            [("name_email_mismatch", "supervisor.email", "students.0.overrides.ConfirmSupervisorNameEmailOverride")],
+        )
+        self.body["payload"]["students"][0]["overrides"] = {"ConfirmSupervisorNameEmailOverride": True}
         self.assertEqual(self.post_batch(self.body).status_code, 201)
 
     def test_a_supervisor_registering_their_students_isnt_checked(self):
@@ -223,10 +292,13 @@ class RegistrationTests(MultiStudentSetup, TestCase):
         self.assertEqual(self.post_batch(self.body).status_code, 201)
 
     @override_settings(EMAIL_PRECHECK_ENABLED=False)
-    def test_with_the_switch_off_an_invalid_answer_doesnt_hold_it(self):
-        answer(STUDENT)
+    def test_with_the_switch_off_an_answer_on_file_still_holds_it(self):
+        answer(STUDENT, "unknown")
 
-        self.assertEqual(self.post_batch(self.body).status_code, 201)
+        response = self.post_batch(self.body)
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual([w["code"] for w in response.data["warnings"]], ["email_invalid"])
 
     def test_a_lookup_that_fails_lets_it_through(self):
         answer(STUDENT)
@@ -244,7 +316,7 @@ class RegistrationTests(MultiStudentSetup, TestCase):
         self.assertEqual(lookups_for(40, 100), 1)
 
     def test_a_legacy_registration_can_confirm_it_too(self):
-        answer(STUDENT)
+        answer(STUDENT, "unknown")
         body = {"body": {
             "Title": STUDENT, "FirstName": "Jordan", "Surname": "Lee", "Country": "Australia", "Region": "NSW",
             "SchoolName": "Example High", "YearLevel": "10", "Areaofinterest": "Biotechnology",
@@ -260,7 +332,7 @@ class RegistrationTests(MultiStudentSetup, TestCase):
         self.assertTrue(StudentProfile.objects.filter(user__email=STUDENT).exists())
 
     def test_the_existing_warnings_are_unaffected(self):
-        answer(STUDENT)
+        answer(STUDENT, "unknown")
         self.body["payload"]["students"][0].update(school="University of Sydney")
 
         response = self.post_batch(self.body)

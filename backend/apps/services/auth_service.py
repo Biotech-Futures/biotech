@@ -130,9 +130,8 @@ def confirm_password_reset(*, token: str, new_password: str) -> User:
 
 def _resolve_resettable_user(email: str):
     """Return the User if eligible for reset, else None (and log the skip reason)."""
-    try:
-        user = User.objects.get(email__iexact=email)
-    except User.DoesNotExist:
+    user = User.objects.by_email(email)
+    if user is None:
         # never reveal whether the email exists
         logger.info("password_reset.skip", extra={"reason": "no_user"})
         return None

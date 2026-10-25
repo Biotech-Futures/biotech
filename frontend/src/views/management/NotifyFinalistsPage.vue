@@ -35,7 +35,7 @@
         <div class="notify-finalists__email-actions">
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="savingDetails"
             @click="saveDetails"
           >
@@ -46,7 +46,7 @@
         <div class="notify-finalists__email-actions">
           <button
             type="button"
-            class="btn btn-outline btn-sm"
+            class="btn btn-outline btn-field btn-field--small"
             :disabled="loadingPreview"
             @click="openPreview()"
           >
@@ -67,7 +67,7 @@
       </p>
       <p v-if="loadError" class="notify-finalists__load-error">
         Failed to load the finalist groups. {{ loadError }}
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </p>
       <!-- Same status line as Release Marks. A team only counts as notified
            once every member got the email. -->
@@ -95,7 +95,7 @@
       <div class="notify-finalists__email-actions">
         <button
           type="button"
-          class="btn btn-primary btn-sm"
+          class="btn btn-primary btn-field"
           :disabled="sendingMode !== null || !canSend"
           @click="sendEmails('all')"
         >
@@ -103,7 +103,7 @@
         </button>
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline btn-field"
           :disabled="sendingMode !== null || !canSend || !details?.waiting.new.teams"
           @click="sendEmails('new')"
         >
@@ -111,7 +111,7 @@
         </button>
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline btn-field"
           :disabled="sendingMode !== null || !canSend || !details?.waiting.missed.teams"
           @click="sendEmails('missed')"
         >
@@ -166,10 +166,10 @@
           </h3>
           <p class="notify-finalists__dialog-text">{{ confirmText }}</p>
           <div class="notify-finalists__dialog-actions">
-            <button type="button" class="btn btn-outline btn-sm" @click="pendingSendMode = null">
+            <button type="button" class="btn btn-outline btn-field" @click="pendingSendMode = null">
               Cancel
             </button>
-            <button type="button" class="btn btn-primary btn-sm" @click="confirmSend">Send</button>
+            <button type="button" class="btn btn-primary btn-field" @click="confirmSend">Send</button>
           </div>
         </div>
       </div>
@@ -205,7 +205,7 @@
             ></iframe>
           </div>
           <div class="notify-finalists__dialog-actions">
-            <button type="button" class="btn btn-outline btn-sm" @click="preview = null">
+            <button type="button" class="btn btn-outline btn-field" @click="preview = null">
               Close
             </button>
           </div>

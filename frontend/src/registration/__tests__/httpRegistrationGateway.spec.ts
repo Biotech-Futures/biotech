@@ -30,46 +30,32 @@ afterEach(() => {
 })
 
 describe('HTTP registration gateway', () => {
-  it('sends actual photos, an invitation and a stable retry key', async () => {
+  it('sends JSON with an invitation and a stable retry key', async () => {
     const request = buildRegistrationRequest('student_individual', createRegistrationForms())
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       response({
-        reference_code: 'REG-PHOTO',
+        reference_code: 'REG-RETRY',
         journey: 'student_individual',
         student_count: 1,
         created_at: '2026-10-07T10:00:00Z',
       }),
     )
     const gateway = createHttpRegistrationGateway({ endpoint, fetchImpl, ensureCsrf })
-    const photo = new File(['image bytes'], 'photo.png', { type: 'image/png' })
     const options = {
-      attachments: { 'studentIndividual.student': photo },
       invitationToken: 'signed-token',
       idempotencyKey: retryKey,
     }
     await gateway.submit(request, options)
     await gateway.submit(request, options)
     for (const [, init] of fetchImpl.mock.calls) {
-      expect(init?.body).toBeInstanceOf(FormData)
-      const body = init?.body as FormData
-      expect(body.get('request')).toBe(JSON.stringify(buildProductionRegistrationRequest(request)))
-      expect(body.get('students.0')).toBeInstanceOf(File)
+      expect(init?.body).toBe(JSON.stringify(buildProductionRegistrationRequest(request)))
       const headers = init?.headers as Headers
-      expect(headers.get('Content-Type')).toBeNull()
+      expect(headers.get('Content-Type')).toBe('application/json')
       expect(headers.get('Idempotency-Key')).toBe(retryKey)
       expect(headers.get('X-Registration-Invitation')).toBe('signed-token')
-      const uploaded = body.get('students.0')
-      if (!(uploaded instanceof File)) throw new Error('Expected uploaded image bytes')
-      const reader = new FileReader()
-      const contents = new Promise((resolve, reject) => {
-        reader.onload = () => resolve(reader.result)
-        reader.onerror = () => reject(reader.error)
-      })
-      reader.readAsText(uploaded)
-      expect(await contents).toBe('image bytes')
     }
   })
-  it("sends a supervisor's own photo as theirs, and keeps the receipt's password token", async () => {
+  it("keeps a supervisor's receipt's password token", async () => {
     const request = buildRegistrationRequest('supervisor', createRegistrationForms())
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       response({
@@ -81,11 +67,7 @@ describe('HTTP registration gateway', () => {
       }),
     )
     const gateway = createHttpRegistrationGateway({ endpoint, fetchImpl, ensureCsrf })
-    const photo = new File(['image bytes'], 'photo.png', { type: 'image/png' })
-    const result = await gateway.submit(request, { attachments: { supervisor: photo }, idempotencyKey: retryKey })
-    const body = fetchImpl.mock.calls[0]?.[1]?.body as FormData
-    expect(body.get('supervisor')).toBeInstanceOf(File)
-    expect([...body.keys()].sort()).toEqual(['request', 'supervisor'])
+    const result = await gateway.submit(request, { idempotencyKey: retryKey })
     expect(result).toEqual({
       ok: true,
       receipt: {
@@ -101,11 +83,6 @@ describe('HTTP registration gateway', () => {
     const forms = createRegistrationForms()
     forms.studentIndividual.student.email = ' Student@Example.com '
     forms.studentIndividual.student.emailConfirm = ' Student@Example.com '
-    forms.studentIndividual.student.profilePhoto = {
-      name: 'profile.png',
-      type: 'image/png',
-      size: 100,
-    }
     const request = buildRegistrationRequest('student_individual', forms)
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       response({

@@ -20,7 +20,7 @@
 
       <div v-else-if="loadError" class="finalist-close__load-error">
         <p>Failed to load. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </div>
 
       <template v-else>
@@ -52,7 +52,7 @@
           date-label="Closing Date"
           required
         />
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !closesAtLocal">
+        <button type="submit" class="btn btn-primary btn-field" :disabled="isSaving || !closesAtLocal">
           {{ isSaving ? 'Saving…' : 'Save Closing Time' }}
         </button>
       </form>
@@ -70,10 +70,10 @@
           time straight away.
         </p>
         <div class="finalist-close__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="confirmOpen = false">
+          <button type="button" class="btn btn-outline btn-field" @click="confirmOpen = false">
             Cancel
           </button>
-          <button type="button" class="btn btn-primary btn-sm" :disabled="isSaving" @click="save">
+          <button type="button" class="btn btn-primary btn-field" :disabled="isSaving" @click="save">
             {{ isSaving ? 'Saving…' : 'Confirm' }}
           </button>
         </div>
@@ -95,7 +95,7 @@
       <p v-if="isLoadingSlides" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="slidesError" class="finalist-presentation__load-error">
         <p>Failed to load the slides. {{ slidesError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="loadSlides">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="loadSlides">Try again</button>
       </div>
       <AppDataTable
         v-else

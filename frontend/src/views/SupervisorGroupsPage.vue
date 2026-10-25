@@ -2,7 +2,46 @@
   <div class="content-area supervisor-groups-page">
     <p v-if="loading" class="supervisor-muted">Loading groups...</p>
 
-    <section v-else class="waiting-area" aria-label="Waiting Area" @dragover="onDragOverWaiting" @drop="onDropWaiting">
+    <!-- How their students without a group are matched, saved as soon as they
+         choose. Start new year clears it, to be asked again. -->
+    <section v-if="!loading" class="grouping-question" aria-labelledby="grouping-question-title">
+      <h2 id="grouping-question-title">Grouping Preference</h2>
+      <fieldset :disabled="groupingBusy">
+        <legend>
+          For students unassigned to a group, please indicate if you would like your students to be
+          grouped only within your school, or also externally. If you have grouped all of your
+          students, this question will not change how the information is processed.
+        </legend>
+        <label class="grouping-option">
+          <input
+            type="radio"
+            name="grouping-preference"
+            value="school_only"
+            data-test="grouping-school-only"
+            :checked="groupingPreference === 'school_only'"
+            @change="chooseGrouping('school_only')"
+          />
+          <span>I'd like the teams to remain within {{ schoolLabel }}</span>
+          <small class="grouping-option-note">Only if you have at least 2 students in all groups.</small>
+        </label>
+        <label class="grouping-option">
+          <input
+            type="radio"
+            name="grouping-preference"
+            value="cross_school"
+            data-test="grouping-cross-school"
+            :checked="groupingPreference === 'cross_school'"
+            @change="chooseGrouping('cross_school')"
+          />
+          <span>I'm open to the students participating in cross-school teams</span>
+        </label>
+      </fieldset>
+      <p v-if="groupingStatus" class="grouping-status" :class="{ 'grouping-status--error': groupingError }" role="status">
+        {{ groupingStatus }}
+      </p>
+    </section>
+
+    <section v-if="!loading" class="waiting-area" aria-label="Waiting Area" @dragover="onDragOverWaiting" @drop="onDropWaiting">
       <p v-if="flashMessage" class="waiting-flash" role="status">{{ flashMessage }}</p>
       <div class="waiting-area-header">
         <h1>Waiting Area</h1>
@@ -13,8 +52,8 @@
       <!-- Each its own paragraph, the same gap between each line of text and
            above the students. -->
       <p class="waiting-copy waiting-copy--tight">
-        Students in this area will be assigned to a group on the challenge start date.
-        Students will be matched to groups in your school, or in or out of your school.
+        Please put your students in a group. Any students left in this area will be put in a group
+        for you on the challenge start date.
       </p>
       <p class="waiting-copy waiting-copy--tight">Click a student to see their details.</p>
       <p class="waiting-copy">Drag and drop students around the page from one box to another.</p>
@@ -266,10 +305,14 @@ import {
   addSupervisedGroupMembers,
   createAllWaitingGroups,
   deleteSupervisedGroup,
+  fetchGroupingPreference,
   fetchSupervisedGroups,
+  saveGroupingPreference,
   saveSupervisedGroupOrder,
   removeSupervisedGroupMembers,
   type AvailableMentor,
+  type GroupingAnswer,
+  type GroupingPreference,
   type SupervisedGroup,
 } from '@/utils/supervisedGroups'
 import {
@@ -304,6 +347,35 @@ const pendingSchoolMove = ref<{
 } | null>(null)
 const bulkBusy = ref(false)
 const moveBusy = ref(false)
+const groupingPreference = ref<GroupingPreference>('')
+const schoolName = ref('')
+const schoolLabel = computed(() => schoolName.value.trim() || 'your school')
+const groupingBusy = ref(false)
+const groupingStatus = ref('')
+const groupingError = ref(false)
+
+const showGrouping = (answer: GroupingAnswer) => {
+  groupingPreference.value = answer.grouping_preference
+  schoolName.value = answer.school_name
+}
+
+const chooseGrouping = async (preference: Exclude<GroupingPreference, ''>) => {
+  const before = groupingPreference.value
+  groupingPreference.value = preference
+  groupingBusy.value = true
+  groupingStatus.value = ''
+  try {
+    showGrouping(await saveGroupingPreference(preference))
+    groupingError.value = false
+    groupingStatus.value = 'Saved.'
+  } catch (saveError) {
+    groupingPreference.value = before
+    groupingError.value = true
+    groupingStatus.value = saveError instanceof Error ? saveError.message : 'Your answer could not be saved.'
+  } finally {
+    groupingBusy.value = false
+  }
+}
 
 const clearFlash = () => {
   if (flashTimer) {
@@ -770,13 +842,16 @@ onMounted(async () => {
   loading.value = true
   clearFlash()
   try {
-    const [roster, owned] = await Promise.all([
+    const [roster, owned, , grouping] = await Promise.all([
       fetchSupervisedStudents(buildSessionHeaders({ headers: { Accept: 'application/json' } })),
       fetchSupervisedGroups(),
       groupsStore.load(true),
+      // Unanswered if it can't be read: the groups still load.
+      fetchGroupingPreference().catch(() => null),
     ])
     students.value = roster
     supervisedGroups.value = owned
+    if (grouping) showGrouping(grouping)
     const next: Record<number, number | null> = {}
     for (const student of roster) {
       next[student.id] = student.group_id
@@ -791,11 +866,77 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.grouping-question,
 .waiting-area,
 .group-card {
   background: var(--white);
   border: 1px solid #e0e0e0;
   border-radius: 10px;
+}
+
+.grouping-question {
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* As big as the Waiting Area's heading below it. */
+.grouping-question h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.5rem;
+}
+
+.grouping-question fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.grouping-question legend {
+  padding: 0;
+  margin-bottom: 0.85rem;
+  /* 14.5px, as the options */
+  font-size: 0.90625rem;
+  color: #333;
+  line-height: 1.5;
+}
+
+/* The radio beside its text's first line, the note under the text. */
+.grouping-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.75rem;
+  align-items: start;
+  margin-top: 0.75rem;
+  /* 14.5px, as the question */
+  font-size: 0.90625rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.grouping-option input {
+  font: inherit;
+  width: 1.3em;
+  height: 1.3em;
+  /* Centred on a 1.5 line. */
+  margin: 0.1em 0 0;
+  accent-color: var(--dark-green);
+  cursor: pointer;
+}
+
+.grouping-option-note {
+  grid-column: 2;
+  color: #6c757d;
+}
+
+.grouping-status {
+  margin: 0.85rem 0 0;
+  color: #6c757d;
+}
+
+.grouping-status--error {
+  color: var(--danger, #b42318);
+  font-weight: 600;
 }
 
 .waiting-area {
@@ -844,6 +985,11 @@ onMounted(async () => {
 .group-card-header p {
   color: #6c757d;
   margin: 0.45rem 0 0.85rem;
+}
+
+/* 14.5px, as the Grouping Preference question above. */
+.waiting-copy {
+  font-size: 0.90625rem;
 }
 
 /* Text over text leaves more room than text over a box, so the hint's

@@ -129,6 +129,24 @@ describe('Late Links', () => {
     expect(revokeLateLink).toHaveBeenCalledWith(1)
     expect(wrapper.text()).toContain('Revoked')
   })
+
+  it('makes a link for the days typed beside Create Late Link', async () => {
+    vi.mocked(fetchRegistrationManagement).mockResolvedValue(management({ invitations: [] }))
+    vi.mocked(createLateLink).mockResolvedValue(link({ id: 4, url: 'https://portal.test/#/register?invite=week' }))
+    const wrapper = mount(LateLinksPage)
+    await flushPromises()
+
+    const days = wrapper.get<HTMLInputElement>('[data-test="late-link-days"]')
+    // 3 to start.
+    expect(days.element.value).toBe('3')
+    await days.setValue('7')
+
+    const before = Date.now()
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    const expires = Date.parse(vi.mocked(createLateLink).mock.calls.at(-1)![0])
+    expect(Math.round((expires - before) / (24 * 60 * 60 * 1000))).toBe(7)
+  })
 })
 
 describe('Supervisors After Close', () => {
