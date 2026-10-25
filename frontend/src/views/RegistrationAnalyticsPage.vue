@@ -1784,18 +1784,11 @@ td:first-child small {
 .sticky-filter-card {
   position: -webkit-sticky !important;
   position: sticky !important;
-  top: 84px !important;
+  top: 0 !important;
   z-index: 100 !important;
   isolation: isolate;
   background: var(--analytics-ui-surface, #ffffff) !important;
   box-shadow: 0 8px 18px rgba(23, 66, 67, 0.10) !important;
-}
-
-@media (max-width: 1000px) {
-  .sticky-filter-card {
-    position: relative !important;
-    top: 0 !important;
-  }
 }
 
 

@@ -2977,7 +2977,7 @@ tbody tr:hover td {
 
 
 /* Activity sticky filters and fixed table widths */
-.activity-analytics-page .sticky-filter-card { position: sticky; top: 72px; z-index: 20; background: var(--analytics-ui-page, #fff); box-shadow: 0 8px 20px rgba(23,66,67,.08); }
+.activity-analytics-page .sticky-filter-card { position: sticky; top: 0; z-index: 20; background: var(--analytics-ui-page, #fff); box-shadow: 0 8px 20px rgba(23,66,67,.08); }
 .activity-analytics-page .date-filter-control input { width:100%; height:38px; box-sizing:border-box; padding:0 11px; border:1px solid var(--analytics-ui-border, #dbe5e2); border-radius:8px; outline:0; background:var(--analytics-ui-page, #fff); color:var(--analytics-ui-text, #234844); font:inherit; font-size:13px; }
 .activity-analytics-page .date-filter-control input:focus { border-color:#017151; box-shadow:0 0 0 2px rgba(1,113,81,.12); }
 .activity-analytics-page .table-wrap { overflow-x:hidden; }
@@ -2998,7 +2998,6 @@ tbody tr:hover td {
 .activity-analytics-page #user-activity-details th:nth-child(5),
 .activity-analytics-page #user-activity-details td:nth-child(5) { width:15%; }
 @media (min-width:1280px) { .activity-analytics-page .sticky-filter-card { flex-wrap:nowrap !important; } .activity-analytics-page .sticky-filter-card label { min-width:0 !important; } .activity-analytics-page .sticky-filter-card .date-filter-control { flex:.85 1 175px !important; } }
-@media (max-width:1279px) { .activity-analytics-page .sticky-filter-card { position:relative; top:0; } }
 
 
 /* =========================================================
@@ -3014,7 +3013,7 @@ tbody tr:hover td {
 .activity-analytics-page .sticky-filter-card {
   position: -webkit-sticky !important;
   position: sticky !important;
-  top: 84px !important;
+  top: 0 !important;
   z-index: 100 !important;
   isolation: isolate;
   background: var(--analytics-ui-page, #ffffff) !important;
@@ -3431,8 +3430,6 @@ tbody tr:hover td {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     align-items: end !important;
     gap: 14px !important;
-    position: relative !important;
-    top: 0 !important;
   }
 
   .activity-analytics-page .sticky-filter-card label {

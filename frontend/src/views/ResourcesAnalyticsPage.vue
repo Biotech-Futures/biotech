@@ -39,7 +39,7 @@
       <article v-if="sourceAvailable('resourceAnalytics')" class="kpi-card"><div class="kpi-icon"><i class="fas fa-chart-line"></i></div><div><span class="kpi-label">Clicks</span><div class="analytics-value-row"><strong><AnalyticsNumber :value="resourceYearComparison.current" /></strong><AnalyticsYearChange :current="resourceYearComparison.current" :previous="resourceYearComparison.previous" :label="`vs ${resourceYearComparison.previousYear}`" /></div><small>Recorded clicks during the year</small></div></article>
       <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-users"></i></div><div><span class="kpi-label">Unique Users</span><strong><AnalyticsNumber :value="sourceAvailable('resourceAnalytics') ? data.uniqueUsers : '—'" /></strong><small>Users who accessed resources</small></div></article>
       <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book"></i></div><div><span class="kpi-label">Active Resources</span><strong><AnalyticsNumber :value="sourceAvailable('resourceAnalytics') ? data.activeResources : '—'" /></strong><small>Resources with recorded access</small></div></article>
-      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book-open"></i></div><div><span class="kpi-label">Most Used Resource</span><strong class="resource-name">{{ data.mostUsedResource }}</strong><small>Highest click count</small></div></article>
+      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book-open"></i></div><div><span class="kpi-label">Most Used Resource</span><strong class="resource-name" :class="{ 'is-compact': data.mostUsedResource.length > 18 }">{{ data.mostUsedResource }}</strong><small>Highest click count</small></div></article>
     </section>
 
     <section v-if="sourceAvailable('resourceAnalytics')" class="analytics-grid top-grid">
@@ -1234,6 +1234,12 @@ tbody tr:hover td {
 }
 
 .resources-analytics-page .kpi-card .resource-name {
+  font-size: 28px !important;
+  line-height: 1.05 !important;
+  overflow-wrap: anywhere;
+}
+
+.resources-analytics-page .kpi-card .resource-name.is-compact {
   font-size: 14px !important;
   line-height: 16px !important;
   overflow-wrap: anywhere;

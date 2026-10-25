@@ -114,7 +114,7 @@
       <article class="kpi-card">
         <div class="kpi-icon orange"><i class="fas fa-scale-balanced"></i></div>
         <div>
-          <span class="kpi-label">Mentor-to-Student Ratio</span>
+          <span class="kpi-label ratio-kpi-label">Mentor-to-Student Ratio</span>
           <div class="kpi-value-row analytics-value-row">
             <strong class="ratio-kpi-value"><AnalyticsNumber :value="data.mentorStudentRatio === null ? 'N/A' : `1 : ${data.mentorStudentRatio}`" /></strong>
             <AnalyticsYearChange
@@ -124,7 +124,7 @@
               :label="`vs ${data.comparisonPreviousYear}`"
             />
           </div>
-          <small>{{ data.mentorStudentRatio === null ? 'No ratio available' : 'Students per assigned mentor' }}</small>
+          <small class="ratio-kpi-helper">{{ data.mentorStudentRatio === null ? 'No ratio available' : 'Students per assigned mentor' }}</small>
         </div>
       </article>
     </section>
@@ -1175,6 +1175,14 @@ function exportCsv(kind: ExportKind) {
   font-size: 12px;
 }
 
+.ratio-kpi-label {
+  align-items: center;
+  height: 15px;
+  font-size: 10.5px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
 .kpi-value-row {
   display: flex;
   align-items: baseline;
@@ -1190,7 +1198,8 @@ function exportCsv(kind: ExportKind) {
 }
 
 .kpi-value-row .ratio-kpi-value {
-  font-size: 22px;
+  font-size: 24px;
+  line-height: 28.35px;
   white-space: nowrap;
 }
 
@@ -1203,6 +1212,11 @@ function exportCsv(kind: ExportKind) {
   margin-top: 4px;
   color: var(--analytics-ui-muted, #7c8d89);
   font-size: 10px;
+}
+
+.kpi-card .ratio-kpi-helper {
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .analytics-grid {

@@ -94,7 +94,10 @@
         <span class="kpi-icon orange"><i class="fas fa-trophy"></i></span>
         <div>
           <span class="kpi-label">Most Active Group</span>
-          <strong class="text-value">{{ mostActiveGroup.name }}</strong>
+          <strong
+            class="text-value"
+            :class="{ 'is-compact': mostActiveGroup.name.length > 18 }"
+          >{{ mostActiveGroup.name }}</strong>
           <small class="group-message-count">
             <strong><AnalyticsNumber :value="mostActiveGroup.value" /></strong>
             <span>messages</span>
@@ -106,7 +109,10 @@
         <span class="kpi-icon red"><i class="fas fa-arrow-down"></i></span>
         <div>
           <span class="kpi-label">Lowest Message Group</span>
-          <strong class="text-value">{{ leastActiveGroup.name }}</strong>
+          <strong
+            class="text-value"
+            :class="{ 'is-compact': leastActiveGroup.name.length > 18 }"
+          >{{ leastActiveGroup.name }}</strong>
           <small class="group-message-count">
             <strong><AnalyticsNumber :value="leastActiveGroup.value" /></strong>
             <span>messages</span>
@@ -1595,11 +1601,16 @@ function exportCsv(kind: ExportKind) {
 
 .kpi-card strong.text-value {
   align-items: flex-start;
-  font-size: 18px;
-  line-height: 19px;
+  font-size: 30px;
+  line-height: 38px;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.kpi-card strong.text-value.is-compact {
+  font-size: 18px;
+  line-height: 19px;
 }
 
 .group-name-kpi {
@@ -2573,7 +2584,7 @@ tbody tr:hover {
 .messages-analytics-page .sticky-filter-card {
   position: -webkit-sticky !important;
   position: sticky !important;
-  top: 84px !important;
+  top: 0 !important;
   z-index: 100 !important;
   isolation: isolate;
   background: var(--analytics-ui-page, #ffffff) !important;
@@ -2587,13 +2598,6 @@ tbody tr:hover {
   height: 2px;
   background: var(--analytics-ui-page, #f7faf9);
   pointer-events: none;
-}
-
-@media (max-width: 1000px) {
-  .messages-analytics-page .sticky-filter-card {
-    position: relative !important;
-    top: 0 !important;
-  }
 }
 
 
@@ -2786,11 +2790,18 @@ tbody tr:hover {
 
 .messages-analytics-page .kpi-grid .group-name-kpi .text-value {
   display: -webkit-box !important;
-  font-size: 15px !important;
-  line-height: 17px !important;
-  max-height: 68px;
+  font-size: 30px !important;
+  line-height: 38px !important;
+  max-height: 76px;
   overflow: hidden;
   -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.messages-analytics-page .kpi-grid .group-name-kpi .text-value.is-compact {
+  font-size: 18px !important;
+  line-height: 19px !important;
+  max-height: 76px;
   -webkit-line-clamp: 4;
 }
 

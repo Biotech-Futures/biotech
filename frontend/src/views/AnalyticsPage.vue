@@ -377,7 +377,7 @@ const overviewSummary = computed(() => {
       label: 'Total Students',
       value: readCount(/(\d+)\s*students?/i),
       trend: `${selectedYear.value}`,
-      helper: 'Registered student participants',
+      helper: 'Registered\nstudent',
       icon: 'fas fa-user',
       tone: 'green',
       source: 'live-api',
@@ -386,7 +386,7 @@ const overviewSummary = computed(() => {
       label: 'Total Mentors',
       value: readCount(/(\d+)\s*mentors?/i),
       trend: `${selectedYear.value}`,
-      helper: 'Registered mentors',
+      helper: 'Registered\nmentors',
       icon: 'fas fa-user-tie',
       tone: 'green',
       source: 'live-api',
@@ -814,24 +814,26 @@ const moduleAxisRange = (values: number[], key?: string) => {
 
   // Bars should keep a zero baseline so their height remains visually honest.
   if (key === 'messages') {
-    const step = niceStep(rawMax)
-    const max = Math.ceil(rawMax / step) * step
+    const step = Math.max(1, niceStep(rawMax))
+    let max = Math.max(step * 2, Math.ceil(rawMax / step) * step)
+    if (!Number.isInteger(max / 2)) max += 1
     return { min: 0, max, mid: max / 2 }
   }
 
-  // For the line cards, use a rounded lower bound close to the data minimum.
-  // This avoids wasting most of the small chart on an unused 0–40 range while
-  // still keeping some visual room below the lowest point.
-  const spread = Math.max(rawMax - rawMin, 1)
-  const step = niceStep(spread)
-  const min = Math.floor(rawMin / step) * step
-  let max = Math.ceil(rawMax / step) * step
+  // Use an integer step and make the three displayed ticks the exact bounds
+  // used to plot the line. This keeps small ranges aligned (1, 2, 3 instead
+  // of rounded labels that do not correspond to the SVG coordinates).
+  const spread = rawMax - rawMin
+  const step = rawMin === rawMax
+    ? Math.max(1, niceStep(Math.max(Math.abs(rawMax) * 0.2, 1)))
+    : Math.max(1, niceStep(spread))
+  const min = rawMin === rawMax
+    ? Math.max(0, rawMin - step)
+    : Math.max(0, Math.floor(rawMin / step) * step)
+  let max = min + step * 2
 
-  if (min === max) max = min + step
-
-  // Give the top label a little breathing room if the maximum lands exactly
-  // on the top tick.
-  if (rawMax >= max) max += step
+  while (max < rawMax) max += step
+  if (!Number.isInteger((max - min) / 2)) max += 1
 
   return { min, max, mid: min + (max - min) / 2 }
 }
@@ -883,7 +885,7 @@ const axisLinePointObjects = (values: number[], width: number, height: number) =
 
 const moduleAxisTicks = (values: number[], key?: string) => {
   const { min, max, mid } = moduleAxisRange(values, key)
-  return [Math.round(max), Math.round(mid), Math.round(min)]
+  return [max, mid, min]
 }
 
 const moduleBarHeight = (value: number, values: number[]) => {
@@ -1228,6 +1230,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   color: var(--analytics-ui-muted, #4d6461);
   font-size: 14px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .summary-value {
@@ -1264,6 +1267,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   font-size: 13px;
   line-height: 1.28;
   text-align: right;
+  white-space: pre-line;
 }
 
 .sparkline {
@@ -1673,9 +1677,9 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 }
 
 .overview-axis-chart { display:grid; grid-template-columns:28px minmax(0,1fr); gap:8px; align-items:stretch; min-height:82px; margin-top:8px; }
-.overview-y-axis { display:flex; flex-direction:column; justify-content:space-between; padding:2px 0 8px; color:var(--analytics-ui-muted, #6b7b77); font-size:10px; text-align:right; }
+.overview-y-axis { display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box; height:82px; padding:3px 0; color:var(--analytics-ui-muted, #6b7b77); font-size:10px; line-height:12px; text-align:right; }
 .overview-axis-plot { min-width:0; }
-.overview-axis-chart .mini-bars { height:78px; align-items:end; }
+.overview-axis-chart .mini-bars { box-sizing:border-box; height:82px; margin:0; padding:9px 0; align-items:end; }
 .overview-axis-chart .mini-line-wrap { margin-top:0; }
 
 .overview-point-value {
@@ -1691,7 +1695,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   position: relative;
   flex: 1 1 0;
   max-width: 30px;
-  height: 78px;
+  height: 64px;
 }
 .overview-bar-item .overview-bar-mark {
   position: absolute;
