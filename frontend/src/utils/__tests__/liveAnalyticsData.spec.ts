@@ -141,6 +141,43 @@ describe('buildGroupsAnalytics', () => {
   })
 })
 
+describe('buildRegistrationAnalytics', () => {
+  it('uses account creation time instead of invitation or activation time', () => {
+    const user = (overrides: Partial<api.AdminUser>) => ({
+      id: 1,
+      firstName: 'Sample',
+      lastName: 'Participant',
+      email: 'participant@example.test',
+      role: 'student',
+      isAdmin: false,
+      guardianEmail: 'guardian@example.test',
+      joinPermissionReceived: true,
+      createdAt: '2025-03-04T05:06:00Z',
+      invitedAt: '2026-02-01T00:00:00Z',
+      activatedAt: '2026-02-02T00:00:00Z',
+      ...overrides,
+    } as api.AdminUser)
+
+    const result = data.buildRegistrationAnalytics({
+      users: [
+        user({}),
+        user({
+          id: 2,
+          role: 'mentor',
+          createdAt: null,
+          invitedAt: '2024-01-01T00:00:00Z',
+          activatedAt: '2024-01-02T00:00:00Z',
+        }),
+      ],
+      groupActivity: fullActivity,
+    })
+
+    expect(result.trend).toEqual([
+      { date: '2025-03-04', students: 1, mentors: 0 },
+    ])
+  })
+})
+
 describe('buildRecipientEmailLogs', () => {
   it('turns each recipient search result into that recipient\'s copy of the email', () => {
     const base = {

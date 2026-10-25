@@ -28,7 +28,7 @@ const student: api.AdminUser = {
   mentorBackground: null, mentorInstitution: null, mentorReason: null, mentorMaxGroupCount: null,
   yearLevel: null, joinPermissionReceived: true, guardianEmail: 'guardian@example.test', interests: [],
   isAdmin: false, isActive: true, hasLoggedIn: true, lastLogin: '2026-10-15T00:00:00Z',
-  accountStatus: 'active', invitedAt: '2026-08-01T00:00:00Z', activatedAt: '2026-08-01T00:00:00Z',
+  accountStatus: 'active', createdAt: '2026-08-01T00:00:00Z', invitedAt: '2026-08-01T00:00:00Z', activatedAt: '2026-08-01T00:00:00Z',
   supervisorName: null, supervisorEmail: null,
 }
 const users = [student, { ...student, id: 2, role: 'mentor', mentorBackground: 'industry' }]
@@ -152,16 +152,16 @@ describe('independent analytics sources', () => {
   it('derives participant and group year comparisons from creation dates', () => {
     const participantComparison = data.participantYearComparison([
       student,
-      { ...student, id: 2, role: 'mentor', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' },
-      { ...student, id: 3, role: 'supervisor', invitedAt: '2024-08-01T00:00:00Z', activatedAt: '2024-08-01T00:00:00Z' },
+      { ...student, id: 2, role: 'mentor', createdAt: '2025-08-01T00:00:00Z', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' },
+      { ...student, id: 3, role: 'supervisor', createdAt: '2024-08-01T00:00:00Z', invitedAt: '2024-08-01T00:00:00Z', activatedAt: '2024-08-01T00:00:00Z' },
     ], 2026)
     expect(participantComparison.current).toEqual({ total: 3, students: 1, mentors: 1, supervisors: 1 })
     expect(participantComparison.previous).toEqual({ total: 2, students: 0, mentors: 1, supervisors: 1 })
 
     const historicalParticipantComparison = data.participantYearComparison([
       student,
-      { ...student, id: 2, role: 'mentor', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' },
-      { ...student, id: 3, role: 'supervisor', invitedAt: '2024-08-01T00:00:00Z', activatedAt: '2024-08-01T00:00:00Z' },
+      { ...student, id: 2, role: 'mentor', createdAt: '2025-08-01T00:00:00Z', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' },
+      { ...student, id: 3, role: 'supervisor', createdAt: '2024-08-01T00:00:00Z', invitedAt: '2024-08-01T00:00:00Z', activatedAt: '2024-08-01T00:00:00Z' },
     ], 2025)
     expect(historicalParticipantComparison.current).toEqual({ total: 2, students: 0, mentors: 1, supervisors: 1 })
     expect(historicalParticipantComparison.previous).toEqual({ total: 1, students: 0, mentors: 0, supervisors: 1 })
@@ -180,6 +180,7 @@ describe('independent analytics sources', () => {
         ...student,
         id: 2,
         role: 'mentor',
+        createdAt: '2025-08-01T00:00:00Z',
         invitedAt: '2025-08-01T00:00:00Z',
         activatedAt: '2025-08-01T00:00:00Z',
         lastLogin: '2025-09-01T00:00:00Z',
@@ -215,6 +216,7 @@ describe('independent analytics sources', () => {
       ...student,
       id: 2,
       role: 'mentor',
+      createdAt: '2025-08-01T00:00:00Z',
       invitedAt: '2025-08-01T00:00:00Z',
       activatedAt: '2025-08-01T00:00:00Z',
       lastLogin: '2026-10-15T00:00:00Z',
@@ -256,6 +258,7 @@ describe('independent analytics sources', () => {
     const historical = data.buildUsersAnalytics({
       users: [{
         ...student,
+        createdAt: '2025-08-01T00:00:00Z',
         invitedAt: '2025-08-01T00:00:00Z',
         activatedAt: '2025-08-01T00:00:00Z',
         lastLogin: '2025-09-01T09:30:00Z',
@@ -272,7 +275,7 @@ describe('independent analytics sources', () => {
     vi.setSystemTime(new Date('2026-10-20T12:00:00Z'))
     vi.mocked(api.fetchAllUsers).mockResolvedValue([
       student,
-      { ...student, id: 2, role: 'mentor', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' },
+      { ...student, id: 2, role: 'mentor', createdAt: '2025-08-01T00:00:00Z', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' },
     ])
     const loginRateCard = (w: VueWrapper) =>
       w.findAll('.analytics-card').find((card) => card.find('h2').text().startsWith('Users Logged In'))!
@@ -292,7 +295,7 @@ describe('independent analytics sources', () => {
   it('exports participant details as they stood in the selected past year', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-20T12:00:00Z'))
-    const registered2025 = { invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' }
+    const registered2025 = { createdAt: '2025-08-01T00:00:00Z', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' }
     vi.mocked(api.fetchAllUsers).mockResolvedValue([
       student,
       { ...student, ...registered2025, id: 2, role: 'mentor', lastLogin: '2026-10-15T00:00:00Z' },

@@ -365,7 +365,10 @@ function percent(value: number, total: number) {
 }
 
 function registrationDate(user: AdminUser) {
-  return safeDate(user.createdAt ?? user.invitedAt ?? user.activatedAt)
+  // The admin users API exposes Django's User.date_joined as createdAt.
+  // Invitation and activation timestamps describe later lifecycle events and
+  // must not be used as substitutes for the account registration date.
+  return safeDate(user.createdAt)
 }
 
 export type ParticipantYearCounts = {
