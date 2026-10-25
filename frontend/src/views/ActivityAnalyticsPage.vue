@@ -537,7 +537,16 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="group in filteredGroupRows" :key="group.id">
+              <tr
+                v-for="group in filteredGroupRows"
+                :key="group.id"
+                class="activity-drilldown-row"
+                role="link"
+                tabindex="0"
+                @click="openActivityGroup(group)"
+                @keydown.enter="openActivityGroup(group)"
+                @keydown.space.prevent="openActivityGroup(group)"
+              >
                 <td>
                   <strong>{{ group.name }}</strong>
                   <small class="group-id-label">ID {{ group.id }}</small>
@@ -618,7 +627,16 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="user in filteredUsers" :key="user.id">
+              <tr
+                v-for="user in filteredUsers"
+                :key="user.id"
+                class="activity-drilldown-row"
+                role="link"
+                tabindex="0"
+                @click="openActivityUser(user)"
+                @keydown.enter="openActivityUser(user)"
+                @keydown.space.prevent="openActivityUser(user)"
+              >
                 <td><strong>{{ user.name }}</strong></td>
                 <td><span :class="['role-pill', user.role.toLowerCase()]">{{ user.role }}</span></td>
                 <td>{{ formatLogin(user.lastLogin) }}</td>
@@ -696,7 +714,7 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { LoginActivityResponse } from '@/utils/liveAnalyticsApi'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   ActivityAnalyticsData,
   ActivityRole,
@@ -780,6 +798,7 @@ const exportDisabled = computed(() => isLoading.value || !!loadError.value || is
   ? !sourceAvailable('groups') || !sourceAvailable('groupActivity')
   : !sourceAvailable('users')))
 const route = useRoute()
+const router = useRouter()
 const issueContext = ref<'inactive-mentors' | 'deactivated' | ''>('')
 
 const viewMode = ref<'users' | 'groups'>('users')
@@ -1496,6 +1515,33 @@ function userDetailStatusLabel(user: (typeof yearUsers.value)[number]) {
 function userDetailStatusClass(user: (typeof yearUsers.value)[number]) {
   if (!issueContext.value) return user.status.toLowerCase()
   return accountIsInactive(user) ? 'inactive' : 'active'
+}
+
+function adminPeopleTab(role: ActivityRole) {
+  if (role === 'Student') return 'students'
+  if (role === 'Mentor') return 'mentors'
+  return 'supervisors'
+}
+
+function openActivityUser(user: (typeof yearUsers.value)[number]) {
+  const account = liveCoreBundle.value?.users.find((item) => item.id === user.id)
+  void router.push({
+    name: 'admin-users',
+    query: {
+      tab: adminPeopleTab(user.role),
+      search: account?.email ?? user.name,
+      ...(accountIsInactive(user) ? { status: 'inactive' } : {}),
+    },
+    hash: '#admin-users-table',
+  })
+}
+
+function openActivityGroup(group: GroupActivityDetailRow) {
+  void router.push({
+    name: 'admin-groups',
+    query: { search: group.name },
+    hash: '#admin-groups-table',
+  })
 }
 
 const filteredUsers = computed(() => {
@@ -2481,6 +2527,19 @@ td {
 }
 
 tbody tr:hover td {
+  background: rgba(186, 215, 184, .35);
+}
+
+.activity-drilldown-row {
+  cursor: pointer;
+}
+
+.activity-drilldown-row:focus-visible {
+  outline: 2px solid var(--analytics-ui-accent, #017151);
+  outline-offset: -2px;
+}
+
+.activity-drilldown-row:focus-visible td {
   background: rgba(186, 215, 184, .35);
 }
 

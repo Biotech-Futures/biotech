@@ -814,6 +814,10 @@ h1 {
   margin-bottom: 18px;
 }
 
+.resource-trend-card {
+  margin-bottom: 18px;
+}
+
 .table-heading {
   display: flex;
   align-items: center;

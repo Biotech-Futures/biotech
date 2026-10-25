@@ -336,7 +336,16 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in pagedRows" :key="row.id">
+            <tr
+              v-for="row in pagedRows"
+              :key="row.id"
+              class="registration-follow-up-row--clickable"
+              role="link"
+              tabindex="0"
+              @click="openRegistrationStudent(row)"
+              @keydown.enter="openRegistrationStudent(row)"
+              @keydown.space.prevent="openRegistrationStudent(row)"
+            >
               <td>
                 <strong>{{ row.student }}</strong
                 ><small>{{ row.email }}</small>
@@ -388,7 +397,7 @@ import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatu
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import BtfIcon from '@/components/BtfIcon.vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
@@ -475,6 +484,15 @@ const visibleSeries = ref<TrendSeries[]>(['students', 'mentors'])
 const page = ref(1)
 const pageSize = 7
 const route = useRoute()
+const router = useRouter()
+
+function openRegistrationStudent(row: RegistrationFollowUp) {
+  void router.push({
+    name: 'admin-users',
+    query: { tab: 'students', search: row.email },
+    hash: '#admin-users-table',
+  })
+}
 
 useAnalyticsRefreshState('registration', {
   startDate,
@@ -1526,6 +1544,17 @@ td:first-child small {
 td:first-child small {
   margin-top: 3px;
   color: var(--analytics-ui-muted, var(--btf-muted));
+}
+.registration-follow-up-row--clickable {
+  cursor: pointer;
+}
+.registration-follow-up-row--clickable:hover td,
+.registration-follow-up-row--clickable:focus-visible td {
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 35%, var(--analytics-ui-surface, white));
+}
+.registration-follow-up-row--clickable:focus-visible {
+  outline: 2px solid var(--analytics-ui-accent, var(--btf-dark-green));
+  outline-offset: -2px;
 }
 .sort-button {
   display: inline-flex;
