@@ -9,6 +9,9 @@ class Events(models.Model):
         SYMPOSIUM = "symposium", "Symposium"
         NETWORKING = "networking", "Networking"
         SOCIAL = "social", "Social"
+        # Mentor-scheduled group meeting, owned by apps.meetings.
+        # Excluded from the admin programme-event list.
+        GROUP_MEETING = "group_meeting", "Group Meeting"
         OTHER = "other", "Other"
 
     class EventFormat(models.TextChoices):
@@ -25,6 +28,10 @@ class Events(models.Model):
     location = models.CharField(max_length=255, blank=True, null=True)
     host_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     deleted_at = models.DateTimeField(default=None, blank=True, null=True)
+    # When Start new year archived it (Management > New Year), with
+    # ``deleted_at`` set too: out of sight as a deleted event is, but told
+    # apart from one deleted by hand, and never restored.
+    archived_at = models.DateTimeField(default=None, blank=True, null=True)
     event_image = models.CharField(max_length=255, blank=True, null=True)
     location_link = models.URLField(
         max_length=255,

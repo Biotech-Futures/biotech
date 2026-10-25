@@ -2,6 +2,7 @@ import hmac
 import logging
 from datetime import timedelta
 from django.conf import settings
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
@@ -41,6 +42,7 @@ from .serializers import (
     AdminOperationsSummarySerializer,
     BulkUserStatusSerializer,
     JoinPermissionRequestSerializer,
+    MeSerializer,
     StudentGuardianUpdateSerializer,
     SupervisedStudentEmailSerializer,
     SupervisedStudentIdsSerializer,
@@ -54,8 +56,10 @@ from .serializers import (
 )
 from apps.audit.services import log_audit_event
 from .email_verification import check_one_address, invalid_address_message
+from .serializers import PLACEHOLDER_ADDRESS, is_placeholder_email, new_guardian_email_problem
 from .guardian_consent import latest_signature_data_url
 from .guardian_reminders import email_new_guardian
+from .returning import bring_back_for_this_year
 from .profile_images import profile_image_url, remove_profile_image, save_profile_image
 from apps.common.rbac import is_admin, user_has_role
 from apps.common.pii import email_log_tag
@@ -112,11 +116,12 @@ class PasswordLoginView(APIView):
     
     @extend_schema(request=PasswordLoginBodySerializer, responses={200: UserSerializer})
     def post(self, request):
-        email = request.data.get("email")
+        email = str(request.data.get("email") or "").strip()
         password = request.data.get("password")
 
         ip = _client_ip(request)
-        email_key = f"pwd_login_attempts:{email}"
+        # In lower case, so typing it another way isn't more tries.
+        email_key = f"pwd_login_attempts:{email.lower()}"
         ip_key = f"pwd_login_attempts_ip:{ip}"
 
         # Dual brute-force guard: per-email blocks targeted attacks on one
@@ -134,7 +139,7 @@ class PasswordLoginView(APIView):
 
         # Single bcrypt check (was being done twice — once here, once inside
         # authenticate() — adding ~300ms per login).
-        user_obj = User.objects.filter(email=email).first()
+        user_obj = User.objects.by_email(email)
         if user_obj is None or not user_obj.check_password(password):
             cache.set(email_key, email_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
             cache.set(ip_key, ip_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
@@ -182,8 +187,17 @@ class SetPasswordView(APIView):
                 {"msg": "Password must be at least 8 characters", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # A student, mentor or supervisor someone else registered agrees to the
+        # BIOTech Futures policies here, as the registration form asks.
+        from .registration_password import require_policies_agreed
+
+        agreeing = require_policies_agreed(request.user, request.data)
         request.user.set_password(password)
-        request.user.save(update_fields=["password"])
+        fields = ["password"]
+        if agreeing:
+            request.user.policies_agreed_at = timezone.now()
+            fields.append("policies_agreed_at")
+        request.user.save(update_fields=fields)
         update_session_auth_hash(request, request.user)
         return Response({"msg": "Password set successfully", "data": True})
 
@@ -257,6 +271,8 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         data = request.data
         if "account_status" in data:
             user.apply_account_status(data["account_status"])
+            if user.account_status == User.AccountStatus.ACTIVE:
+                bring_back_for_this_year(user)
 
         if "role_id" in data:
             role = get_object_or_404(Roles, pk=data["role_id"])
@@ -298,9 +314,13 @@ SELF_PATCHABLE_FIELDS: frozenset[str] = frozenset({"timezone"})
 
 STUDENT_SELF_PROFILE_FIELDS: frozenset[str] = frozenset({
     "first_name", "last_name", "pronouns", "school_name", "year_lvl",
-    "pg_firstname", "pg_lastname", "pg_email",
     "country_id", "state_id", "interest_ids",
 })
+
+# A student's guardian is changed through MeGuardianView alone, which checks
+# the address and emails the consent form; never here, around those checks.
+SELF_PATCH_GUARDIAN_FIELDS: frozenset[str] = frozenset({"pg_firstname", "pg_lastname", "pg_email"})
+SELF_PATCH_GUARDIAN_MESSAGE = "Change your guardian under Guardian Details on your profile."
 
 SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
     "role_id", "role",
@@ -413,7 +433,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
     and is gated on ``is_admin``.
     """
 
-    serializer_class = UserSerializer
+    serializer_class = MeSerializer
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]
 
@@ -438,6 +458,9 @@ class MeRetrieveView(generics.RetrieveAPIView):
             raise serializers.ValidationError(
                 {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
             )
+        guardian = sorted(field for field in data if field in SELF_PATCH_GUARDIAN_FIELDS)
+        if guardian:
+            raise serializers.ValidationError({field: SELF_PATCH_GUARDIAN_MESSAGE for field in guardian})
 
         # A supervisor changes their own name and pronouns on their profile,
         # and nothing else of theirs; the rest of the student fields stay
@@ -490,8 +513,6 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     UserInterest.objects.filter(user=user).exclude(interest_id__in=selected).delete()
                     for interest_id in selected:
                         UserInterest.objects.get_or_create(user=user, interest_id=interest_id)
-                if "pg_email" in cleaned:
-                    cleaned["pg_email"] = cleaned["pg_email"] or None
                 user_fields = {
                     field: cleaned[field]
                     for field in ("first_name", "last_name", "pronouns")
@@ -502,37 +523,11 @@ class MeRetrieveView(generics.RetrieveAPIView):
                         setattr(user, field, value)
                     user.save(update_fields=list(user_fields))
 
-                profile_field_map = {
-                    "school_name": "school_name",
-                    "year_lvl": "year_lvl",
-                    "pg_firstname": "pg_first_name",
-                    "pg_lastname": "pg_last_name",
-                    "pg_email": "pg_email",
-                }
-                guardian_fields = {"pg_firstname", "pg_lastname", "pg_email"}
-                guardian_changed = any(
-                    field in cleaned and (cleaned[field] or "") != (getattr(profile, profile_field_map[field]) or "")
-                    for field in guardian_fields
-                )
-                profile_update_fields = []
-                for request_field, model_field in profile_field_map.items():
-                    if request_field in cleaned:
-                        setattr(profile, model_field, cleaned[request_field])
-                        profile_update_fields.append(model_field)
-
-                # Changing guardian details invalidates a prior consent response.
-                if guardian_changed:
-                    profile.parent_guardian_flag = bool(
-                        profile.pg_first_name.strip() and profile.pg_last_name.strip() and profile.pg_email
-                    )
-                    profile.has_join_permission = False
-                    profile.joinperm_responseID = None
-                    profile.joinperm_granted_at = None
-                    profile.guardian_reminder_sent_at = None
-                    profile.guardian_reminder_due_at = None
-                    profile_update_fields.extend(["parent_guardian_flag", "has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
+                profile_update_fields = [field for field in ("school_name", "year_lvl") if field in cleaned]
+                for field in profile_update_fields:
+                    setattr(profile, field, cleaned[field])
                 if profile_update_fields:
-                    profile.save(update_fields=list(set(profile_update_fields)))
+                    profile.save(update_fields=profile_update_fields)
                 _log_edit(user, user.id, "profile_update", {"fields": sorted(student_update_data)})
 
         # Route every allowed field through ``UserSerializer`` so the same
@@ -548,7 +543,12 @@ class MeRetrieveView(generics.RetrieveAPIView):
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
-        return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+        # Validation above deliberately runs through ``UserSerializer``; the
+        # response deliberately does not. GET and PATCH on this endpoint have
+        # to return the same shape, or a client that PATCHes their timezone
+        # and stores the reply silently loses ``isAdmin``/``isSupport`` from
+        # its cached user and stops showing them the menus they have.
+        return Response(MeSerializer(user).data, status=status.HTTP_200_OK)
 
 
 class ProfileImageUploadView(APIView):
@@ -618,10 +618,8 @@ class SupervisedStudentsView(APIView):
         latest_consent_by_student = {}
         if profiles:
             for consent in (
-                GuardianConsent.objects.filter(
-                    student_id__in=[profile.pk for profile in profiles],
-                    withdrawn_at__isnull=True,
-                )
+                GuardianConsent.objects.standing()
+                .filter(student_id__in=[profile.pk for profile in profiles])
                 .order_by("student_id", "-signed_at")
                 .only("student_id", "signed_at", "media_consent", "media_withdrawn_at")
             ):
@@ -689,6 +687,11 @@ class SupervisedStudentsView(APIView):
             raise serializers.ValidationError(
                 {"pg_email": "Guardian email cannot be the student's own email."}
             )
+        # A new guardian only: not a placeholder, nor a student's account.
+        if pg_email and any(pg_email != (profile.pg_email or "").strip().lower() for profile in profiles) and (
+            problem := new_guardian_email_problem(pg_email)
+        ):
+            raise serializers.ValidationError({"pg_email": problem})
 
         changing = {
             profile.pk for profile in profiles
@@ -742,11 +745,15 @@ class SupervisedStudentsView(APIView):
 
 def _student_scope(user):
     """The students ``user`` may see and manage: every student for an admin
-    (Admin > Guardians), else a supervisor's own (My Students)."""
+    (Admin > Guardians), else a supervisor's own (My Students). Only this
+    challenge year's: registered for it, or back for it by registering again."""
+    from apps.submissions.services import current_cohort
+
+    this_year = StudentProfile.objects.filter(challenge_year=current_cohort())
     if is_admin(user):
-        return StudentProfile.objects.all()
+        return this_year
     if SupervisorProfile.objects.filter(user=user).exists():
-        return StudentProfile.objects.filter(supervisor_id=user.id)
+        return this_year.filter(supervisor_id=user.id)
     raise PermissionDenied("Supervisor access is required.")
 
 
@@ -779,9 +786,8 @@ class SupervisedStudentSignaturesView(APIView):
         profiles = _supervised_profiles(_student_scope(request.user), student_ids)
         latest = {}
         for consent in (
-            GuardianConsent.objects.filter(
-                student_id__in=[profile.pk for profile in profiles], withdrawn_at__isnull=True,
-            )
+            GuardianConsent.objects.standing()
+            .filter(student_id__in=[profile.pk for profile in profiles])
             .order_by("student_id", "-signed_at")
             .only("student_id", "signature_png", "signed_at")
         ):
@@ -1022,7 +1028,7 @@ def _supervised_student_row(profile):
         .first()
     )
     group = membership.group if membership else None
-    consent = profile.consents.filter(withdrawn_at__isnull=True).order_by("-signed_at").first()
+    consent = profile.consents.standing().order_by("-signed_at").first()
     return {
         "id": profile.user_id,
         "first_name": profile.user.first_name,
@@ -1051,6 +1057,72 @@ def _log_edit(actor, user_id: int, action: str, changes: dict) -> None:
     log_audit_event(actor=actor, entity_type="user", entity_id=user_id, action=action, after_state=changes)
 
 
+def _own_guardian_profile(user):
+    """A student's own profile, locked for the change."""
+    if not user_has_role(user, ROLE_STUDENT):
+        raise PermissionDenied("Only students have guardian details.")
+    profile = StudentProfile.objects.select_for_update().filter(user=user).first()
+    if profile is None:
+        raise PermissionDenied("Only students have guardian details.")
+    return profile
+
+
+def save_own_guardian(user, data) -> None:
+    """A student gives their own parent/guardian (``data``: first_name,
+    last_name, email), as MeGuardianView and the Set password page a
+    registration email links to (registration_password) take it: checked,
+    saved, and the guardian emailed the consent form. Raises what the view
+    answers with."""
+    serializer = StudentGuardianUpdateSerializer(data=data, context={"user": user})
+    serializer.is_valid(raise_exception=True)
+    first_name = serializer.validated_data["first_name"]
+    last_name = serializer.validated_data["last_name"]
+    email = serializer.validated_data["email"]
+    current = StudentProfile.objects.filter(user=user).values_list("pg_email", flat=True).first()
+    # A new guardian only: not a placeholder, nor a student's account.
+    if email != (current or "").strip().lower() and (problem := new_guardian_email_problem(email)):
+        raise serializers.ValidationError({"email": [problem]})
+    if invalid := check_one_address(email, current=current):
+        raise serializers.ValidationError(
+            {"email": [invalid_address_message(invalid, "Your guardian's email address")]}
+        )
+
+    with transaction.atomic():
+        profile = _own_guardian_profile(user)
+        if profile.guardian_locked:
+            raise PermissionDenied(
+                "Your guardian has given permission, so their details can't be changed here. "
+                "Contact BIOTech Support if they need to change."
+            )
+        unchanged = (
+            first_name == profile.pg_first_name
+            and last_name == profile.pg_last_name
+            and email == (profile.pg_email or "").strip().lower()
+        )
+        cleared = False
+        profile.clear_pending_guardian()
+        if not unchanged:
+            profile.pg_first_name = first_name
+            profile.pg_last_name = last_name
+            profile.pg_email = email
+            profile.parent_guardian_flag = True
+            # Changing the guardian clears permission: the new one has to sign.
+            cleared = profile.has_join_permission
+            profile.has_join_permission = False
+            profile.joinperm_responseID = None
+            profile.joinperm_granted_at = None
+            profile.media_consent = None
+            # Reminders start over, for the new guardian.
+            profile.guardian_reminder_sent_at = None
+            profile.guardian_reminder_due_at = None
+        profile.save()
+        _log_edit(user, user.id, "guardian_update", {"guardianEmail": email, "permissionCleared": cleared})
+
+    # Once the details are saved, the guardian just named gets the consent
+    # form straight away rather than at the next daily run.
+    email_new_guardian(profile)
+
+
 class MeGuardianView(APIView):
     """A student updates the parent/guardian on their own profile.
 
@@ -1069,66 +1141,14 @@ class MeGuardianView(APIView):
     renderer_classes = [JSONRenderer]
 
     def _profile(self, request):
-        if not user_has_role(request.user, ROLE_STUDENT):
-            raise PermissionDenied("Only students have guardian details.")
-        profile = StudentProfile.objects.select_for_update().filter(user=request.user).first()
-        if profile is None:
-            raise PermissionDenied("Only students have guardian details.")
-        return profile
+        return _own_guardian_profile(request.user)
 
     def _response(self, request):
         return Response(UserSerializer(request.user).data)
 
     @extend_schema(request=StudentGuardianUpdateSerializer, responses={200: UserSerializer})
     def put(self, request):
-        serializer = StudentGuardianUpdateSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        first_name = serializer.validated_data["first_name"]
-        last_name = serializer.validated_data["last_name"]
-        email = serializer.validated_data["email"]
-        current = StudentProfile.objects.filter(user=request.user).values_list("pg_email", flat=True).first()
-        if invalid := check_one_address(email, current=current):
-            raise serializers.ValidationError(
-                {"email": [invalid_address_message(invalid, "Your guardian's email address")]}
-            )
-
-        with transaction.atomic():
-            profile = self._profile(request)
-            if profile.guardian_locked:
-                raise PermissionDenied(
-                    "Your guardian has given permission, so their details can't be changed here. "
-                    "Contact BIOTech Support if they need to change."
-                )
-            unchanged = (
-                first_name == profile.pg_first_name
-                and last_name == profile.pg_last_name
-                and email == (profile.pg_email or "").strip().lower()
-            )
-            cleared = False
-            profile.clear_pending_guardian()
-            if not unchanged:
-                profile.pg_first_name = first_name
-                profile.pg_last_name = last_name
-                profile.pg_email = email
-                profile.parent_guardian_flag = True
-                # Changing the guardian clears permission: the new one has to sign.
-                cleared = profile.has_join_permission
-                profile.has_join_permission = False
-                profile.joinperm_responseID = None
-                profile.joinperm_granted_at = None
-                profile.media_consent = None
-                # Reminders start over, for the new guardian.
-                profile.guardian_reminder_sent_at = None
-                profile.guardian_reminder_due_at = None
-            profile.save()
-            _log_edit(
-                request.user, request.user.id, "guardian_update",
-                {"guardianEmail": email, "permissionCleared": cleared},
-            )
-
-        # Once the details are saved, the guardian just named gets the consent
-        # form straight away rather than at the next daily run.
-        email_new_guardian(profile)
+        save_own_guardian(request.user, request.data)
         return self._response(request)
 
     @extend_schema(request=None, responses={200: UserSerializer})
@@ -1225,6 +1245,8 @@ class SupervisedStudentDetailView(APIView):
             new_email = data["email"].strip().lower()
             if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
                 raise serializers.ValidationError({"email": "An account with this email already exists."})
+            if new_email != (user.email or "").strip().lower() and is_placeholder_email(new_email):
+                raise serializers.ValidationError({"email": PLACEHOLDER_ADDRESS})
             guardian_emails = {
                 (profile.pg_email or "").strip().lower(),
                 (profile.pending_pg_email or "").strip().lower(),
@@ -1351,7 +1373,9 @@ class ReceiveJoinPermissionView(APIView):
         data = request.data
         databody = data["body"]
 
-        user = get_object_or_404(User, email=databody["Email"])
+        user = User.objects.by_email(databody["Email"])
+        if user is None:
+            raise Http404
 
         sp = get_object_or_404(StudentProfile, user=user)
 
@@ -1438,5 +1462,7 @@ class BulkUserStatusView(APIView):
         target_status = serializer.validated_data["account_status"]
         for user in users:
             user.apply_account_status(target_status)
+            if user.account_status == User.AccountStatus.ACTIVE:
+                bring_back_for_this_year(user)
 
         return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)

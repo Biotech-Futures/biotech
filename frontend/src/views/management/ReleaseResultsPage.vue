@@ -29,6 +29,7 @@
             <AppDatePicker
               v-model="form.survey_closes"
               class="app-input app-input--compact"
+              :clearable="false"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && closesPast }"
             />
@@ -42,7 +43,7 @@
         <div class="release-results__details-actions">
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="savingDetails"
             @click="saveDetails"
           >
@@ -51,7 +52,7 @@
           <div class="release-results__actions">
             <button
               type="button"
-              class="btn btn-outline btn-sm"
+              class="btn btn-outline btn-field btn-field--small"
               :disabled="loadingPreview !== false"
               @click="openPreview('groups')"
             >
@@ -62,7 +63,7 @@
           <div class="release-results__actions">
             <button
               type="button"
-              class="btn btn-outline btn-sm"
+              class="btn btn-outline btn-field btn-field--small"
               :disabled="loadingPreview !== false"
               @click="openPreview('supervisors')"
             >
@@ -75,7 +76,7 @@
           <div class="release-results__actions">
             <button
               type="button"
-              class="btn btn-outline btn-sm"
+              class="btn btn-outline btn-field btn-field--small"
               :disabled="downloadingSample"
               @click="downloadSample"
             >
@@ -84,7 +85,7 @@
             <div class="release-results__supervisor-sheet">
               <button
                 type="button"
-                class="btn btn-outline btn-sm"
+                class="btn btn-outline btn-field btn-field--small"
                 :disabled="downloadingSheet || !sheetSupervisor"
                 @click="downloadSheet"
               >
@@ -153,7 +154,7 @@
           <div v-for="audience in AUDIENCES" :key="audience.value" class="release-results__actions">
             <button
               type="button"
-              class="btn btn-primary btn-sm"
+              class="btn btn-primary btn-field"
               :disabled="starting !== null || !canSend[audience.value]"
               @click="confirming = { audience: audience.value, missed: false }"
             >
@@ -161,7 +162,7 @@
             </button>
             <button
               type="button"
-              class="btn btn-outline btn-sm"
+              class="btn btn-outline btn-field"
               :disabled="starting !== null || !canSend[audience.value] || !details.missed[audience.value].count"
               @click="confirming = { audience: audience.value, missed: true }"
             >
@@ -218,10 +219,10 @@
         </h3>
         <p class="release-results__dialog-text">{{ confirmText }}</p>
         <div class="release-results__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="confirming = null">
+          <button type="button" class="btn btn-outline btn-field" @click="confirming = null">
             Cancel
           </button>
-          <button type="button" class="btn btn-primary btn-sm" @click="send(confirming)">Send</button>
+          <button type="button" class="btn btn-primary btn-field" @click="send(confirming)">Send</button>
         </div>
       </div>
     </div>
@@ -263,7 +264,7 @@
           ></iframe>
         </div>
         <div class="release-results__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="preview = null">Close</button>
+          <button type="button" class="btn btn-outline btn-field" @click="preview = null">Close</button>
         </div>
       </div>
     </div>

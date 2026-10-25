@@ -86,6 +86,10 @@ class Task(models.Model):
     creator_role = models.CharField(max_length=20, choices=CreatorRole.choices)
 
     deleted_at = models.DateTimeField(null=True, blank=True)
+    # When Start new year archived it (Management > New Year), group and
+    # individual tasks alike, with ``deleted_at`` set too: out of sight as a
+    # deleted task is, but told apart from one deleted by hand, and never restored.
+    archived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -197,6 +201,10 @@ class RoleTask(models.Model):
     creator_role = models.CharField(max_length=20, choices=CreatorRole.choices)
 
     deleted_at = models.DateTimeField(null=True, blank=True)
+    # When Start new year archived it (Management > New Year), with
+    # ``deleted_at`` set too: out of sight as a deleted one is, but told apart
+    # from one deleted by hand. Each person's completion of it stays on record.
+    archived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

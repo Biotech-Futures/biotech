@@ -10,6 +10,7 @@ from django.test import SimpleTestCase, override_settings
 
 from apps.chat.utils import (
     DEFAULT_BLACKLIST,
+    sanitize_message_text,
     sanitize_text,
     reset_pattern_cache,
 )
@@ -238,6 +239,37 @@ class SanitizeTextOverrideArgsTests(SimpleTestCase):
             sanitize_text("oh shit", blacklist=["shit*"], replacement="[redacted]"),
             "oh [redacted]",
         )
+
+
+@override_settings(CHAT_SANITIZER_BLACKLIST=list(DEFAULT_BLACKLIST), CHAT_SANITIZER_REPLACEMENT="***")
+class SanitizeMessageTextTests(SimpleTestCase):
+    """A chat message is filtered around its mention tokens, never inside
+    them: the filter reads "@" and digits as letters, so "<@555>" reads
+    "@55" as "ass", and filtering it would drop the mention."""
+
+    def setUp(self):
+        reset_pattern_cache()
+
+    def tearDown(self):
+        reset_pattern_cache()
+
+    def test_the_whole_filter_would_break_these_mentions(self):
+        for user_id in (55, 455, 551, 555, 556, 1455):
+            self.assertNotIn(f"<@{user_id}>", sanitize_text(f"hi <@{user_id}>"))
+
+    def test_mentions_come_through_whole(self):
+        for user_id in (55, 455, 551, 555, 556, 1455):
+            self.assertEqual(sanitize_message_text(f"hi <@{user_id}>"), f"hi <@{user_id}>")
+
+    def test_words_around_mentions_are_still_filtered(self):
+        self.assertEqual(
+            sanitize_message_text("<@555> what the fuck, <@556>"),
+            "<@555> what the ***, <@556>",
+        )
+
+    def test_text_without_mentions_is_filtered_as_before(self):
+        self.assertEqual(sanitize_message_text("oh shit"), sanitize_text("oh shit"))
+        self.assertEqual(sanitize_message_text(""), "")
 
 
 class GroupChatConsumerDefensiveTests(SimpleTestCase):

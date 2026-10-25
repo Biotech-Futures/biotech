@@ -100,14 +100,17 @@ def save_details_form(token: str, *, first_name: str, last_name: str, email: str
     """Record the guardian named on a details form, then email them the
     consent form, as when a student names them on their profile. Raises
     DetailsFormError for a link that can't be used and ValueError for the
-    student's own email."""
+    student's own email, a placeholder or a student's account."""
     from .guardian_reminders import email_new_guardian
+    from .serializers import new_guardian_email_problem
 
     email = email.strip().lower()
     with transaction.atomic():
         profile = open_details_form(token, for_update=True)
         if email == (profile.user.email or "").strip().lower():
             raise ValueError("Enter the guardian's email, not the student's.")
+        if email != (profile.pg_email or "").strip().lower() and (problem := new_guardian_email_problem(email)):
+            raise ValueError(problem)
         profile.pg_first_name = first_name.strip()
         profile.pg_last_name = last_name.strip()
         profile.pg_email = email
@@ -136,7 +139,7 @@ def students_due(now=None):
             Q(pg_email__isnull=True) | Q(pg_email=""),
             has_join_permission=False,
             user__account_status__in=_CAN_SIGN_IN,
-            user__date_joined__year=current_cohort(),
+            challenge_year=current_cohort(),
         )
         .exclude(user__email="")
         .exclude(guardian_details_reminded_on=today)

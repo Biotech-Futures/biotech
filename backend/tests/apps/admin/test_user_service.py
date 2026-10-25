@@ -301,7 +301,31 @@ class AdminUserBulkCreateViewTests(TestCase):
         response = self.client.post(self.url, self.payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_bulk_create_users.assert_called_once_with(self.payload, "", created_by=self.admin_user)
+        mock_bulk_create_users.assert_called_once_with(
+            self.payload, "", initiated_by=self.admin_user, created_by=self.admin_user
+        )
+
+    @patch("apps.admin.views.bulk_create_users")
+    def test_the_csv_endpoint_names_the_admin_who_uploaded(self, mock_bulk_create_users):
+        """Its JSON twin above passes initiated_by and this one did not, so a
+        privilege handed out by upload had no name against it. Asserted on the
+        call rather than on an audit row because the role that produced one can
+        no longer be imported — the wiring is what is left to protect."""
+        mock_bulk_create_users.return_value = {
+            "msg": "Bulk import complete: 1 created, 0 skipped",
+            "data": {"created": [], "skipped": []},
+        }
+
+        response = self.client.post(
+            "/api/v1/admin/user/bulk-csv/",
+            {"csv": "email,firstName,lastName,role\na@example.com,Ava,Nguyen,student\n"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            mock_bulk_create_users.call_args.kwargs["initiated_by"], self.admin_user
+        )
 
     @patch("apps.admin.views.bulk_create_users")
     def test_accepts_wrapped_users_payload_for_compatibility(self, mock_bulk_create_users):
@@ -317,7 +341,9 @@ class AdminUserBulkCreateViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_bulk_create_users.assert_called_once_with(self.payload, "", created_by=self.admin_user)
+        mock_bulk_create_users.assert_called_once_with(
+            self.payload, "", initiated_by=self.admin_user, created_by=self.admin_user
+        )
 
     @patch("apps.admin.views.bulk_create_users")
     def test_rejects_non_array_payload(self, mock_bulk_create_users):
@@ -1413,6 +1439,8 @@ class SupervisorFromStudentImportTests(TestCase):
             email="zed-sup@example.com", first_name="Sam", last_name="Super",
             password=None,
         )
+        # A supervisor already: an account that isn't one is refused.
+        SupervisorProfile.objects.create(user=existing, school_name="Zed High")
         self.assertIsNone(existing.state_id)
         self._import_student()
         existing.refresh_from_db()

@@ -38,6 +38,7 @@ const intakeJourneys = new Set<RegistrationIntakeJourney>([
   'supervisor_group',
   'supervisor_csv',
   'mentor',
+  'supervisor',
 ])
 
 const csrfBaseUrl = (endpoint: string) => new URL(endpoint, window.location.origin).origin
@@ -72,12 +73,14 @@ const normalizeReceipt = (
   }
 
   const groupCode = source.group_code ?? source.groupCode
+  const passwordToken = source.passwordToken
   return {
     referenceCode,
     journey: journey as RegistrationIntakeJourney,
     studentCount,
     submittedAt,
     ...(typeof groupCode === 'string' && groupCode ? { groupCode } : {}),
+    ...(typeof passwordToken === 'string' && passwordToken ? { passwordToken } : {}),
   }
 }
 
@@ -135,7 +138,7 @@ const emailCheck = (
   const checkEndpoint = endpoint.replace(/\/?$/, '/')
   return {
     async checkEmails(request, options, onProgress) {
-      if (request.journey === 'mentor' || switchedOff) return 'skipped'
+      if (request.journey === 'mentor' || request.journey === 'supervisor' || switchedOff) return 'skipped'
       return runEmailCheck(
         {
           async start() {
@@ -148,7 +151,7 @@ const emailCheck = (
             })
             if (options.invitationToken)
               headers.set('X-Registration-Invitation', options.invitationToken)
-            // The registration as it would be submitted, without its photos.
+            // The registration as it would be submitted.
             const production = buildProductionRegistrationRequest(request, options.overrides)
             if (options.supervisorEmail?.trim()) {
               ;(production.payload as Record<string, unknown>).supervisorEmail =
@@ -190,6 +193,32 @@ export const createHttpRegistrationGateway = ({
   emailCheckEndpoint,
 }: HttpRegistrationGatewayOptions): RegistrationGateway => ({
   ...(emailCheckEndpoint ? emailCheck(emailCheckEndpoint, fetchImpl, ensureCsrf) : {}),
+  // An email box's check as it's left: beside the pre-check, its field/.
+  ...(emailCheckEndpoint
+    ? {
+        async checkEmailField(body: { journey?: string; fields: unknown[] }) {
+          const csrfApiBaseUrl = csrfBaseUrl(endpoint)
+          try {
+            await ensureCsrf(csrfApiBaseUrl)
+            const response = await fetchImpl(`${emailCheckEndpoint.replace(/\/+$/, '')}/field/`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: buildSessionHeaders({
+                includeCSRF: true,
+                csrfApiBaseUrl,
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+              }),
+              body: JSON.stringify(body),
+            })
+            if (!response.ok) return null
+            const data = (await response.json().catch(() => null)) as { results?: Record<string, unknown> } | null
+            return data?.results ?? null
+          } catch {
+            return null
+          }
+        },
+      }
+    : {}),
   async submit(request, options = {}): Promise<RegistrationGatewayResult> {
     const csrfApiBaseUrl = csrfBaseUrl(endpoint)
     let csrfReady = false
@@ -205,7 +234,7 @@ export const createHttpRegistrationGateway = ({
       }
     }
 
-    let body: string | FormData
+    let body: string
     const headers = buildSessionHeaders({
       includeCSRF: true,
       csrfApiBaseUrl,
@@ -225,17 +254,6 @@ export const createHttpRegistrationGateway = ({
           options.supervisorEmail.trim()
       }
       body = JSON.stringify(production)
-      if (Object.keys(options.attachments || {}).length) {
-        const multipart = new FormData()
-        multipart.append('request', body)
-        for (const [prefix, file] of Object.entries(options.attachments || {})) {
-          const index = studentRequestPrefixes(request).indexOf(prefix)
-          if (index < 0) throw new Error('Invalid registration photo field.')
-          multipart.append(`students.${index}`, file)
-        }
-        headers.delete('Content-Type')
-        body = multipart
-      }
     } catch (error) {
       return {
         ok: false,

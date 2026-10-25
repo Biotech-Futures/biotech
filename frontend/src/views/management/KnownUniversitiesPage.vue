@@ -207,7 +207,7 @@
           <div class="bulk-upload__footer">
             <button
               type="button"
-              class="btn btn-primary btn-sm"
+              class="btn btn-primary btn-field"
               data-test="university-upload-submit"
               :disabled="!uploadPreview || uploadPreview.summary.errors > 0 || uploadBusy !== 'idle'"
               @click="applyUpload"

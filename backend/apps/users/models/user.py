@@ -24,6 +24,18 @@ class UserManager(BaseUserManager):
             user.set_unusable_password()
         user.save(using=self._db)
         return user
+
+    def by_email(self, email):
+        """The account with ``email`` in any case, or None. Addresses are
+        saved in lower case, but an older one may not be: the exact match
+        wins, then the oldest matching it ignoring case."""
+        email = str(email or "").strip()
+        if not email:
+            return None
+        return (
+            self.filter(email=email).first()
+            or self.filter(email__iexact=email).order_by("pk").first()
+        )
     
     def create_superuser(self, email, password, **extra):
         if not password:

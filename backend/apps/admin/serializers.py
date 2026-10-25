@@ -1,13 +1,23 @@
 """Request-shape validation for admin endpoints."""
 from rest_framework import serializers
 
-from apps.admin.services.user import ROLES
+from apps.admin.services.user import BULK_IMPORTABLE_ROLES
 from apps.services.email_registry import (
     get_email_type,
     is_known_email_type,
     unknown_merge_tags,
 )
 from apps.services.system_email import clean_email_body, senders
+
+
+class AdminTaskListQuerySerializer(serializers.Serializer):
+    page = serializers.IntegerField(min_value=1, max_value=2_147_483_647, default=1)
+    # Covers the 10000 the frontend sends for an "All entries" page size.
+    limit = serializers.IntegerField(min_value=1, max_value=10_000, default=10)
+
+
+class AdminTaskToggleSerializer(serializers.Serializer):
+    completed = serializers.BooleanField()
 
 
 class BulkUserRowSerializer(serializers.Serializer):
@@ -19,7 +29,13 @@ class BulkUserRowSerializer(serializers.Serializer):
     """
 
     email = serializers.EmailField()
-    role = serializers.ChoiceField(choices=ROLES, required=False)
+    # The four a spreadsheet may create. Not ROLES: that list gained
+    # "support" when the role shipped, and this endpoint must not start
+    # accepting it. The same rule is enforced in add_users_by_role, which
+    # is where the CSV endpoint next door meets this one — this row-level
+    # check stays because it is what turns a bad JSON batch into one 400
+    # naming the row, instead of a 201 with a skipped list.
+    role = serializers.ChoiceField(choices=BULK_IMPORTABLE_ROLES, required=False)
     groupNumber = serializers.CharField(
         required=False, allow_blank=True, allow_null=True
     )

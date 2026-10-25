@@ -6,6 +6,7 @@ import {
   payloadForRegistrationJourney,
   sanitizeRegistrationPayload,
   type MentorForm,
+  type SupervisorForm,
   type RegistrationForms,
   type RegistrationIntakeJourney,
   type StudentIndividualForm,
@@ -56,6 +57,11 @@ export interface MentorRegistrationRequest {
   payload: { mentor: MentorForm }
 }
 
+export interface SupervisorRegistrationRequest {
+  journey: 'supervisor'
+  payload: { supervisor: SupervisorForm }
+}
+
 export type RegistrationRequest =
   | StudentIndividualRegistrationRequest
   | StudentTeamRegistrationRequest
@@ -63,6 +69,7 @@ export type RegistrationRequest =
   | SupervisorGroupRegistrationRequest
   | SupervisorCsvRegistrationRequest
   | MentorRegistrationRequest
+  | SupervisorRegistrationRequest
 
 export interface RegistrationReceipt {
   referenceCode: string
@@ -71,6 +78,8 @@ export interface RegistrationReceipt {
   submittedAt: string
   /** A student group's code (6 digits), when one was registered. */
   groupCode?: string
+  /** Someone registering themselves: sets their first password next. */
+  passwordToken?: string
 }
 
 export interface RegistrationWarning {
@@ -90,7 +99,6 @@ export type RegistrationGatewayResult =
     }
 
 export interface RegistrationSubmitOptions {
-  attachments?: Record<string, File>
   invitationToken?: string
   idempotencyKey?: string
   overrides?: Record<string, boolean>
@@ -112,6 +120,10 @@ export interface RegistrationGateway {
     options: Pick<RegistrationSubmitOptions, 'invitationToken' | 'overrides' | 'supervisorEmail'>,
     onProgress: (progress: EmailCheckProgress) => void,
   ): Promise<EmailCheckOutcome>
+  /** An email box's check as it's left (emailFieldCheck.ts), when this
+   *  gateway can: the server's results by box, or null when it can't be
+   *  done. Never throws. */
+  checkEmailField?(body: { journey?: string; fields: unknown[] }): Promise<Record<string, unknown> | null>
 }
 
 export const REGISTRATION_GATEWAY_KEY: InjectionKey<RegistrationGateway> =

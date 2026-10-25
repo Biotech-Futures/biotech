@@ -413,6 +413,32 @@ class FetchOGDataWorkerTests(TestCase):
         self.assertEqual(preview.description, "D")
         self.assertEqual(preview.image_url, "I")
 
+    def test_suppressed_message_does_not_persist_or_broadcast_preview(self):
+        """A late preview worker must not leak a hidden message's URL metadata."""
+        self.message.suppress()
+        url = "https://example.com/post"
+        fake_redis = _FakeRedis(
+            initial={
+                cache_key_for(url): json.dumps({
+                    "title": "Hidden title",
+                    "desc": "Hidden description",
+                    "img": "https://example.com/hidden.png",
+                }).encode("utf-8")
+            }
+        )
+        fake_layer = MagicMock()
+        fake_layer.group_send = AsyncMock()
+
+        with patch("apps.chat.tasks.get_redis", return_value=fake_redis), patch(
+            "apps.chat.tasks.get_channel_layer", return_value=fake_layer
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                result = fetch_og_data(self.message.id, url)
+
+        self.assertEqual(result["status"], "cache_hit")
+        self.assertFalse(MessagePreview.objects.filter(message=self.message).exists())
+        fake_layer.group_send.assert_not_called()
+
     def test_fetch_failure_does_not_persist(self):
         """A non-2xx response must not write a half-baked preview row.
 

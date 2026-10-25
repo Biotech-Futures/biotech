@@ -13,6 +13,10 @@ class SupervisorProfile(models.Model):
     # The day their weekly registration status email last went, so it goes
     # once a week at most (apps.users.supervisor_status).
     status_digest_sent_on = models.DateField(null=True, blank=True)
+    # How their students without a group are matched, asked at the top of My
+    # Groups: "school_only", "cross_school", or "" until they answer. Start
+    # new year clears it.
+    grouping_preference = models.CharField(max_length=16, blank=True, default="")
 
     class Meta:
         db_table = 'supervisor_profile'

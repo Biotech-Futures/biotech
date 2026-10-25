@@ -437,20 +437,16 @@
       @click.self="closeNoMembershipPopup"
     >
       <div class="dashboard-modal" role="dialog" aria-modal="true" aria-labelledby="no-membership-title">
-        <button
-          type="button"
-          class="dashboard-modal-close"
-          aria-label="Close"
-          @click="closeNoMembershipPopup"
-        >
-          <i class="fas fa-times"></i>
-        </button>
 
         <div class="dashboard-modal-icon">
           <i class="fas fa-users-slash"></i>
         </div>
-        <h3 id="no-membership-title">No group membership</h3>
-        <p>Please contact the administrator via {{ SUPPORT_EMAIL }}</p>
+<h3 id="no-membership-title">No group assigned yet</h3>
+
+        <p>
+          You're not currently assigned to a group.
+          Once you've been added to a group, it will appear here.
+        </p>
         <button type="button" class="btn btn-primary" @click="closeNoMembershipPopup">
           Got it
         </button>
@@ -462,9 +458,9 @@
 <script setup>
 // Dashboard page
 // Core imports
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { storeToRefs } from 'pinia'
 
@@ -546,6 +542,20 @@ const announcements = ref([])
 const events = ref([])
 const upcomingEventsCount = ref(0)
 const showNoMembershipNotice = ref(false)
+const route = useRoute()
+const router = useRouter()
+
+watch(
+  () => route.query.notice,
+  (notice) => {
+    if (notice === 'no-group') {
+      showNoMembershipPopup()
+    } else {
+      showNoMembershipNotice.value = false
+    }
+  },
+  { immediate: true }
+)
 
 const dashboardSummary = ref({
   activeGroups: groups.value.length,
@@ -776,7 +786,7 @@ const summaryWidgets = computed(() => {
       title: 'Tasks Completed',
       value: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks}`,
       subtext: hasNoAssignedMembership.value
-        ? `Please contact the administrator via ${SUPPORT_EMAIL}`
+        ? 'You are not currently assigned to a group'
         : 'Your progress in the current program cycle',
       icon: 'fas fa-circle-check',
       accent: 'teal',
@@ -805,6 +815,11 @@ function showNoMembershipPopup() {
 
 function closeNoMembershipPopup() {
   showNoMembershipNotice.value = false
+
+  if (route.query.notice === 'no-group') {
+    const { notice, ...remainingQuery } = route.query
+    void router.replace({ query: remainingQuery })
+  }
 }
 
 const resourcesSectionTitle = computed(() => {
@@ -1510,8 +1525,8 @@ function getGroupSecondaryLabel(group) {
   return String(source).slice(0, 2).toUpperCase()
 }
 
-onMounted(async () => {
-  await loadDashboardData()
+onMounted(() => {
+  void loadDashboardData()
 })
 </script>
 
@@ -3910,4 +3925,73 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   Dashboard — dark mode fixes
+   ========================================================= */
+
+html[data-theme='dark'] .dashboard-page-shell {
+  --surface-base: #111d1a !important;
+  --surface-elevated: #18231f !important;
+  --surface-soft: #22302c !important;
+  --border-default: #34413d !important;
+  --border-strong: #45534f !important;
+
+  --text-primary: #e8eeee !important;
+  --text-secondary: #aeb9b6 !important;
+  --text-muted: #84938f !important;
+
+  background: #0d1714 !important;
+  color: #e8eeee !important;
+}
+
+/* 4 top icon boxes */
+html[data-theme='dark'] .dashboard-page-shell .summary-icon-wrap {
+  background: #22302c !important;
+  border-color: #3b4945 !important;
+  color: #b8c7c3 !important;
+}
+
+/* Open calendar / View all / Open session buttons */
+html[data-theme='dark'] .dashboard-page-shell .surface-link,
+html[data-theme='dark'] .dashboard-page-shell .primary-chip {
+  background: #22302c !important;
+  border-color: #3b4945 !important;
+  color: #d8e1df !important;
+}
+
+html[data-theme='dark'] .dashboard-page-shell .surface-link:hover,
+html[data-theme='dark'] .dashboard-page-shell .primary-chip:hover {
+  background: #2a3a35 !important;
+  border-color: #53615d !important;
+  color: #ffffff !important;
+}
+
+/* Event date box */
+html[data-theme='dark'] .dashboard-page-shell .event-date-badge {
+  background: #22302c !important;
+  border-color: #3b4945 !important;
+  color: #d8e1df !important;
+}
+
+html[data-theme='dark'] .dashboard-page-shell .event-date-day {
+  color: #e8eeee !important;
+}
+
+html[data-theme='dark'] .dashboard-page-shell .event-date-rest {
+  color: #9eaca8 !important;
+}
+
+/* No-group popup: Got it button */
+.dashboard-modal .btn-primary {
+  background-color: #017151 !important;
+  border-color: #017151 !important;
+  color: #ffffff !important;
+}
+
+.dashboard-modal .btn-primary:hover {
+  background-color: #015940 !important;
+  border-color: #015940 !important;
+}
+
 </style>

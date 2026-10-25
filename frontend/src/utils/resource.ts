@@ -12,7 +12,7 @@ export function getResourceIcon(type: string): string {
 }
 
 /** A resource's icon in the tables that list them (the Resources page,
- *  Release Resources): by its kind, and a file's by its type. */
+ *  an admin's and others' views): by its kind, and a file's by its type. */
 export function resourceFileIcon(resource: { kind?: string | null; file_mime_type?: string | null }): string {
   const mimeType = resource.file_mime_type?.toLowerCase() || ''
   if (resource.kind === 'page') return 'fas fa-globe'

@@ -1,6 +1,11 @@
 """
 Canonical Django settings for automated tests (`manage.py test`).
 
+These run the tests on SQLite in memory, for quick local runs with no
+database to start. CI runs them on Postgres instead, the database production
+runs on (``config.settings_test_postgres``), which refuses things SQLite lets
+through.
+
 Import base from ``settings_local`` so tests use SQLite media, lax cookies,
 in-memory Channels — not production Azure/session defaults from ``settings``.
 

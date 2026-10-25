@@ -21,6 +21,7 @@ class AnnouncementViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
+    hidden_with_pages = True
     queryset = Announcement.objects.select_related("author_user").prefetch_related("audiences__role", "audiences__group").all()
     serializer_class = AnnouncementSerializer
     permission_classes = [permissions.IsAuthenticated]

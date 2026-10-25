@@ -1,7 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
+
+// Management > Challenge Start > Pages Visibility, as it starts: the pages
+// hidden, no date set. Each test below sets its own (setSupervisorPages).
+vi.mock('@/utils/managementAPI', async (original) => ({
+  ...(await original<typeof import('@/utils/managementAPI')>()),
+  fetchSupervisorPages: vi.fn(async () => ({ shown: false, shown_from: null })),
+}))
+
+const HIDDEN = { shown: false, shown_from: null }
+const SHOWN = { shown: true, shown_from: '2020-01-01T00:00:00Z' }
 
 describe('registration in the current application router', () => {
   beforeEach(async () => {
@@ -21,6 +32,8 @@ describe('registration in the current application router', () => {
   })
 
   it.each(['student', 'mentor'])('denies supervisor intake to %s accounts', async (role) => {
+    // The pages shown, so they're sent Home.
+    setSupervisorPages(SHOWN)
     useAuthStore().loginWithUser({
       id: 1, email: `${role}@example.test`, first_name: 'Member',
       last_name: 'User', current_role_name: role,
@@ -54,20 +67,35 @@ describe('registration in the current application router', () => {
     expect(router.currentRoute.value.name).toBe('register')
   })
 
-  it.each(['student', 'mentor', 'supervisor', 'admin'])(
-    'lets %s accounts reach Home, Groups, Events, Announcements and Resources at all times',
+  it.each(['student', 'mentor', 'supervisor'])(
+    'sends %s accounts to their profile from the hidden pages until the date comes',
     async (role) => {
+      setSupervisorPages(HIDDEN)
       useAuthStore().loginWithUser({
         id: 1, email: `${role}@example.test`, first_name: 'Member',
         last_name: 'User', current_role_name: role,
       })
-      for (const path of ['/dashboard', '/events', '/announcements', '/resources']) {
+      for (const path of ['/dashboard', '/groups', '/events', '/announcements', '/resources']) {
         await router.push(path)
-        expect(router.currentRoute.value.path).toBe(path)
+        expect(router.currentRoute.value.path).toBe('/profile')
       }
-      // Groups opens each role's own groups page (resolveGroupsLanding), never their profile.
-      await router.push('/groups')
-      expect(router.currentRoute.value.path).not.toBe('/profile')
+      setSupervisorPages({ ...HIDDEN, shown_from: new Date(Date.now() + 86_400_000).toISOString() })
+      await router.push('/events')
+      expect(router.currentRoute.value.path).toBe('/profile')
+
+      setSupervisorPages(SHOWN)
+      await router.push('/events')
+      expect(router.currentRoute.value.path).toBe('/events')
     },
   )
+
+  it('never hides the pages from admins', async () => {
+    setSupervisorPages(HIDDEN)
+    useAuthStore().loginWithUser({
+      id: 1, email: 'admin@example.test', first_name: 'Member',
+      last_name: 'User', current_role_name: 'admin',
+    })
+    await router.push('/events')
+    expect(router.currentRoute.value.path).toBe('/events')
+  })
 })

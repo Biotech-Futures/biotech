@@ -6,8 +6,11 @@ import SupervisorGroupsPage from '@/views/SupervisorGroupsPage.vue'
 import {
   addSupervisedGroupMembers,
   createAllWaitingGroups,
+  fetchGroupingPreference,
   fetchSupervisedGroups,
   removeSupervisedGroupMembers,
+  saveGroupingPreference,
+  saveSupervisedGroupOrder,
   type SupervisedGroup,
 } from '@/utils/supervisedGroups'
 import { fetchSupervisedStudents, type SupervisedStudent } from '@/utils/supervisedStudents'
@@ -19,6 +22,8 @@ vi.mock('@/utils/supervisedGroups', () => ({
   removeSupervisedGroupMembers: vi.fn(),
   deleteSupervisedGroup: vi.fn(),
   saveSupervisedGroupOrder: vi.fn(),
+  fetchGroupingPreference: vi.fn(),
+  saveGroupingPreference: vi.fn(),
 }))
 
 vi.mock('@/utils/supervisedStudents', () => ({
@@ -78,9 +83,56 @@ const group = (
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
+  vi.mocked(fetchGroupingPreference).mockResolvedValue({ grouping_preference: '', school_name: 'Example School' })
 })
 
 describe('SupervisorGroupsPage', () => {
+  it('asks at the top how students without a group are matched, and saves the answer', async () => {
+    vi.mocked(fetchSupervisedStudents).mockResolvedValue([student(1, 'Amy', null)])
+    vi.mocked(fetchSupervisedGroups).mockResolvedValue([])
+    vi.mocked(saveGroupingPreference).mockResolvedValue({
+      grouping_preference: 'cross_school',
+      school_name: 'Example School',
+    })
+    const wrapper = mount(SupervisorGroupsPage, {
+      global: { stubs: { SupervisorStudentSheet: true, GroupEditorModal: true } },
+    })
+    await flushPromises()
+
+    const question = wrapper.get('.grouping-question')
+    expect(wrapper.element.querySelector('section')).toBe(question.element)
+    expect(question.text()).toContain("I'd like the teams to remain within Example School")
+    expect(question.text()).toContain('Only if you have at least 2 students in all groups.')
+    expect(question.findAll<HTMLInputElement>('input').some((input) => input.element.checked)).toBe(false)
+
+    await question.get('[data-test="grouping-cross-school"]').setValue()
+    await flushPromises()
+
+    expect(saveGroupingPreference).toHaveBeenCalledWith('cross_school')
+    expect(question.get<HTMLInputElement>('[data-test="grouping-cross-school"]').element.checked).toBe(true)
+    expect(question.get('.grouping-status').text()).toBe('Saved.')
+  })
+
+  it('keeps the earlier answer, and says why, when a new one cannot be saved', async () => {
+    vi.mocked(fetchSupervisedStudents).mockResolvedValue([student(1, 'Amy', null)])
+    vi.mocked(fetchSupervisedGroups).mockResolvedValue([])
+    vi.mocked(fetchGroupingPreference).mockResolvedValue({ grouping_preference: 'school_only', school_name: '' })
+    vi.mocked(saveGroupingPreference).mockRejectedValue(new Error('The server could not be reached.'))
+    const wrapper = mount(SupervisorGroupsPage, {
+      global: { stubs: { SupervisorStudentSheet: true, GroupEditorModal: true } },
+    })
+    await flushPromises()
+
+    const question = wrapper.get('.grouping-question')
+    expect(question.text()).toContain("I'd like the teams to remain within your school")
+    await question.get('[data-test="grouping-cross-school"]').setValue()
+    await flushPromises()
+
+    expect(question.get<HTMLInputElement>('[data-test="grouping-school-only"]').element.checked).toBe(true)
+    expect(question.get<HTMLInputElement>('[data-test="grouping-cross-school"]').element.checked).toBe(false)
+    expect(question.get('.grouping-status').text()).toBe('The server could not be reached.')
+  })
+
   it('keeps groups formed while registering in the Waiting Area, the rest on the board', async () => {
     vi.mocked(fetchSupervisedStudents).mockResolvedValue([
       student(1, 'Amy', 10),
@@ -244,5 +296,91 @@ describe('SupervisorGroupsPage', () => {
     await flushPromises()
     expect(addSupervisedGroupMembers).not.toHaveBeenCalled()
     expect(wrapper.get('.waiting-flash').text()).toBe('This group already has 5 students.')
+  })
+  it("moves a group into another's place by its handle, and saves the new order", async () => {
+    vi.mocked(fetchSupervisedStudents).mockResolvedValue([])
+    vi.mocked(fetchSupervisedGroups).mockResolvedValue([
+      group(12, 'BTF01', ''),
+      group(13, 'BTF02', ''),
+      group(14, 'BTF03', ''),
+    ])
+    vi.mocked(saveSupervisedGroupOrder).mockResolvedValue(undefined)
+    const wrapper = mount(SupervisorGroupsPage, {
+      global: { stubs: { SupervisorStudentSheet: true, GroupEditorModal: true } },
+    })
+    await flushPromises()
+    const headings = () => wrapper.findAll('.group-card h2').map((heading) => heading.text())
+    const dataTransfer = { setData: vi.fn(), setDragImage: vi.fn(), effectAllowed: '' }
+
+    await wrapper.get('[aria-label="Move BTF01"]').trigger('dragstart', { dataTransfer })
+    expect(dataTransfer.setData).toHaveBeenCalledWith('application/x-group', '12')
+    expect(dataTransfer.setDragImage).toHaveBeenCalled()
+    const cards = wrapper.findAll('.group-card')
+    expect(cards[0]!.classes()).toContain('group-card--moving')
+    await cards[2]!.trigger('dragover')
+    expect(cards[2]!.classes()).toContain('group-card--drop-target')
+    // Its own place is no target.
+    await cards[0]!.trigger('dragover')
+    expect(cards[0]!.classes()).not.toContain('group-card--drop-target')
+
+    await cards[2]!.trigger('drop')
+    await flushPromises()
+    expect(headings()).toEqual(['BTF02', 'BTF03', 'BTF01'])
+    expect(saveSupervisedGroupOrder).toHaveBeenCalledWith([13, 14, 12])
+    expect(wrapper.find('.group-card--moving').exists()).toBe(false)
+  })
+
+  it('puts the groups back, and says why, when the new order cannot be saved', async () => {
+    vi.mocked(fetchSupervisedStudents).mockResolvedValue([])
+    vi.mocked(fetchSupervisedGroups).mockResolvedValue([group(12, 'BTF01', ''), group(13, 'BTF02', '')])
+    vi.mocked(saveSupervisedGroupOrder).mockRejectedValue(new Error('The order could not be saved.'))
+    const wrapper = mount(SupervisorGroupsPage, {
+      global: { stubs: { SupervisorStudentSheet: true, GroupEditorModal: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Move BTF02"]').trigger('dragstart', { dataTransfer: { setData: vi.fn(), setDragImage: vi.fn() } })
+    await wrapper.findAll('.group-card')[0]!.trigger('drop')
+    await flushPromises()
+    expect(wrapper.findAll('.group-card h2').map((heading) => heading.text())).toEqual(['BTF01', 'BTF02'])
+    expect(wrapper.get('.waiting-flash').text()).toBe('The order could not be saved.')
+
+    // A group dropped back on its own place isn't saved at all.
+    vi.mocked(saveSupervisedGroupOrder).mockClear()
+    await wrapper.get('[aria-label="Move BTF01"]').trigger('dragstart', { dataTransfer: { setData: vi.fn(), setDragImage: vi.fn() } })
+    await wrapper.get('[aria-label="Move BTF01"]').trigger('dragend')
+    await wrapper.findAll('.group-card')[0]!.trigger('drop', { dataTransfer: { getData: () => '' } })
+    await flushPromises()
+    expect(saveSupervisedGroupOrder).not.toHaveBeenCalled()
+  })
+
+  it('asks before matching a student outside their school, and moves them once confirmed', async () => {
+    const dan = { ...student(4, 'Dan', null), school_name: 'Other High' }
+    vi.mocked(fetchSupervisedStudents).mockResolvedValue([student(1, 'Amy', 12), dan])
+    vi.mocked(fetchSupervisedGroups).mockResolvedValue([group(12, 'BTF01', '', { studentIds: [1] })])
+    vi.mocked(addSupervisedGroupMembers).mockResolvedValue(group(12, 'BTF01', '', { studentIds: [1, 4] }))
+    const wrapper = mount(SupervisorGroupsPage, {
+      global: { stubs: { SupervisorStudentSheet: true, GroupEditorModal: true } },
+    })
+    await flushPromises()
+    const drop = () => wrapper.get('.group-card').trigger('drop', { dataTransfer: { getData: () => '4' } })
+
+    await drop()
+    let dialog = wrapper.get('[aria-labelledby="school-match-title"]')
+    expect(dialog.get('h3').text()).toBe('Match outside school?')
+    expect(dialog.get('p').text()).toBe(
+      'Dan Lee is from Other High. BTF01 has students from Example School. ' +
+        'Assigning them will match this student outside their school.',
+    )
+    await dialog.findAll('button').find((button) => button.text() === 'Cancel')!.trigger('click')
+    expect(wrapper.find('[aria-labelledby="school-match-title"]').exists()).toBe(false)
+    expect(addSupervisedGroupMembers).not.toHaveBeenCalled()
+
+    await drop()
+    dialog = wrapper.get('[aria-labelledby="school-match-title"]')
+    await dialog.findAll('button').find((button) => button.text() === 'Confirm')!.trigger('click')
+    await flushPromises()
+    expect(addSupervisedGroupMembers).toHaveBeenCalledWith(12, [4], 'student')
+    expect(wrapper.get('.group-card').text()).toContain('Dan Lee')
   })
 })

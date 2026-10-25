@@ -1,0 +1,67 @@
+{% comment %}
+Shared block: the ticket's identity, where it stands, and the way back to it.
+Every ticket email carries it so the requester never has to open the portal
+just to find out which enquiry an email is about.
+
+The button is the same "bulletproof" markup as login.html and
+password_reset.html — a VML rectangle for Outlook, an anchor for everything
+else. It replaced a line of 12px grey text at the foot of the email, which was
+the only route back to the conversation and read as small print. The
+recipients are school students and their guardians; the way to answer must not
+be the least visible thing on the page. The first redesign round (October
+2026) made it solid email green; the second puts it back to the pale green
+every other email on the platform uses (D2-22): #007253 words on #C3EBCA with
+a #007253 edge, 4.55:1. The VML copy carries the same colours and the 12%
+arcsize login.html gives the same 6px corners.
+
+The two emails to the support inbox (a new enquiry, and the open-enquiry
+summary) use the same block with their own words and link on the button,
+CTA_LABEL and CTA_URL, and add ASSIGNEE_LINE after the status. The three to
+the requester set none of them and get "Open this enquiry" and their own
+ticket's page.
+
+Two of the strings below can arrive as one unbreakable word, and a table is
+never narrower than the longest word it holds. The subject is typed by the
+requester, and "I cannot open <a pasted link>" is the most natural way for a
+student to report a broken page. The address under the button is one word by
+definition. Without a break rule either of them widens the whole card past
+the screen, and on a 320px phone the button's own label ends up off to the
+right of it. The subject uses overflow-wrap so ordinary subjects still break
+at spaces; the address uses word-break, because a URL may be split anywhere.
+
+The greeting at the top of each of the three ticket emails is the third such
+string and carries the same overflow-wrap rule. It is the account holder's
+own first name, which is a 255 character field the account holder can edit.
+Named here because this is where the rule is explained; the test that keeps
+all three honest does not work from a list of places, it fills every field a
+requester can type into and looks for wherever the words come out.
+
+The status pill is built on its own, in _ticket_status_pill.html, and
+arrives here finished as STATUS_PILL; why, and its colours, are there.
+
+The address under the button is a real link and not plain text. Mail clients
+turn a bare URL into a link of their own and paint it their default blue, which
+is what the client saw. An anchor of ours carries its own colour and underline,
+inline, because base.html resets every anchor to color:inherit and
+text-decoration:none and a client that keeps that rule would otherwise show it
+as unmarked text.
+
+Use {% templatetag openblock %} comment {% templatetag closeblock %} and not
+the {% templatetag opencomment %} short form for any note spanning more than
+one line. The short form is single-line only, and a multi-line note written
+with it was rendered into a live email to a student.
+{% endcomment %}
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate;">
+                <tr>
+                  <td style="padding:16px 18px;">
+                    <p style="margin:0; color:#307054; font-size:14px; line-height:1.55; font-weight:700;">
+                      {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; {{ STATUS_PILL|safe }}{% if ASSIGNEE_LINE %} &nbsp;&middot;&nbsp; {{ ASSIGNEE_LINE }}{% endif %}
+                    </p>
+                    <p style="margin:6px 0 0 0; color:#52645a; font-size:13px; line-height:1.55; overflow-wrap:anywhere;">
+                      {{ TICKET_SUBJECT }}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+{% include "emails/_ticket_button.html" %}
