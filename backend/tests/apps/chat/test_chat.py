@@ -501,7 +501,8 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
             )
 
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(len(callbacks), 1)
+        # The upload now schedules both the websocket broadcast and durable AI screening.
+        self.assertEqual(len(callbacks), 2)
         assert_public_message_shape(self, response.data)
         self.assertEqual(response.data["message_type"], "attachment")
         message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
@@ -552,7 +553,8 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
             )
 
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(len(callbacks), 1)
+        # Neither the websocket broadcast nor AI screening runs before commit.
+        self.assertEqual(len(callbacks), 2)
         assert_public_message_shape(self, response.data)
         fake_layer.group_send.assert_not_called()
 
@@ -562,7 +564,8 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.assertEqual(message.message_type, "attachment")
         self.assertEqual(attachment.attachment_filename, "group-plan.pdf")
 
-        callbacks[0]()
+        for callback in callbacks:
+            callback()
 
         fake_layer.group_send.assert_called_once()
 
@@ -997,12 +1000,26 @@ class ChatAttachmentRBACTests(StorageCleanupMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('filename="redacted.pdf"', response["Content-Disposition"])
 
+    @override_settings(CHAT_SANITIZER_BLACKLIST=["badword*"])
+    def test_attachment_caption_with_blocked_content_is_rejected(self):
+        reset_pattern_cache()
+        response, message, attachment = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            message_text="This contains badword",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIsNone(message)
+        self.assertIsNone(attachment)
+        self.assertIn("blocked content", str(response.data).lower())
+
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
 @unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
-class ChatProfanitySanitisationTests(TestCase):
-    """Integration tests for the profanity filter wired into the chat
-    serializers and websocket consumer. Has its own lean setUp that
+class ChatBlockedContentTests(TestCase):
+    """Integration tests for the blocklist wired into the chat
+    serializers. Has its own lean setUp that
     deliberately does not touch ``Resources`` so it stays decoupled from
     that model's evolution.
     """
@@ -1050,18 +1067,48 @@ class ChatProfanitySanitisationTests(TestCase):
         CHAT_SANITIZER_BLACKLIST=["shit*", "fuck*"],
         CHAT_SANITIZER_REPLACEMENT="***",
     )
-    def test_post_message_is_sanitised_before_save(self):
+    def test_post_message_is_blocked_before_save(self):
         reset_pattern_cache()
         resp = self.client_student.post(
             self._list_url(),
             {"message_text": "this is bullshit, total brainfuck", "resources": []},
             format="json",
         )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(Messages.objects.count(), 0)
+        self.assertIn("blocked content", str(resp.data).lower())
+
+    @override_settings(
+        CHAT_SANITIZER_BLACKLIST=["ass*", "fuck*"],
+        CHAT_SANITIZER_REPLACEMENT="***",
+    )
+    def test_a_mention_alone_is_never_blocked_but_a_word_beside_it_is(self):
+        # The filter reads "@" and digits as letters, so the token
+        # "<@55555556>" reads "@55" as "ass" (main's mention fix, e950c8bc).
+        # Only the text around the token is checked: the mention goes
+        # through, and a blocked word beside it still stops the message.
+        reset_pattern_cache()
+        dana = get_user_model().objects.create_user(
+            id=55_555_556, email="dana-b@test.com", password="pw", first_name="Dana", last_name="B"
+        )
+        GroupMembership.objects.create(user=dana, group=self.group)
+
+        resp = self.client_student.post(
+            self._list_url(),
+            {"message_text": f"hi <@{dana.id}>", "resources": []},
+            format="json",
+        )
         self.assertEqual(resp.status_code, 201, resp.content)
-        msg = Messages.objects.get(pk=resp.data["id"])
-        # Stored value is the moderated text — cached/raw retrievals stay clean.
-        self.assertEqual(msg.message_text, "this is ***, total ***")
-        self.assertEqual(resp.data["message_text"], "this is ***, total ***")
+        self.assertEqual(resp.data["message_text"], f"hi <@{dana.id}>")
+
+        resp = self.client_student.post(
+            self._list_url(),
+            {"message_text": f"<@{dana.id}> what the fuck", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("blocked content", str(resp.data).lower())
+        self.assertEqual(Messages.objects.count(), 1)
 
     @override_settings(
         CHAT_SANITIZER_BLACKLIST=["shit*"],
@@ -1074,15 +1121,14 @@ class ChatProfanitySanitisationTests(TestCase):
             {"message_text": "bull5h1t and 5hlthole", "resources": []},
             format="json",
         )
-        self.assertEqual(resp.status_code, 201, resp.content)
-        msg = Messages.objects.get(pk=resp.data["id"])
-        self.assertEqual(msg.message_text, "*** and ***")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(Messages.objects.count(), 0)
 
     @override_settings(
         CHAT_SANITIZER_BLACKLIST=["shit*"],
         CHAT_SANITIZER_REPLACEMENT="***",
     )
-    def test_patch_message_is_sanitised(self):
+    def test_patch_message_is_blocked_and_original_is_preserved(self):
         reset_pattern_cache()
         msg = Messages.objects.create(
             group=self.group, sender_user=self.student, message_text="clean"
@@ -1092,9 +1138,9 @@ class ChatProfanitySanitisationTests(TestCase):
             {"message_text": "ugh shithole"},
             format="json",
         )
-        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.status_code, 400, resp.content)
         msg.refresh_from_db()
-        self.assertEqual(msg.message_text, "ugh ***")
+        self.assertEqual(msg.message_text, "clean")
 
     @override_settings(
         CHAT_SANITIZER_BLACKLIST=["shit*"],
@@ -1132,23 +1178,14 @@ class ChatProfanitySanitisationTests(TestCase):
         CHAT_SANITIZER_BLACKLIST=["shit*"],
         CHAT_SANITIZER_REPLACEMENT="***",
     )
-    def test_persisted_message_drives_ws_payload(self):
-        """The websocket broadcast payload is built directly from the
-        persisted Message (see MessageViewSet.perform_create), so once the
-        serializer-level sanitisation is verified, the broadcast inherits
-        it for free. We assert that property here without depending on
-        the live websocket transport."""
+    def test_blocked_message_never_reaches_persistence_or_broadcast(self):
         reset_pattern_cache()
         from apps.chat.serializers import MessageSerializer
 
         ser = MessageSerializer(data={"message_text": "this is bullshit", "resources": []})
-        ser.is_valid(raise_exception=True)
-        msg = ser.save(sender_user=self.student, group_id=self.group.id)
-
-        # This is exactly the dict the consumer puts on the wire
-        # (apps/chat/views.py::perform_create).
-        broadcast_text = msg.message_text
-        self.assertEqual(broadcast_text, "this is ***")
+        self.assertFalse(ser.is_valid())
+        self.assertIn("blocked content", str(ser.errors).lower())
+        self.assertEqual(Messages.objects.count(), 0)
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)

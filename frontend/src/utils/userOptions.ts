@@ -1,6 +1,19 @@
 // Constants and shared option lists for the admin user-management screens.
 
-export const USER_ROLES = ['student', 'mentor', 'supervisor', 'admin'] as const
+// "support" was added on 2026-09-04 (ported from adminweb/src/type/user.ts).
+// Asked where support agents come from, the client answered: "The admin would
+// create a new account for the support agent, similar to how they can
+// currently create a new admin user, but rather assign the support role to
+// them." So it is a role in this dropdown, and its side effect on the server
+// is a SupportScope row rather than an AdminScope one: a support agent can
+// work the ticket queue and nothing else.
+//
+// This list feeds the create/edit role select and the People role filter. It
+// does NOT feed any bulk import: the backend refuses support and admin on
+// every import path on purpose (BULK_IMPORTABLE_ROLES in
+// backend/apps/admin/services/user.py), and userOptions.spec.ts holds both
+// halves of that to the backend source.
+export const USER_ROLES = ['student', 'mentor', 'supervisor', 'admin', 'support'] as const
 export type UserRole = (typeof USER_ROLES)[number]
 
 /**

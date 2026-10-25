@@ -9,6 +9,7 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     { path: '/groups/:id', name: 'group-detail', component: GroupDetailPage },
+    { path: '/groups/:id/plan', name: 'group-plan', component: GroupDetailPage },
   ],
 })
 
@@ -70,6 +71,15 @@ describe('GroupDetailPage mutual interests in members modal', () => {
     })
     await flushPromises()
   }
+
+  it('treats the Plan route as a group section, like Submission', async () => {
+    await mountPage()
+    expect(wrapper!.find('.group-detail').classes()).not.toContain('group-detail--section')
+
+    await router.push('/groups/1/plan')
+    await flushPromises()
+    expect(wrapper!.find('.group-detail').classes()).toContain('group-detail--section')
+  })
 
   it('renders mutual interests under "Mutual Interests" heading in members modal when 2 or more members share interests', async () => {
     const members = [

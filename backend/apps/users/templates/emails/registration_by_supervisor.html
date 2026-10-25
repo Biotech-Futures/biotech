@@ -20,4 +20,5 @@
               <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
                 Your supervisor, {{ SUPERVISOR_NAME }}, has registered you for the {{ YEAR }} {{ BRAND_NAME }} Challenge. Before you can use the platform, your parent or guardian needs to sign a permission form. We'll email them, or you if we don't have their details yet. We'll be in contact in the lead up to the challenge start date to connect you with your team.
               </p>
+{% if SET_PASSWORD_URL %}{% include "emails/_set_password_button.html" %}{% endif %}
 {% endblock %}

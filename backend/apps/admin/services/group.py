@@ -557,11 +557,15 @@ def query_group_messages(
     # Soft-deleted messages are included: this endpoint is admin-only, and
     # moderation needs to see what was removed, by whom, and put it back.
     # Participants read chat through apps.chat, which filters them out.
-    total = Messages.objects.filter(group_id=gid).count()
+    #
+    # Suppressed rows are not: screening treats those as evidence rather than
+    # group content and routes them to a support ticket, which is where they
+    # are reviewed (see MessageViewSet._message_queryset).
+    total = Messages.objects.filter(group_id=gid, is_suppressed=False).count()
 
     message_records = (
         Messages.objects
-        .filter(group_id=gid)
+        .filter(group_id=gid, is_suppressed=False)
         .select_related(
             "sender_user",
             "sender_user__mentorprofile",
@@ -878,6 +882,7 @@ def remove_group_message(group_id: str, message_id: int, initiated_by=None) -> d
             id=message_id,
             group_id=gid,
             deleted_at__isnull=True,
+            is_suppressed=False,
         )
     except Messages.DoesNotExist:
         return {"msg": "Group message not found", "data": None}

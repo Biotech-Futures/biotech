@@ -47,6 +47,15 @@ EXPECTED_KEYS = {
     "guardian_details_received",
     "guardian_consent_student_notice",
     "email_credits_low",
+    # The ticket system's six (apps.tickets.services.emails): the support
+    # inbox's at the client's request of 20 October, the requester's at
+    # Jinqi's of 22 October.
+    "ticket_submitted",
+    "ticket_reply",
+    "ticket_resolved",
+    "ticket_new_for_support",
+    "ticket_flagged_for_support",
+    "ticket_digest",
 }
 
 

@@ -8,7 +8,7 @@
     <header class="header" v-if="!isLoginPage && !(onMarkingPage && isHeaderHidden)">
       <div class="header-content">
         <div class="logo-section">
-          <RouterLink :to="auth.isSupervisor ? '/profile' : '/dashboard'" class="logo">
+          <RouterLink :to="logoTarget" class="logo">
             <div class="logo-icon">
               <img :src="logo" :alt="BRAND_NAME" />
             </div>
@@ -111,6 +111,7 @@
       >
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
+            <!-- The member pages, Support among them (mainNavLinks). -->
             <template v-for="entry in mainNavLinks" :key="entry.to">
               <li v-if="!entry.links" class="sidebar-item">
                 <RouterLink :to="entry.to" class="sidebar-link" :class="{ active: entry.active }">
@@ -165,6 +166,21 @@
               </a>
             </li>
 
+            <!-- The agent side of support tickets, on the server's isSupport
+                 flag: admins, support agents, and anyone else the server has
+                 given queue access. One entry point for all of them, so it is
+                 not also an Admin sub-item. -->
+            <li class="sidebar-item" v-if="auth.canWorkTickets">
+              <RouterLink
+                to="/admin/tickets"
+                class="sidebar-link"
+                :class="{ active: route.path.startsWith('/admin/tickets') }"
+              >
+                <i class="fas fa-headset sidebar-icon" aria-hidden="true"></i>
+                <span>Support queue</span>
+              </RouterLink>
+            </li>
+
             <!-- Admin's and a supervisor's own pages: one entry each that folds open. -->
             <li v-for="section in sidebarSections" :key="section.key" class="sidebar-item">
               <div class="sidebar-link sidebar-link--admin" :class="{ active: section.active }">
@@ -207,10 +223,17 @@
                 </li>
               </ul>
             </li>
+            <!-- Last, while the pages are hidden: when this year's challenge
+                 starts (Management > Challenge Start), in its own box. -->
+            <li v-if="challengeStartNote && !isSidebarCollapsed" class="sidebar-note" data-test="challenge-start-note">
+              <i class="fas fa-calendar-day sidebar-note__icon" aria-hidden="true"></i>
+              <span>This year's challenge will start on <strong>{{ challengeStartNote }}</strong>.</span>
+            </li>
           </ul>
         </nav>
 
         <button
+          v-if="!isNoGroupNotice"
           type="button"
           class="sidebar-collapse-toggle"
           :aria-label="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
@@ -327,13 +350,19 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
+import { formatOrdinalDate, SYDNEY_TIME_ZONE } from '@/utils/date'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { landingPath } from '@/utils/landing'
 import { clearLiveAnalyticsCache, prefetchAnalytics } from '@/utils/liveAnalyticsData'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
 const route = useRoute()
+const isNoGroupNotice = computed(() =>
+  route.path === '/dashboard' &&
+  route.query.notice === 'no-group'
+)
 const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
@@ -383,8 +412,17 @@ const isLoginPage = computed(() =>
   route.meta.public === true,
 )
 const isAdminLandingActive = computed(() => route.path === '/admin')
+// A support-only account's start page is the queue (or the page explaining
+// why it has none), not the member dashboard it cannot open. A supervisor's
+// is their profile.
+const logoTarget = computed(() => {
+  if (auth.isSupportOnly) return landingPath(auth)
+  return auth.isSupervisor ? '/profile' : '/dashboard'
+})
+// Support-only accounts belong to no group and cannot open /groups; skipping
+// the switcher also skips its group list and per-group unread requests.
 const showSidebarGroupSwitcher = computed(
-  () => !isLoginPage.value && route.path.startsWith('/groups'),
+  () => !isLoginPage.value && !auth.isSupportOnly && route.path.startsWith('/groups'),
 )
 
 const sidebarGroups = ref<SidebarGroupOption[]>([])
@@ -464,7 +502,15 @@ type MainNavEntry =
       collapsed: boolean
     }
 
-const { shown: supervisorPagesShown } = useSupervisorPages()
+const { shown: supervisorPagesShown, challengeStartsAt, now: pagesClock } = useSupervisorPages()
+// While the pages are hidden from a student, mentor or supervisor, the menu
+// says when this year's challenge starts (its date, in Sydney), once it's
+// set and still to come.
+const challengeStartNote = computed(() => {
+  if (auth.isAdmin || auth.isSupportOnly || supervisorPagesShown.value || !challengeStartsAt.value) return ''
+  if (Date.parse(challengeStartsAt.value) <= pagesClock.value) return ''
+  return formatOrdinalDate(challengeStartsAt.value, SYDNEY_TIME_ZONE)
+})
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
@@ -482,14 +528,26 @@ watch(
   { immediate: true },
 )
 
-// The top-level links every role sees, once Management > Challenge Start >
-// Pages Visibility's date comes (admins always). Until then a supervisor has
-// their own pages below, and a student or mentor their profile.
+// The top-level links. A support agent who is not an admin gets the queue and
+// none of these: the guard sends them back from these anyway, so offering the
+// links would only be a detour. The rest come once Management > Challenge
+// Start > Pages Visibility's date comes (admins always see them); until then
+// a supervisor has their own pages below and a student or mentor their
+// profile. Support is not one of the hidden pages, so everybody keeps it. The
+// list is the router guard's own, so the menu never offers a page the guard
+// refuses or hides one it allows.
 const mainNavLinks = computed(() => {
+  if (auth.isSupportOnly) return []
+  const support: MainNavEntry = {
+    to: '/support',
+    label: 'Support',
+    icon: 'fa-life-ring',
+    active: route.path.startsWith('/support'),
+  }
   if (!auth.isAdmin && !supervisorPagesShown.value) {
     return auth.isSupervisor
-      ? []
-      : [{ to: '/profile', label: 'My Profile', icon: 'fa-user', active: route.path === '/profile' }]
+      ? [support]
+      : [{ to: '/profile', label: 'My Profile', icon: 'fa-user', active: route.path === '/profile' }, support]
   }
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
@@ -499,6 +557,7 @@ const mainNavLinks = computed(() => {
     { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
     { to: '/announcements', label: 'Announcements', icon: 'fa-bullhorn', active: route.path === '/announcements' },
     { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
+    support,
   )
   return links
 })
@@ -548,6 +607,7 @@ const sidebarSections = computed(() => {
         { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },
         { label: 'Tasks', to: '/admin/tasks', active: path === '/admin/tasks' },
         { label: 'Role Tasks', to: '/admin/role-tasks', active: path.startsWith('/admin/role-tasks') },
+        { label: 'Group Plans', to: '/admin/plan', active: path === '/admin/plan' || path.startsWith('/admin/plan/') },
         { label: 'System Emails', to: '/admin/emails', active: path === '/admin/emails' },
         { label: 'System Logs', to: '/admin/logs', active: path === '/admin/logs' },
         { label: 'Grading', to: '/grading', active: path.startsWith('/grading') },
@@ -932,13 +992,14 @@ onBeforeUnmount(() => {
 :global(body),
 :global(#app) {
   width: 100%;
+  height: 100%;
   max-width: none;
   margin: 0;
   padding: 0;
 }
 
 :global(body) {
-  overflow-x: hidden;
+  overflow: hidden;
   background: var(--bg-light);
 }
 
@@ -981,8 +1042,9 @@ select {
 .app-container {
   width: 100%;
   max-width: none;
-  min-height: 100vh;
+  height: 100vh;
   margin: 0;
+  overflow: hidden;
   background-color: var(--bg-light);
 }
 
@@ -1299,6 +1361,8 @@ select {
   max-width: 1680px;
   margin: 0 auto;
   width: 100%;
+  height: calc(100vh - 64px);
+  overflow: hidden;
   background-color: var(--white);
 }
 
@@ -1475,6 +1539,28 @@ select {
   display: none;
 }
 
+/* When this year's challenge starts: a box of its own, below the menu. */
+.sidebar-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 1.25rem 1rem 0.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(1, 113, 81, 0.22);
+  border-radius: 8px;
+  background: var(--light-green);
+  color: var(--teal);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.sidebar-note__icon {
+  flex: none;
+  margin-top: 0.2rem;
+  color: var(--dark-green);
+  font-size: 1.1rem;
+}
+
 .sidebar-icon {
   width: 20px;
   text-align: center;
@@ -1612,6 +1698,15 @@ select {
   padding: 1rem 0.85rem 0;
 }
 
+.sidebar-nav,
+.sidebar-list {
+  flex: 0 0 auto;
+}
+
+.sidebar-group-switcher {
+  flex-shrink: 0;
+}
+
 .sidebar.is-collapsed .sidebar-group-switcher {
   display: none;
 }
@@ -1681,7 +1776,32 @@ select {
 .main-content {
   flex: 1;
   min-width: 0;
+  height: 100%;
+  overflow-y: auto;
   padding: 1rem;
+}
+
+:global(html[data-theme='dark'] .main-content) {
+  scrollbar-color: #53615d #111d1a;
+  scrollbar-width: thin;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar) {
+  width: 10px;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-track) {
+  background: #111d1a;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border: 2px solid #111d1a;
+  border-radius: 999px;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-thumb:hover) {
+  background: #687773;
 }
 
 .main-content--events {
@@ -1904,21 +2024,37 @@ select {
   }
 
   .main-layout {
+    display: flex;
     flex-direction: column;
-    min-height: auto;
+    flex: 1;
+    width: 100%;
+    max-width: 1680px;
+    margin: 0 auto;
+    height: calc(100vh - 64px);
+    min-height: 0;
+    overflow: hidden;
+    background-color: var(--white);
   }
 
   .sidebar {
+    --sidebar-toggle-offset: 0px;
+
     position: static;
     top: auto;
-    left: auto;
-    height: auto;
-    min-height: auto;
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
     width: 100%;
-    min-width: 100%;
-    overflow-y: visible;
-    padding: 0.75rem;
-    z-index: auto;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+    max-height: 45vh;
+    flex: 0 0 auto;
+    overflow-y: auto;
+    padding: 0.75rem 0;
+    background-color: var(--white);
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .sidebar.is-collapsed {
@@ -1970,9 +2106,13 @@ select {
   }
 
   .main-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
     width: 100%;
-    margin-left: 0;
-    padding: 0.85rem;
+    height: auto;
+    overflow-y: auto;
+    padding: 1rem;
   }
 
   .main-content--events {
@@ -1987,4 +2127,27 @@ select {
     max-width: none;
   }
 }
+
+/* =========================================================
+   Dark mode — header search bar
+   ========================================================= */
+
+html[data-theme='dark'] .search-bar {
+  background: #18231f;
+  color: #e8eeee;
+  border-color: #34413d;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+html[data-theme='dark'] .search-bar::placeholder {
+  color: #899793;
+}
+
+html[data-theme='dark'] .search-bar:focus {
+  background: #18231f;
+  color: #ffffff;
+  border-color: #4d625d;
+  box-shadow: 0 0 0 3px rgba(32, 201, 166, 0.15);
+}
+
 </style>

@@ -31,6 +31,7 @@ vi.mock('@/utils/adminAPI', async (importOriginal) => ({
   // The real wording said before activating a student from an earlier year.
   earlierYearMessage: (await importOriginal<typeof import('@/utils/adminAPI')>()).earlierYearMessage,
   createAdminUser: vi.fn(),
+  checkAdminUserEmails: vi.fn(async () => ({})),
   updateAdminUser: vi.fn().mockResolvedValue({ msg: 'ok', data: null }),
   setAdminUserActive: vi.fn(),
   sendGuardianConsentRequest: vi.fn(),

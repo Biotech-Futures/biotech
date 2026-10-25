@@ -53,3 +53,38 @@ class RegistrationSheetTests(MultiStudentSetup, TestCase):
         response = self.supervisor_client.post(URL, {"file": big}, format="multipart")
         self.assertEqual(response.status_code, 400)
         self.assertIn("2 MB", str(response.data["fields"]["file"]))
+
+
+TEMPLATE = "/api/v1/registration/sheet/template/"
+
+
+class RegistrationTemplateTests(MultiStudentSetup, TestCase):
+    def template(self, **changes):
+        return {
+            "header": ["First Name", "Email"], "example": ["Alex", "alex.example@school.invalid"],
+            "note": "Example only: this row won't be registered.", **changes,
+        }
+
+    def test_the_template_is_an_xlsx_with_its_example_row_and_note(self):
+        from openpyxl import load_workbook
+
+        response = self.supervisor_client.post(TEMPLATE, self.template(), format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], XLSX)
+        self.assertIn('filename="biotech-registration-template.xlsx"', response["Content-Disposition"])
+        sheet = load_workbook(io.BytesIO(response.content)).active
+        self.assertEqual([[cell.value for cell in row] for row in sheet.iter_rows()], [
+            ["First Name", "Email", None],
+            ["Alex", "alex.example@school.invalid", "Example only: this row won't be registered."],
+        ])
+        self.assertTrue(sheet["A1"].font.bold)
+        # Read back as an upload is, the note is only an extra column.
+        upload = SimpleUploadedFile("students.xlsx", response.content, content_type=XLSX)
+        read = self.supervisor_client.post(URL, {"file": upload}, format="multipart")
+        self.assertEqual(read.data["csv"].splitlines()[1], "Alex,alex.example@school.invalid,Example only: this row won't be registered.")
+
+    def test_only_a_supervisor_and_a_value_for_each_column(self):
+        self.assertEqual(APIClient().post(TEMPLATE, self.template(), format="json").status_code, 403)
+        response = self.supervisor_client.post(TEMPLATE, self.template(example=["Alex"]), format="json")
+        self.assertEqual(response.status_code, 400)

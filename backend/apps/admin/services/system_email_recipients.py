@@ -471,17 +471,28 @@ def _registration_context(value: str) -> dict:
     return registration_context(_user(value))
 
 
+def _registered_by_others_context(value: str) -> dict:
+    """A student's someone else registered, with a link to set a password
+    that sets no one's: a test send can't set a real student's."""
+    from apps.users.registration_password import sample_password_url
+
+    return {**_registration_context(value), "SET_PASSWORD_URL": sample_password_url()}
+
+
 def _registered_by_supervisor_context(value: str) -> dict:
     """A student's, with their supervisor's name (any supervisor's, for one
-    with none, as the sample)."""
+    with none, as the sample), and a sample link to set a password."""
     from apps.users.registration_emails import supervised_context
+    from apps.users.registration_password import sample_password_url
 
     student = _user(value)
     profile = StudentProfile.objects.select_related("supervisor__user").filter(user=student).first()
     supervisor = profile.supervisor.user if profile and profile.supervisor else None
     if supervisor is None:
-        return {**supervised_context(student, student), "SUPERVISOR_NAME": "Sam Lee"}
-    return supervised_context(student, supervisor)
+        context = {**supervised_context(student, student), "SUPERVISOR_NAME": "Sam Lee"}
+    else:
+        context = supervised_context(student, supervisor)
+    return {**context, "SET_PASSWORD_URL": sample_password_url()}
 
 
 def _supervisors_only() -> list[dict]:
@@ -518,7 +529,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "password_reset": _EVERYONE,
     "password_changed": _EVERYONE,
     "registration_student": Recipients(_students, _registration_context),
-    "registration_group": Recipients(_students, _registration_context),
+    "registration_group": Recipients(_students, _registered_by_others_context),
     "registration_by_supervisor": Recipients(_students, _registered_by_supervisor_context),
     "registration_by_admin": Recipients(_students, _registered_by_supervisor_context),
     "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),

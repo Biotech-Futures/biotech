@@ -16,6 +16,8 @@ from django.db import transaction
 from django.utils import timezone
 from openpyxl import load_workbook
 
+from .serializers import is_placeholder_email, is_student_email
+
 HEADERS = ["student_email", "guardian_first_name", "guardian_last_name", "guardian_email"]
 
 
@@ -107,6 +109,12 @@ def parse_guardian_upload(file, filename: str, students) -> dict:
             problems.append("guardian_email not an email")
         elif guardian_email and guardian_email == student_email:
             problems.append("guardian_email is the student's")
+        # A new guardian only: not a placeholder, nor a student's account.
+        elif guardian_email and guardian_email != (profile.pg_email or "").strip().lower():
+            if is_placeholder_email(guardian_email):
+                problems.append("guardian_email is a placeholder (.invalid)")
+            elif is_student_email(guardian_email):
+                problems.append("guardian_email is a student's account")
         if problems:
             checks["bad_rows"].append({"row": number, "reason": ", ".join(problems)})
             continue

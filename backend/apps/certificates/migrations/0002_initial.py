@@ -2,7 +2,34 @@
 
 import django.db.models.deletion
 import django.db.models.functions.datetime
-from django.db import migrations, models
+from django.db import connection, migrations, models
+
+# The Now()-based check constraint is only part of the model on backends that
+# support non-deterministic functions in CHECK constraints, so mirror the
+# model's SQLite guard here; otherwise makemigrations reports drift on SQLite.
+_OPERATIONS = [
+    migrations.AddField(
+        model_name='mentorcertificate',
+        name='mentor_profile',
+        field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='users.mentorprofile'),
+    ),
+    migrations.AddIndex(
+        model_name='mentorcertificate',
+        index=models.Index(fields=['mentor_profile', 'certificate_type'], name='mentor_cert_mentor__f7358b_idx'),
+    ),
+    migrations.AddConstraint(
+        model_name='mentorcertificate',
+        constraint=models.UniqueConstraint(fields=('mentor_profile', 'certificate_type', 'certificate_number'), name='unique_certificate_per_mentor'),
+    ),
+]
+
+if connection.vendor != "sqlite":
+    _OPERATIONS.append(
+        migrations.AddConstraint(
+            model_name='mentorcertificate',
+            constraint=models.CheckConstraint(condition=models.Q(('expires_at__isnull', True), ('expires_at__gte', django.db.models.functions.datetime.Now()), ('verified', False), _connector='OR'), name='cannot_verify_expired_certificate'),
+        )
+    )
 
 
 class Migration(migrations.Migration):
@@ -14,22 +41,4 @@ class Migration(migrations.Migration):
         ('users', '0001_initial'),
     ]
 
-    operations = [
-        migrations.AddField(
-            model_name='mentorcertificate',
-            name='mentor_profile',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='users.mentorprofile'),
-        ),
-        migrations.AddIndex(
-            model_name='mentorcertificate',
-            index=models.Index(fields=['mentor_profile', 'certificate_type'], name='mentor_cert_mentor__f7358b_idx'),
-        ),
-        migrations.AddConstraint(
-            model_name='mentorcertificate',
-            constraint=models.UniqueConstraint(fields=('mentor_profile', 'certificate_type', 'certificate_number'), name='unique_certificate_per_mentor'),
-        ),
-        migrations.AddConstraint(
-            model_name='mentorcertificate',
-            constraint=models.CheckConstraint(condition=models.Q(('expires_at__isnull', True), ('expires_at__gte', django.db.models.functions.datetime.Now()), ('verified', False), _connector='OR'), name='cannot_verify_expired_certificate'),
-        ),
-    ]
+    operations = _OPERATIONS

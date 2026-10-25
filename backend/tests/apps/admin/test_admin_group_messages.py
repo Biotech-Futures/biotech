@@ -135,21 +135,25 @@ class AdminGroupMessageTests(TestCase):
     # -- Sanitisation --------------------------------------------------------
 
     @override_settings(CHAT_SANITIZER_BLACKLIST=["badword*"], CHAT_SANITIZER_REPLACEMENT="***")
-    def test_text_is_sanitised_like_a_member_message(self):
+    def test_blocked_text_is_refused_like_a_member_message(self):
+        # Posting as Administrator is held to the group's own rules: blocked
+        # words are refused outright rather than written and masked, and the
+        # admin path answers exactly as the member path does.
         reset_pattern_cache()
         self.addCleanup(reset_pattern_cache)
         text = "this is badwording stuff"
 
-        self.assertEqual(self.send({"text": text}).status_code, 201)
+        admin = self.send({"text": text})
         with self.captureOnCommitCallbacks(execute=True):
             member = self.client_for(self.student).post(
                 f"/chat/groups/{self.group.id}/messages/", {"message_text": text}, format="json",
             )
-        self.assertEqual(member.status_code, 201, member.data)
 
-        admin_text = self.sent_messages().get().message_text
-        self.assertEqual(admin_text, Messages.objects.get(pk=member.data["id"]).message_text)
-        self.assertNotIn("badword", admin_text)
+        self.assertEqual(admin.status_code, 400, admin.data)
+        self.assertEqual(member.status_code, 400, member.data)
+        # Neither was stored.
+        self.assertFalse(self.sent_messages().exists())
+        self.assertFalse(Messages.objects.filter(message_text__icontains="badword").exists())
 
     # -- Mentions, broadcast and link previews -------------------------------
 

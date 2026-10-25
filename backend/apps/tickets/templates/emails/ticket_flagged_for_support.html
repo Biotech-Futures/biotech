@@ -1,0 +1,45 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_CONNECT }}: a chat message was flagged{% endblock %}
+
+{% block preheader %}The AI screening flagged a chat message and opened {{ TICKET_NUMBER }}.{% endblock %}
+
+{% block content %}
+{% comment %}
+E6, to the support inbox when the AI screening flags a chat message and opens
+an enquiry for it (the client, 20 October). E4's layout with the screener in
+place of a requester: the same greeting, the ticket box with whether anyone
+has it, and the button straight to it in the queue. Not the message, and not
+who wrote it: see send_flagged_message_to_support in services/emails.py.
+
+On System Emails like E4, so, like E4, nothing in this block branches on a
+value; see the note in ticket_new_for_support.html.
+{% endcomment %}
+              <p style="margin:0 0 8px 0; color:#5c6860; font-size:14px; line-height:1.5;">
+                Hi support team,
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                A chat message was flagged
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                The AI screening flagged a message in a group chat and opened an enquiry for it. {{ ASSIGNMENT }}
+              </p>
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Category: {{ CATEGORY_LABEL }} &nbsp;&middot;&nbsp; Priority: {{ PRIORITY_LABEL }}
+              </p>
+
+{% include "emails/_ticket_meta.html" with CTA_LABEL="Open in the support queue" %}
+
+              <p style="margin:22px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                The message itself is not in this email. It is in the enquiry, with who sent it and why it was flagged.
+              </p>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                This is an automatic message from {{ BRAND_CONNECT }}.
+              </p>
+{% endblock %}
+
+{% block footer_note %}{% include "emails/_ticket_footer_note.html" %}{% endblock %}

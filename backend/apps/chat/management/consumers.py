@@ -122,7 +122,11 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
     def _auto_mark_delivered(self, user):
         latest_id = (
             Messages.objects
-            .filter(group_id=self.group_id, deleted_at__isnull=True)
+            .filter(
+                group_id=self.group_id,
+                deleted_at__isnull=True,
+                is_suppressed=False,
+            )
             .exclude(sender_user_id=user.id)
             .order_by("-id")
             .values_list("id", flat=True)

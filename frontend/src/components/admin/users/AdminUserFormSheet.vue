@@ -6,7 +6,6 @@
     width="min(100vw, 680px)"
   >
     <form class="admin-users-form" novalidate @submit.prevent="submitForm">
-      <p v-if="formError" class="admin-users-form__error" role="alert">{{ formError }}</p>
 
       <div class="admin-users-form__grid">
         <div class="form-field form-field--full">
@@ -18,7 +17,16 @@
             class="form-input app-input"
             :disabled="isEditing && isSupervisorMode"
             :readonly="isEditing && isSupervisorMode"
+            :aria-invalid="Boolean(emailProblem('email'))"
             :aria-describedby="isEditing && !isSupervisorMode ? 'f-email-hint' : undefined"
+            @blur="checkEmailBox('email')"
+          />
+          <!-- Checked as it's left: what saving refuses, or a warning to confirm. -->
+          <p v-if="emailProblem('email')" class="admin-users-form__field-error" role="alert">
+            {{ emailProblem('email') }}
+          </p>
+          <EmailCheckNote
+            :state="emailNote('email')"
           />
           <p v-if="isEditing && !isSupervisorMode" id="f-email-hint" class="admin-users-form__hint">
             Changing this address updates the user's login and future emails. They will need to
@@ -37,8 +45,27 @@
             class="form-input app-input"
             :options="ROLE_OPTIONS"
             :disabled="!!fixedRole"
+            :aria-describedby="losesSupportAccess ? 'f-role-support-note' : undefined"
           />
         </div>
+        <!-- Moving an account off the support role revokes its queue access on
+             save (backend services/user.py, the role_moved branch, audited).
+             The server is right to do it, but nothing here said so; adminweb
+             was silent too (U6 C9). Said at the moment of the change, because
+             the save is the action and it cannot be taken back from here.
+             Not said for a move to admin, which keeps the queue (see
+             losesSupportAccess). aria-describedby is what carries the note to
+             a screen reader; aria-live on an element inserted together with
+             its text is announced unreliably, so it is only a second chance. -->
+        <p
+          v-if="losesSupportAccess"
+          id="f-role-support-note"
+          class="admin-users-form__note admin-users-form__note--support form-field--full"
+          aria-live="polite"
+        >
+          Saving with this role removes their access to the support queue. Tickets they own stay in
+          their name until somebody reassigns them.
+        </p>
       </div>
 
       <!-- Country, state and status, as the user panel's Account has them. -->
@@ -114,7 +141,17 @@
         <template v-if="form.role === 'student'">
           <div class="form-field">
             <label class="form-label" for="f-school">School</label>
-            <input id="f-school" v-model.trim="form.schoolName" class="form-input app-input" />
+            <input
+              id="f-school"
+              v-model.trim="form.schoolName"
+              class="form-input app-input"
+              @blur="checkEmailBox('schoolName')"
+            />
+            <!-- Checked as it's left too: a university gets a warning to confirm. -->
+            <EmailCheckNote
+              subject="school"
+              :state="emailNote('schoolName')"
+            />
           </div>
           <div class="form-field">
             <label class="form-label" for="f-year">Year level</label>
@@ -304,7 +341,20 @@
           </div>
           <div class="form-field form-field--full">
             <label class="form-label" for="f-gemail">Guardian email</label>
-            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input app-input" />
+            <input
+              id="f-gemail"
+              v-model.trim="form.guardianEmail"
+              type="email"
+              class="form-input app-input"
+              :aria-invalid="Boolean(emailProblem('guardianEmail'))"
+              @blur="checkEmailBox('guardianEmail')"
+            />
+            <p v-if="emailProblem('guardianEmail')" class="admin-users-form__field-error" role="alert">
+              {{ emailProblem('guardianEmail') }}
+            </p>
+            <EmailCheckNote
+              :state="emailNote('guardianEmail')"
+            />
           </div>
           <!-- Ticked when given: ticking records it, unticking records a withdrawal. -->
           <div class="form-field form-field--full admin-users-form__consents" data-test="form-consent">
@@ -438,6 +488,10 @@
       </div>
 
       <div class="admin-users-form__footer">
+        <!-- What stopped saving: under the line, just above the buttons. -->
+        <p v-if="formError" class="admin-users-form__error admin-users-form__error--save" role="alert">
+          {{ formError }}
+        </p>
         <button
           v-if="isEditing && !isSupervisorMode"
           type="button"
@@ -471,7 +525,10 @@ import FormSheet from '@/components/admin/FormSheet.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import AppTimePicker from '@/components/AppTimePicker.vue'
 import type { AdminGroupDetail, AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
+import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
+import type { EmailBoxState } from '@/registration/emailFieldCheck'
 import {
+  checkAdminUserEmails,
   confirmStudentAssignments,
   createAdminUser,
   fetchAdminGroupList,
@@ -684,6 +741,22 @@ const stateOptions = computed<AppSelectOption[]>(() => form.countryId === undefi
   ...formStates.value.map((state) => ({ value: state.id, label: state.stateName }))
 ])
 
+// Editing a support agent and picking another role. Case-folded like the
+// backend's role_moved check: a stored "Support" re-saved as "support" is not
+// a move and revokes nothing, so it must not be warned about either.
+//
+// Admin is not a loss. The save does delete their SupportScope row, but it
+// creates an AdminScope row in the same call, and is_support() is true for
+// every admin (backend apps/tickets/permissions.py), so the person keeps the
+// queue. Saying otherwise would warn an admin off a promotion that takes
+// nothing away.
+const losesSupportAccess = computed(() => {
+  if (!isEditing.value) return false
+  const stored = (props.user?.role ?? '').trim().toLowerCase()
+  const next = form.role.trim().toLowerCase()
+  return stored === 'support' && next !== 'support' && next !== 'admin'
+})
+
 const onInterestToggle = (option: string, event: Event) => {
   const checked = (event.target as HTMLInputElement).checked
   const next = new Set(form.interests)
@@ -692,9 +765,90 @@ const onInterestToggle = (option: string, event: Event) => {
   form.interests = [...next]
 }
 
+// The email boxes, checked as each is left (user/email-check/, as the
+// registration page's are): a hard problem is refused at saving too; a
+// warning (a mailbox that doesn't exist, a likely typo, a guardian address
+// with an account) is only shown under the box, and saving goes ahead. A
+// student's School too: a university is a warning.
+type EmailField = 'email' | 'guardianEmail' | 'schoolName'
+interface EmailCheckState {
+  email: string
+  status: 'checking' | 'ok' | 'hard' | 'soft'
+  message: string
+}
+const emailCheckStates = reactive<Partial<Record<EmailField, EmailCheckState>>>({})
+const pendingEmailChecks = new Set<Promise<void>>()
+// The state for the address there now, if it's been checked.
+const emailCheckFor = (field: EmailField) => {
+  const state = emailCheckStates[field]
+  return state && state.email === form[field].trim().toLowerCase() ? state : undefined
+}
+const emailProblem = (field: EmailField) => {
+  const state = emailCheckFor(field)
+  return state?.status === 'hard' ? state.message : ''
+}
+// As the registration page's note shows it: checking, or a warning.
+const emailNote = (field: EmailField): EmailBoxState | undefined => {
+  const state = emailCheckFor(field)
+  return state && (state.status === 'checking' || state.status === 'soft')
+    ? { email: state.email, status: state.status, message: state.message }
+    : undefined
+}
+const checkEmailBox = (field: EmailField) => {
+  const email = form[field].trim().toLowerCase()
+  // Unchanged on an edit, or not a student's guardian or school: nothing to check.
+  const saved = field === 'email' ? props.user?.email : field === 'schoolName' ? props.user?.schoolName : undefined
+  const own = field !== 'guardianEmail' && isEditing.value && email === (saved || '').trim().toLowerCase()
+  if (!email || own || (field !== 'email' && form.role !== 'student')) {
+    delete emailCheckStates[field]
+    return
+  }
+  if (emailCheckFor(field)) return
+  emailCheckStates[field] = { email, status: 'checking', message: '' }
+  const job = checkAdminUserEmails([
+    field === 'email'
+      ? { field, kind: 'account', email, firstName: form.firstName, lastName: form.lastName, userId: props.user?.id }
+      : field === 'schoolName'
+        ? { field, kind: 'school', email: '', school: form.schoolName }
+        : { field, kind: 'guardian', email, accountEmail: form.email },
+  ])
+    .then((results) => {
+      if (emailCheckStates[field]?.email !== email) return
+      const result = results[field]
+      if (!result) delete emailCheckStates[field]
+      else if (result.ok) emailCheckStates[field] = { email, status: 'ok', message: '' }
+      else if (result.severity === 'hard')
+        emailCheckStates[field] = { email, status: 'hard', message: result.message }
+      else
+        emailCheckStates[field] = {
+          email, status: 'soft', message: result.warnings.map((warning) => warning.message).join(' '),
+        }
+    })
+    // A check that can't be done says nothing: saving still refuses what's wrong.
+    .catch(() => {
+      if (emailCheckStates[field]?.email === email) delete emailCheckStates[field]
+    })
+    .finally(() => pendingEmailChecks.delete(job))
+  pendingEmailChecks.add(job)
+}
+// Before saving: the checks under way done (clicking Save leaves a box, which
+// starts its check), then none refused. A warning doesn't stop it. Saving
+// refuses what's wrong in any case.
+const emailChecksBlockSaving = async () => {
+  await Promise.allSettled([...pendingEmailChecks])
+  for (const field of ['email', 'guardianEmail', 'schoolName'] as const) {
+    const state = emailCheckFor(field)
+    if (state?.status === 'hard') return state.message
+  }
+  return ''
+}
+
 const initForm = (editingUser: AdminUser | null) => {
   formError.value = ''
   editorSessionKey.value++
+  delete emailCheckStates.email
+  delete emailCheckStates.guardianEmail
+  delete emailCheckStates.schoolName
   createdUserId.value = null
   clearPhoto()
   if (!editingUser) {
@@ -1006,6 +1160,11 @@ const guardianPayload = (): Record<string, unknown> => {
 const submitForm = async () => {
   formError.value = ''
   if (!validateForm()) return
+  const emailBlock = await emailChecksBlockSaving()
+  if (emailBlock) {
+    formError.value = emailBlock
+    return
+  }
 
   const role = form.role
   const resolveCountryName = (id?: number) => {
@@ -1270,6 +1429,13 @@ const submitForm = async () => {
   font-size: 0.85rem;
 }
 
+/* An email box's check: what saving refuses, under it. */
+.admin-users-form__field-error {
+  margin: 0.35rem 0 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
 .admin-users-form__hint {
   margin-top: 0.35rem;
   color: var(--text-muted);
@@ -1316,6 +1482,28 @@ const submitForm = async () => {
 
 .form-field--full {
   grid-column: 1 / -1;
+}
+
+/* Text in --teal on the sheet's own --white, both theme tokens that are
+   defined as a pair in light and dark (11:1 and 14:1). No tinted background:
+   a translucent one would hand the contrast to whatever paints underneath. */
+.admin-users-form__note {
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  color: var(--teal);
+  font-size: 0.85rem;
+}
+
+/* The support-role note keeps the pale ground the guardian and consent notes
+   brought (the first .admin-users-form__note rule) and loses the bar down its
+   left: the client called that side bar an "AI UI" look at the 2026-10-22
+   meeting (C-25), and the designer had every one on the support pages go.
+   Those two notes are another team's and keep theirs. After both rules, which
+   it ties with. */
+.admin-users-form__note--support {
+  border-left: 0;
 }
 
 .form-label {
@@ -1372,8 +1560,15 @@ const submitForm = async () => {
   color: var(--danger);
 }
 
+/* A row of its own, the buttons under it. */
+.admin-users-form__error--save {
+  flex: 0 0 100%;
+  margin: 0 0 0.4rem;
+}
+
 .admin-users-form__footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 1.5rem;

@@ -32,7 +32,7 @@
         row-key="id"
         :loading="loading"
         :selectable="false"
-        :allow-all-rows="false"
+        :max-page-size="200"
         :page="page"
         :page-size="pageSize"
         :total-count="totalCount"

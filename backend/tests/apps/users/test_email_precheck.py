@@ -127,6 +127,16 @@ class StartTests(PrecheckTestCase):
         job = EmailCheckJob.objects.get(pk=response.data["jobId"])
         self.assertEqual((job.cached, job.invalid, job.done), (1, 1, 2))
 
+    @override_settings(QEV_UNKNOWN_MAX_AGE_HOURS=24)
+    def test_an_unknown_answer_is_reused_within_its_window_and_checked_again_after(self):
+        EmailVerification.objects.create(email=STUDENT, status="unknown", checked_at=timezone.now() - timedelta(hours=23))
+        EmailVerification.objects.create(email=GUARDIAN, status="unknown", checked_at=timezone.now() - timedelta(hours=25))
+
+        response = self.start()
+
+        self.assertEqual(self.checked, [GUARDIAN])
+        self.assertEqual(EmailCheckJob.objects.get(pk=response.data["jobId"]).cached, 1)
+
     def test_with_every_address_answered_already_it_is_done_at_once(self):
         EmailVerification.objects.create(email=STUDENT, status="valid")
         EmailVerification.objects.create(email=GUARDIAN, status="valid")

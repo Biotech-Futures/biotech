@@ -1,7 +1,7 @@
 """A supervisor (a teacher, usually) registering on the public registration
 page (``journey: "supervisor"``): their contact details, their school, whether
-they're a teacher or a parent, where they are, and (as a student may) their
-pronouns and a profile photo.
+they're a teacher or a parent and where they are. Pronouns and a profile photo
+are still accepted, though the page no longer asks for them.
 
 As a mentor registers (``apps.users.mentor_registration``), but active at once:
 an account with the supervisor role and a supervisor profile, which signs in
@@ -21,6 +21,7 @@ import uuid
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import Throttled
@@ -35,13 +36,24 @@ from .models import (
     RegistrationStudent, RegistrationSubmission, StudentProfile, StudentSupervisor, SupervisorProfile, User,
 )
 from .profile_images import save_profile_image, validate_profile_image
+from .returning import returning_self_supervisor
 from .registration_intake import (
-    PhotoMetadataInput, StrictInput, check_previous, current_window, error_fields, receipt, require_policies,
-    resolve_location, token_hash,
+    PhotoMetadataInput, RegistrationWarnings, StrictInput, check_previous, current_window, error_fields, receipt,
+    require_policies, resolve_location, token_hash,
     valid_invitation,
+)
+from .serializers import (
+    MAILBOX_WHOSE, UNKNOWN_OVERRIDE, StrictBooleanField, mailbox_warning, name_email_warning,
+    refuse_invalid_mailbox, refuse_placeholder, stored_email_answers,
 )
 
 JOURNEY = "supervisor"
+# A supervisor's email is checked as a mentor's is: an address that doesn't
+# exist is refused; one that couldn't be checked, or that looks like a typo of
+# their name, is a warning they confirm (overrides).
+SUPERVISOR_OVERRIDES = {"ConfirmEmailInvalidOverride", "ConfirmNameEmailOverride"}
+SUPERVISOR_NAME = "the supervisor's"
+SUPERVISOR_EMAIL_TAKEN = "An account with this email already exists."
 # The file field a supervisor's photo comes in.
 PHOTO = "supervisor"
 # Teacher or parent, kept on their registration as a student's nominated
@@ -60,6 +72,16 @@ class SupervisorInput(StrictInput):
     pronouns = serializers.CharField(max_length=100, allow_blank=True, default="")
     pronounsOther = serializers.CharField(max_length=100, allow_blank=True, default="")
     profilePhoto = PhotoMetadataInput(allow_null=True, default=None)
+    overrides = serializers.DictField(child=StrictBooleanField(), default=dict)
+
+    def validate_overrides(self, value):
+        if set(value) - SUPERVISOR_OVERRIDES:
+            raise serializers.ValidationError(UNKNOWN_OVERRIDE)
+        return value
+
+    def validate_email(self, value):
+        refuse_placeholder(value)
+        return value
 
     def validate(self, data):
         errors = {}
@@ -84,20 +106,36 @@ class SupervisorIntakeInput(StrictInput):
     policiesAgreed = serializers.BooleanField(required=False, default=False)
 
 
-def save_supervisor(supervisor: dict, now) -> User:
+def save_supervisor(supervisor: dict, now, *, returning: User | None = None) -> User:
     """The supervisor's account, active at once, with the supervisor role and
-    profile (their school)."""
+    profile (their school). A supervisor back for a later year (``returning``,
+    deactivated by Start new year) gets their account back, active again,
+    with this form's details in place of last year's, as a mentor does."""
     country, state = resolve_location(supervisor)
-    user = User.objects.create_user(
-        email=supervisor["email"], first_name=supervisor["firstName"], last_name=supervisor["lastName"],
-        country=country, state=state,
-        pronouns=supervisor["pronounsOther"] if supervisor["pronouns"] == "Other" else supervisor["pronouns"],
-        account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
-    )
-    RoleAssignmentHistory.objects.create(
-        user=user, role=get_role_by_name(ROLE_SUPERVISOR), valid_from=now, valid_to=None,
-    )
-    SupervisorProfile.objects.create(user=user, school_name=supervisor["school"])
+    pronouns = supervisor["pronounsOther"] if supervisor["pronouns"] == "Other" else supervisor["pronouns"]
+    role = get_role_by_name(ROLE_SUPERVISOR)
+    if returning is None:
+        user = User.objects.create_user(
+            email=supervisor["email"], first_name=supervisor["firstName"], last_name=supervisor["lastName"],
+            country=country, state=state, pronouns=pronouns,
+            account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
+        )
+        RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now, valid_to=None)
+        SupervisorProfile.objects.create(user=user, school_name=supervisor["school"])
+        return user
+    user = returning
+    user.first_name, user.last_name = supervisor["firstName"], supervisor["lastName"]
+    user.country, user.state = country, state
+    # The form no longer asks for pronouns: theirs stay unless some are sent.
+    user.pronouns = pronouns or user.pronouns
+    user.activate(save=False)
+    user.save()
+    # Their supervisor role, unless they still hold it.
+    if not RoleAssignmentHistory.objects.filter(
+        Q(valid_to__isnull=True) | Q(valid_to__gte=now), user=user, role=role,
+    ).exists():
+        RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now, valid_to=None)
+    SupervisorProfile.objects.update_or_create(user=user, defaults={"school_name": supervisor["school"]})
     return user
 
 
@@ -130,8 +168,27 @@ def link_nominating_students(profile: SupervisorProfile, window, relationship: s
     return len(students)
 
 
+def supervisor_email_taken(email) -> bool:
+    """Whether ``email`` has an account, other than a supervisor's back for a
+    later year (returning_self_supervisor), whose details are updated."""
+    return returning_self_supervisor(email) is None and User.objects.filter(email__iexact=email).exists()
+
+
 def _taken() -> serializers.ValidationError:
-    return serializers.ValidationError({"supervisor.email": ["An account with this email already exists."]})
+    return serializers.ValidationError({"supervisor.email": [SUPERVISOR_EMAIL_TAKEN]})
+
+
+def supervisor_warnings(supervisor: dict, answers) -> list[dict]:
+    """A supervisor's soft warnings, as a mentor's (mentor_warnings): the
+    name-and-email mismatch and an unknown mailbox, unless confirmed."""
+    warnings = [
+        name_email_warning(supervisor["firstName"], supervisor["lastName"], supervisor["email"], SUPERVISOR_NAME),
+        mailbox_warning(answers, supervisor["email"], "Title", invalid_is_error=True),
+    ]
+    return [
+        {**warning, "field": "supervisor.email", "override_field": f"supervisor.overrides.{warning['override_field']}"}
+        for warning in warnings if warning and not supervisor["overrides"].get(warning["override_field"])
+    ]
 
 
 def _photo(request, supervisor: dict):
@@ -205,9 +262,17 @@ def register_supervisor(request, raw: dict) -> Response:
             valid_invitation(raw_token, window, now, journey=JOURNEY)
             if not window.is_open(now):
                 raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator."})
-            if User.objects.filter(email__iexact=supervisor["email"]).exists():
+            if supervisor_email_taken(supervisor["email"]):
                 raise _taken()
-            user = save_supervisor(supervisor, now)
+            answers = stored_email_answers([supervisor["email"]])
+            try:
+                refuse_invalid_mailbox(answers, supervisor["email"], MAILBOX_WHOSE["Title"])
+            except serializers.ValidationError as error:
+                raise serializers.ValidationError({"supervisor.email": error.detail})
+            warnings = supervisor_warnings(supervisor, answers)
+            if warnings:
+                raise RegistrationWarnings(warnings)
+            user = save_supervisor(supervisor, now, returning=returning_self_supervisor(supervisor["email"]))
             User.objects.filter(pk=user.pk).update(policies_agreed_at=now)
             link_nominating_students(SupervisorProfile.objects.get(user=user), window, supervisor["relationship"])
             submission = RegistrationSubmission.objects.create(

@@ -453,6 +453,9 @@ export interface SupervisorPagesState {
   shown_from: string | null
   set_by?: string
   updated_at?: string | null
+  /** When this year's challenge starts (Challenge Start), for the menu's
+   *  line while the pages are hidden; null while it isn't set. */
+  challenge_starts_at?: string | null
 }
 
 // GET /api/v1/management/supervisor-pages/ — when the pages are shown from.
@@ -471,7 +474,7 @@ export function saveSupervisorPages(
   })
 }
 
-/** Management > Challenge Start > Release Resources: a resource, whether it's
+/** The Resources page's release columns, for admins: a resource, whether it's
  *  shown, its release date ("YYYY-MM-DD": hidden, it appears from the start
  *  of that day, Sydney time), whether students, mentors and supervisors have
  *  it now, and when it was released last year. */
