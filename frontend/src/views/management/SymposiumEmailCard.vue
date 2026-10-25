@@ -13,7 +13,7 @@
         <div class="symposium-email__actions symposium-email__actions--preview">
           <button
             type="button"
-            class="btn btn-outline btn-sm"
+            class="btn btn-outline btn-field btn-field--small"
             :disabled="loadingPreview"
             @click="openPreview()"
           >
@@ -43,7 +43,7 @@
         <div class="symposium-email__actions">
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="starting !== null || !canSend"
             @click="confirming = 'all'"
           >
@@ -52,7 +52,7 @@
           <button
             v-if="newlyAdded"
             type="button"
-            class="btn btn-outline btn-sm"
+            class="btn btn-outline btn-field"
             :disabled="starting !== null || !canSend || !status.waiting.new.teams"
             @click="confirming = 'new'"
           >
@@ -60,7 +60,7 @@
           </button>
           <button
             type="button"
-            class="btn btn-outline btn-sm"
+            class="btn btn-outline btn-field"
             :disabled="starting !== null || !canSend || !status.waiting.missed.teams"
             @click="confirming = 'missed'"
           >
@@ -110,8 +110,8 @@
           {{ pendingTeams === 1 ? "hasn't" : "haven't" }} had this email yet.
         </p>
         <div class="symposium-email__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="confirming = null">Cancel</button>
-          <button type="button" class="btn btn-primary btn-sm" @click="send">Send</button>
+          <button type="button" class="btn btn-outline btn-field" @click="confirming = null">Cancel</button>
+          <button type="button" class="btn btn-primary btn-field" @click="send">Send</button>
         </div>
       </div>
     </div>
@@ -145,7 +145,7 @@
           ></iframe>
         </div>
         <div class="symposium-email__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="preview = null">Close</button>
+          <button type="button" class="btn btn-outline btn-field" @click="preview = null">Close</button>
         </div>
       </div>
     </div>

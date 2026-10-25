@@ -379,8 +379,41 @@ export const createAdminUser = (payload: CreateUserPayload) =>
     data: env.data
   }))
 
+/** An Add user email box's check (POST user/email-check/): what saving
+ *  refuses (hard), or what the admin confirms first (soft). */
+export type AdminEmailCheckResult =
+  | { ok: true }
+  | { ok: false; severity: 'hard'; code: string; message: string }
+  | { ok: false; severity: 'soft'; warnings: Array<{ code: string; message: string }> }
+
+export interface AdminEmailCheckField {
+  field: string
+  /** The user's own address, a student's guardian's, or a student's School. */
+  kind: 'account' | 'guardian' | 'school'
+  email: string
+  /** A school box's school. */
+  school?: string
+  firstName?: string
+  lastName?: string
+  /** A guardian's student's address. */
+  accountEmail?: string
+  /** The user being edited, whose own address isn't "already used". */
+  userId?: number
+}
+
+export const checkAdminUserEmails = (fields: AdminEmailCheckField[]) =>
+  adminPost<{ results: Record<string, AdminEmailCheckResult> }>('/user/email-check/', { fields }).then(
+    (body) => body.results,
+  )
+
+// Each row as parsed, but for its place in the file.
+const withoutRowNumber = ({ rowNumber, ...row }: StudentImportRow) => {
+  void rowNumber
+  return row
+}
+
 export const importAdminStudents = (rows: StudentImportRow[]): Promise<StudentBulkImportResult> =>
-  adminPost<AdminEnvelope<StudentBulkImportData>>('/user/bulk/', rows).then((env) => ({
+  adminPost<AdminEnvelope<StudentBulkImportData>>('/user/bulk/', rows.map(withoutRowNumber)).then((env) => ({
     msg: env.msg,
     data: env.data
   }))

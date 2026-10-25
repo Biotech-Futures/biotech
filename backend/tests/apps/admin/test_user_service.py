@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
 
 from django.core import mail
 from django.test import TestCase
@@ -1439,6 +1439,8 @@ class SupervisorFromStudentImportTests(TestCase):
             email="zed-sup@example.com", first_name="Sam", last_name="Super",
             password=None,
         )
+        # A supervisor already: an account that isn't one is refused.
+        SupervisorProfile.objects.create(user=existing, school_name="Zed High")
         self.assertIsNone(existing.state_id)
         self._import_student()
         existing.refresh_from_db()
@@ -1557,6 +1559,22 @@ class InternationalGeographyImportTests(TestCase):
 
         self.assertFalse(items["never@example.com"]["hasLoggedIn"])
         self.assertIsNone(items["never@example.com"]["lastLogin"])
+
+    def test_users_report_when_their_account_was_created(self):
+        # The account's creation, not the later invite, is its registration date.
+        joined = datetime(2025, 3, 4, 5, 6, tzinfo=datetime_timezone.utc)
+        user = User.objects.create_user(
+            email="joined@example.com",
+            first_name="Joined",
+            last_name="Earlier",
+            password="testpass",
+            date_joined=joined,
+            invited_at=datetime(2026, 2, 1, tzinfo=datetime_timezone.utc),
+        )
+
+        listed = {item["email"]: item for item in query_users(search="joined@")["data"]["items"]}
+        self.assertEqual(listed["joined@example.com"]["createdAt"], joined.isoformat())
+        self.assertEqual(query_user_by_id(user.id)["data"]["createdAt"], joined.isoformat())
 
 
 

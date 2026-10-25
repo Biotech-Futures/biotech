@@ -1,6 +1,8 @@
 from django.urls import path
 from . import views
 from . import analytics_views
+from .import_email_check import ImportEmailCheckStatusView, ImportEmailCheckView
+from .user_email_check import UserEmailCheckView
 
 app_name = 'admin_api'
 
@@ -24,6 +26,11 @@ urlpatterns = [
     path('user/bulk-status/', views.UserBulkStatusUpdateView.as_view(), name='user-bulk-status-update'),
     path('user/bulk-delete/', views.UserBulkDeleteView.as_view(), name='user-bulk-delete'),
     path('user/ungrouped-check/', views.UserUngroupedCheckView.as_view(), name='user-ungrouped-check'),
+    # Add user's email boxes, checked as each is left.
+    path('user/email-check/', UserEmailCheckView.as_view(), name='user-email-check'),
+    # Import Students / Import Mentors: the file's addresses, before Import.
+    path('user/import-check/', ImportEmailCheckView.as_view(), name='user-import-check'),
+    path('user/import-check/<uuid:job_id>/', ImportEmailCheckStatusView.as_view(), name='user-import-check-status'),
     path('user/<str:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
     path('user/<str:user_id>/status/', views.UserStatusUpdateView.as_view(), name='user-status-update'),
     path('user/<str:user_id>/supervisees/', views.UserSuperviseesView.as_view(), name='user-supervisees'),

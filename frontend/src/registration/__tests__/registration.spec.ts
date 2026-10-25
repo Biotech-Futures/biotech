@@ -300,49 +300,28 @@ describe('registration payload and email rules', () => {
     ])
   })
 
-  it('normalizes emails and persists photo metadata without confirmation fields', () => {
+  it('normalizes emails without confirmation fields, pronouns or a photo', () => {
     const forms = createRegistrationForms()
     forms.studentIndividual.student.email = ' Student@Example.com '
     forms.studentIndividual.student.emailConfirm = 'Student@Example.com'
-    forms.studentIndividual.student.profilePhoto = {
-      name: 'profile.png',
-      type: 'image/png',
-      size: 2048,
-    }
 
     const request = buildRegistrationRequest('student_individual', forms)
-    const payload = request.payload as {
-      student: {
-        email: string
-        emailConfirm?: string
-        profilePhoto: { name: string; type: string; size: number }
-      }
-    }
+    const payload = request.payload as { student: { email: string; emailConfirm?: string } }
 
     expect(payload.student.email).toBe('student@example.com')
     expect(payload.student.emailConfirm).toBeUndefined()
-    expect(payload.student.profilePhoto).toEqual({
-      name: 'profile.png',
-      type: 'image/png',
-      size: 2048,
-    })
-    expect(JSON.stringify(request)).not.toContain('data:image')
+    expect(payload.student).not.toHaveProperty('pronouns')
+    expect(payload.student).not.toHaveProperty('profilePhoto')
   })
 
   it('removes client-only payload values through the shared sanitizer', () => {
     const forms = createRegistrationForms()
     forms.studentIndividual.student.email = ' Student@Example.com '
     forms.studentIndividual.student.emailConfirm = ' Student@Example.com '
-    forms.studentIndividual.student.profilePhoto = {
-      name: ' profile.png ',
-      type: ' image/png ',
-      size: 2048,
+    Object.assign(forms.studentIndividual.student, {
       file: new File(['photo'], 'profile.png', { type: 'image/png' }),
       previewUrl: 'blob:preview',
-    } as typeof forms.studentIndividual.student.profilePhoto & {
-      file: File
-      previewUrl: string
-    }
+    })
 
     const gatewayRequest = buildRegistrationRequest('student_individual', forms)
 

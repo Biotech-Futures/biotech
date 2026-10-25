@@ -1,6 +1,8 @@
 import { parseInterestList, type CsvTemplate, type ImportRowError } from './adminStudentCsv'
 
 export interface MentorImportRow {
+  /** Its row in the file (the header is row 1). */
+  rowNumber: number
   firstName: string
   lastName: string
   email: string
@@ -183,6 +185,7 @@ export function parseMentorCsv(text: string): {
 
       const mentorBackground = mapMentorBackground(backgroundRaw)
       valid.push({
+        rowNumber,
         firstName,
         lastName,
         email,

@@ -15,7 +15,7 @@
 
       <div v-else-if="loadError" class="deadline__load-error">
         <p>Failed to load. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </div>
 
       <template v-else>
@@ -89,7 +89,7 @@
           </label>
           <button
             type="submit"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="isSaving || !closesAtLocal"
           >
             {{ isSaving ? 'Saving…' : 'Save Deadline' }}
@@ -112,10 +112,10 @@
           the new closing time immediately.
         </p>
         <div class="deadline__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="confirmOpen = false">
+          <button type="button" class="btn btn-outline btn-field" @click="confirmOpen = false">
             Cancel
           </button>
-          <button type="button" class="btn btn-primary btn-sm" :disabled="isSaving" @click="save">
+          <button type="button" class="btn btn-primary btn-field" :disabled="isSaving" @click="save">
             {{ isSaving ? 'Saving…' : 'Confirm' }}
           </button>
         </div>

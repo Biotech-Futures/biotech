@@ -8,7 +8,8 @@ export const registrationPasswordRoute: RouteRecordRaw = {
   name: 'register-password',
   component: () => import('@/views/SetPasswordPage.vue'),
   props: { registration: true },
-  meta: { public: true },
+  // Under the site's top bar, as Guardian Details is.
+  meta: { public: true, siteHeader: true },
 }
 
 export const publicRegistrationRoute: RouteRecordRaw = {

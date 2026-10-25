@@ -5,17 +5,33 @@
         <h1 class="page-title">Resource Library</h1>
         <p class="page-subtitle">Browse available files and pages.</p>
       </div>
+      <!-- An admin sees the table students, mentors and supervisors see, and
+           back to their own. -->
       <div v-if="isAdmin" class="resource-header__actions">
         <button
-          class="btn btn-primary"
+          class="btn btn-outline"
           type="button"
-          @click="openCreateResource"
+          :aria-pressed="othersView"
+          data-test="others-view"
+          @click="othersView = !othersView"
         >
-          <i class="fas fa-plus"></i>
-          <span>Add Resource</span>
+          <i class="fas" :class="othersView ? 'fa-user-shield' : 'fa-eye'" aria-hidden="true"></i>
+          <span>{{ othersView ? 'Show Admin View' : "Show Others' View" }}</span>
         </button>
       </div>
     </div>
+    <!-- When each resource reaches students, mentors and supervisors (what
+         Management > Challenge Start had, as Release Resources). -->
+    <p v-if="adminView" class="resource-release-hint">
+      Shown, a resource is open now to everyone it's for. A hidden resource is released automatically at the
+      start of its <strong>Release At</strong> date (Sydney time). Without a date, it stays hidden. Admins always
+      see every resource. <strong>Last Released</strong> is when it was released last year.
+    </p>
+    <p v-else-if="isAdmin" class="resource-release-hint" data-test="others-view-note">
+      As students, mentors and supervisors see it: the resources released to them now. Each sees only those
+      for their role.
+    </p>
+    <p v-if="releaseError" class="resource-release-error" role="alert">{{ releaseError }}</p>
 
     <div v-if="error" class="card resource-state resource-state-error">
       <h3>Error</h3>
@@ -25,7 +41,7 @@
 
     <!-- Bulk Actions Bar for Admins -->
     <BulkActionsBar
-      v-if="isAdmin && selectedResourceIds.length && !loading"
+      v-if="adminView && selectedResourceIds.length && !loading"
       :count="selectedResourceIds.length"
       noun="resource"
       :disabled="batchBusy"
@@ -52,24 +68,32 @@
     </BulkActionsBar>
 
     <!-- The shared table. The server searches and filters the rows, and the
-         table sorts them: latest modified first, or by Name or Modified.
-         Label sits after Search. -->
+         table sorts them: latest modified first, or by Name or Modified; an
+         admin's by when each was released last year, as Release Resources
+         was. Label sits after Search. Each view keeps its own sort. -->
     <AppDataTable
-      :columns="columns"
-      :rows="tableRows"
+      :key="adminView ? 'admin' : 'others'"
+      :columns="adminView ? adminColumns : columns"
+      :rows="adminView ? tableRows : othersRows"
       row-key="id"
       :loading="loading"
-      :selectable="isAdmin"
+      :selectable="adminView"
       :selected="selectedResourceIds"
-      :default-sort="DEFAULT_SORT"
+      :default-sort="adminView ? ADMIN_SORT : DEFAULT_SORT"
+      :focus-row="focusResource"
       v-model:search="searchQuery"
       search-placeholder="Name or description"
       empty-message="No resources found. Try changing your search or filters."
       clickable-rows
-      :action-columns="2"
       @update:selected="onSelectedChange"
       @row-click="openResourceDetail(toResource($event).id)"
     >
+      <template v-if="adminView" #search-side>
+        <button class="btn btn-primary btn-sm" type="button" @click="openCreateResource">
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          <span>Add Resource</span>
+        </button>
+      </template>
       <template #filters>
         <label class="table-filter-field">
           <span class="table-filter-label">Label</span>
@@ -93,7 +117,9 @@
       </template>
 
       <template #cell-name="{ row }">
-        <span class="resource-name-cell">{{ toResource(row).name }}</span>
+        <span class="resource-name-cell" :class="{ 'resource-name-cell--wide': !adminView }">
+          {{ toResource(row).name }}
+        </span>
       </template>
 
       <template #cell-labels="{ row }">
@@ -105,25 +131,40 @@
         <span v-else class="muted">None</span>
       </template>
 
-      <!-- Edit | Delete, each in its own column, as the other tables do.
-           Clicking its name opens it. -->
-      <template v-if="isAdmin" #actions="{ row, column }">
+      <!-- An admin's: Edit (Delete is in its panel, or ticked rows' bar),
+           then whether it's shown and when it's released. Clicking its name
+           opens it. -->
+      <template #cell-edit="{ row }">
         <button
-          v-if="column === 0"
           type="button"
           class="btn btn-sm btn-outline"
+          :data-test="`resource-edit-${row.id}`"
           @click.stop="openEditResource(toResource(row))"
         >
           Edit
         </button>
-        <button
-          v-else
-          type="button"
-          class="btn btn-sm btn-outline"
-          @click.stop="confirmDeleteResource(toResource(row))"
-        >
-          Delete
-        </button>
+      </template>
+      <template #cell-shown="{ row }">
+        <HideShowSwitch
+          v-if="row.release"
+          :on="Boolean(toRelease(row).shown)"
+          :disabled="savingId === row.id"
+          :label="`Show ${row.name}`"
+          :data-test="`release-shown-${row.id}`"
+          @change="saveRelease(Number(row.id), { shown: $event })"
+        />
+      </template>
+      <template #cell-release="{ row }">
+        <AppDatePicker
+          v-if="row.release"
+          :model-value="toRelease(row).release_on"
+          class="app-input app-input--compact resource-release-date"
+          :clearable="false"
+          :disabled="savingId === row.id"
+          placeholder="No date"
+          :data-test="`release-date-${row.id}`"
+          @update:model-value="saveRelease(Number(row.id), { release_on: $event || null })"
+        />
       </template>
     </AppDataTable>
 
@@ -173,6 +214,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
@@ -187,19 +229,26 @@ import {
   fetchResourceLabels,
   fetchResourceTypes,
   type Resource,
-  type ResourceKind,
   type ResourceLabel,
   type ResourceType
 } from '../utils/resourcesAPI'
-import { ApiError } from '../utils/apiError'
-import { formatDayMonth } from '../utils/date'
+import { ApiError, apiErrorFromUnknown } from '../utils/apiError'
+import { formatDayMonth, formatShortDate } from '../utils/date'
+import { fetchResourceReleases, saveResourceRelease, type ResourceReleaseRow } from '../utils/managementAPI'
 import { resourceFileIcon } from '../utils/resource'
 import { useAuthStore } from '../stores/auth'
+import HideShowSwitch from './management/HideShowSwitch.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const isAdmin = computed(() => auth.isAdmin)
+// An admin's own table, or the one students, mentors and supervisors see.
+const othersView = ref(false)
+const adminView = computed(() => isAdmin.value && !othersView.value)
+// Back from a resource's page, the resource it was: its row brought into
+// view, on whichever page of the table has it.
+const focusResource = computed(() => (typeof route.query.resource === 'string' ? route.query.resource : undefined))
 
 const busy = ref(false)
 const formSheetOpen = ref(false)
@@ -305,13 +354,41 @@ const loadResourceLookups = async (): Promise<void> => {
   }
 }
 
+// When each resource reaches students, mentors and supervisors, for an
+// admin: shown or hidden, its release date, and last year's release.
+const releases = ref<Map<number, ResourceReleaseRow>>(new Map())
+const releaseError = ref('')
+const savingId = ref<number | null>(null)
+
+const loadReleases = async (): Promise<void> => {
+  if (!isAdmin.value) return
+  try {
+    releases.value = new Map((await fetchResourceReleases()).map((row) => [row.id, row]))
+  } catch (err) {
+    releaseError.value = apiErrorFromUnknown(err, 'When each resource is released could not be loaded.').message
+  }
+}
+
+// Shown or hidden, or its date, saved as it's changed: its row as the server has it then.
+const saveRelease = async (id: number, change: { shown?: boolean; release_on?: string | null }) => {
+  savingId.value = id
+  releaseError.value = ''
+  try {
+    const saved = await saveResourceRelease(id, change)
+    releases.value = new Map(releases.value).set(saved.id, saved)
+  } catch (err) {
+    releaseError.value = apiErrorFromUnknown(err, 'The change could not be saved.').message
+  } finally {
+    savingId.value = null
+  }
+}
+
 // The table's columns; Name and Modified sort, Modified by its time.
 const columns: DataTableColumn[] = [
   { key: 'icon', label: '', sortable: false, cellClass: () => 'resource-icon-cell' },
   // Names the row, though the icon comes first.
   { key: 'name', label: 'Name', wrap: true, primary: true },
   { key: 'type', label: 'Type', sortable: false },
-  { key: 'kind', label: 'Kind', sortable: false },
   { key: 'labels', label: 'Labels', wrap: true, sortable: false },
   {
     key: 'modified',
@@ -322,20 +399,46 @@ const columns: DataTableColumn[] = [
 // Latest modified first, until a heading is clicked.
 const DEFAULT_SORT: DataTableSort = { key: 'modified', direction: 'desc' }
 
+// Last year's release by its time, those with none last.
+const lastReleased = (row: Record<string, unknown>) => {
+  const at = (row.release as ResourceReleaseRow | undefined)?.last_released_at
+  return at ? Date.parse(at) : Number.MAX_SAFE_INTEGER
+}
+// An admin's: the same, then Edit and when each is released.
+const adminColumns: DataTableColumn[] = [
+  ...columns,
+  { key: 'edit', label: 'Edit', sortable: false },
+  { key: 'shown', label: 'Show/Hide', sortable: false },
+  { key: 'release', label: 'Release At', sortable: false },
+  { key: 'last', label: 'Last Released', sortValue: lastReleased },
+]
+// By when each was released last year, so this year's can follow it.
+const ADMIN_SORT: DataTableSort = { key: 'last', direction: 'asc' }
+
 const tableRows = computed(() =>
-  resources.value.map((resource) => ({
-    id: resource.id,
-    // The first column's text names the row for its tick box.
-    icon: resource.name,
-    name: resource.name,
-    type: getResourceTypeLabel(resource),
-    kind: getResourceKindLabel(resource.kind),
-    labels: (resource.labels ?? []).map((label) => label.name).join(', '),
-    modified: formatDate(resource.uploaded_at),
-    resource,
-  })),
+  resources.value.map((resource) => {
+    const release = releases.value.get(resource.id)
+    return {
+      id: resource.id,
+      // The first column's text names the row for its tick box.
+      icon: resource.name,
+      name: resource.name,
+      type: getResourceTypeLabel(resource),
+      labels: (resource.labels ?? []).map((label) => label.name).join(', '),
+      modified: formatDate(resource.uploaded_at),
+      last: release?.last_released_at ? formatShortDate(release.last_released_at) : '—',
+      release,
+      resource,
+    }
+  }),
+)
+// What students, mentors and supervisors see: those released to them now
+// (an admin's list has every resource; anyone else's only theirs).
+const othersRows = computed(() =>
+  isAdmin.value ? tableRows.value.filter((row) => row.release?.released !== false) : tableRows.value,
 )
 const toResource = (row: Record<string, unknown>) => row.resource as Resource
+const toRelease = (row: Record<string, unknown>) => row.release as ResourceReleaseRow
 
 const onSelectedChange = (keys: (string | number)[]) => {
   selectedResourceIds.value = keys.map(Number)
@@ -361,16 +464,7 @@ const getResourceTypeLabel = (resource: Resource): string => {
   return formatTypeName(resource.type_name || resource.resource_type_detail?.type_name)
 }
 
-const getResourceKindLabel = (kind: ResourceKind): string => {
-  const labelsByKind: Record<string, string> = {
-    file: 'File',
-    page: 'Page',
-    attachment: 'Attachment'
-  }
-  return labelsByKind[kind] || formatTypeName(kind)
-}
-
-// As Release Resources draws it (utils/resource).
+// Its icon, by its kind and a file's type (utils/resource).
 const getResourceIcon = (resource: Resource): string => resourceFileIcon(resource)
 
 const formatFileSize = (value?: number | null): string => {
@@ -420,7 +514,7 @@ const runDeleteResource = async () => {
     await deleteAdminResource(target.id)
     deleteConfirm.value.open = false
     deleteConfirm.value.resource = null
-    await Promise.all([loadResources(), loadResourceLookups()])
+    await Promise.all([loadResources(), loadResourceLookups(), loadReleases()])
   } catch (err: any) {
     console.error('Failed to delete resource:', err)
     error.value = err?.message || 'Failed to delete resource.'
@@ -430,7 +524,7 @@ const runDeleteResource = async () => {
 }
 
 const onResourceSaved = async () => {
-  await Promise.all([loadResources(), loadResourceLookups()])
+  await Promise.all([loadResources(), loadResourceLookups(), loadReleases()])
 }
 
 const onFormEditorDelete = () => {
@@ -473,7 +567,7 @@ const onApplyBatchAccess = async (payload: { visibilityScope: 'role_based'; role
 
     batchAccessModalOpen.value = false
     clearSelection()
-    await Promise.all([loadResources(), loadResourceLookups()])
+    await Promise.all([loadResources(), loadResourceLookups(), loadReleases()])
   } catch (err: any) {
     console.error('Batch access update failed:', err)
     error.value = err?.message || 'Failed to update access for selected resources.'
@@ -511,7 +605,7 @@ const runBulkDeleteResources = async () => {
 
     bulkDeleteConfirm.value.open = false
     clearSelection()
-    await Promise.all([loadResources(), loadResourceLookups()])
+    await Promise.all([loadResources(), loadResourceLookups(), loadReleases()])
   } catch (err: any) {
     console.error('Failed to bulk delete resources:', err)
     error.value = err?.message || 'Failed to delete selected resources.'
@@ -523,6 +617,7 @@ const runBulkDeleteResources = async () => {
 onMounted(() => {
   loadResourceLookups()
   loadResources()
+  loadReleases()
 })
 
 onBeforeUnmount(() => {
@@ -581,6 +676,33 @@ onBeforeUnmount(() => {
   display: block;
   font-weight: 600;
   min-width: 220px;
+}
+
+/* Without an admin's columns, the name has the room. */
+.resource-name-cell--wide {
+  min-width: 360px;
+}
+
+/* When each resource is released, said under the title, and its errors. */
+.resource-release-hint {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.resource-release-error {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+/* A date's width, in the row. */
+.resource-release-date {
+  width: 11rem;
+  max-width: none;
 }
 
 .label-list {

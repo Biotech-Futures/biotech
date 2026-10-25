@@ -7,7 +7,7 @@
     <div v-else-if="loadError" class="release__load-error">
       <p>Failed to load release status.</p>
       <p class="release__error-detail">{{ loadError }}</p>
-      <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+      <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
     </div>
 
     <div v-else-if="status" class="release__panel">
@@ -72,7 +72,7 @@
           <div class="release__dialog-actions">
             <button
               type="button"
-              class="btn btn-outline btn-sm"
+              class="btn btn-outline btn-field"
               :disabled="isToggling"
               @click="showConfirm = false"
             >
@@ -80,7 +80,7 @@
             </button>
             <button
               type="button"
-              class="btn btn-primary btn-sm"
+              class="btn btn-primary btn-field"
               :disabled="isToggling"
               @click="confirmRelease"
             >

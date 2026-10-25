@@ -20,6 +20,7 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 vi.mock('@/utils/adminAPI', async () => ({
   ...(await vi.importActual<typeof import('@/utils/adminAPI')>('@/utils/adminAPI')),
   createAdminUser: vi.fn(),
+  checkAdminUserEmails: vi.fn(async () => ({})),
   updateAdminUser: vi.fn(),
   setAdminUserActive: vi.fn()
 }))

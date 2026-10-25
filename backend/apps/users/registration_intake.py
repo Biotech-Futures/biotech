@@ -10,6 +10,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, Signer
 from django.db import IntegrityError, transaction
+from django.db.models import DateTimeField, ExpressionWrapper, F, Value
+from django.db.models.functions import Greatest, Lower
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, serializers
@@ -38,7 +40,7 @@ from .models import (
 from .profile_images import save_profile_image, validate_profile_image
 from .returning import restart_guardian_permission, returning_student
 from .serializers import (
-    REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
+    GUARDIAN_TOGETHER, REGISTRATION_OVERRIDES, UNKNOWN_OVERRIDE, StrictBooleanField, UserRegisterBodySerializer,
     registration_warnings, stored_email_answers,
 )
 
@@ -121,7 +123,7 @@ class StudentInput(StrictInput):
 
     def validate_overrides(self, value):
         if set(value) - REGISTRATION_OVERRIDES:
-            raise serializers.ValidationError("Unknown registration override.")
+            raise serializers.ValidationError(UNKNOWN_OVERRIDE)
         return value
 
     def validate(self, data):
@@ -138,7 +140,11 @@ class StudentInput(StrictInput):
         optional_guardian = self.context.get("guardian_optional", False)
         if data["guardianDeferred"] and not optional_guardian:
             errors["guardianDeferred"] = "A student registering themselves must provide guardian contact."
-        if data["guardianDeferred"] and any(data["guardian"].values()):
+        given = [field for field in ("firstName", "lastName", "email") if data["guardian"].get(field)]
+        if data["guardianDeferred"] and given and len(given) < 3:
+            for field in {"firstName", "lastName", "email"} - set(given):
+                errors[f"guardian.{field}"] = GUARDIAN_TOGETHER
+        elif data["guardianDeferred"] and any(data["guardian"].values()):
             errors["guardianDeferred"] = "Clear guardian details or turn off deferral."
         if not self.context.get("legacy"):
             guardian = data["guardian"]
@@ -241,8 +247,20 @@ class IntakeInput(StrictInput):
                 errors["payload.source.rowNumbers"] = "Provide the filename and one unique ordered CSV row number per student."
         elif set(source) - {"method"}:
             errors["payload.source"] = "CSV metadata is only accepted for CSV intake."
-        # A student registering themselves may nominate a supervisor (optional).
-        # A supervisor is their own students'; an admin chooses one (register).
+        # A student registering themselves names their supervisor (not when
+        # joining a group by its code: it has one). The legacy form's is
+        # optional, as it always was, and the email pre-check only reads the
+        # addresses (``addresses_only``). A supervisor is their own students';
+        # an admin chooses one (register).
+        joining = bool((payload.get("group") or {}).get("joinCode"))
+        if (
+            journey in ("student_individual", "student_team") and not joining
+            and not self.context.get("legacy") and not self.context.get("addresses_only")
+            and "supervisor" not in payload
+        ):
+            errors["payload.supervisor.firstName"] = "Enter the supervisor first name."
+            errors["payload.supervisor.lastName"] = "Enter the supervisor last name."
+            errors["payload.supervisor.email"] = "Enter the supervisor email."
         if journey in SUPERVISOR_JOURNEYS and "supervisor" in payload:
             errors["payload.supervisor"] = "Supervisor identity comes from the authenticated session."
         if journey not in SUPERVISOR_JOURNEYS and payload.get("supervisorEmail"):
@@ -522,7 +540,9 @@ def save_student(student, supervisor, now, *, registered_by, lookups=None):
     returning = user is not None
     if returning:
         user.first_name, user.last_name = student["firstName"], student["lastName"]
-        user.country, user.state, user.pronouns = country, state, pronouns
+        user.country, user.state = country, state
+        # The form no longer asks for pronouns: theirs stay unless some are sent.
+        user.pronouns = pronouns or user.pronouns
         user.activate(save=False)
         user.save()
     else:
@@ -858,6 +878,12 @@ def register(request):
                 *((supervisor.get("email"),) if named_supervisor else ()),
             ])
             known_schools = KnownUniversity.matching(student.get("school", "") for student in students)
+            guardian_accounts = set(
+                User.objects.annotate(lowered=Lower("email")).filter(lowered__in={
+                    (student["guardian"].get("email") or "").strip().lower() for student in students
+                } - {""}).values_list("lowered", flat=True)
+            )
+            invalid_is_error = journey != "supervisor_csv"
             for index, student in enumerate(students):
                 registered_by = (
                     (
@@ -875,6 +901,8 @@ def register(request):
                     context={
                         "defer_warnings": True, "canonical_registration_fields": True,
                         "allow_partial_student": registered_by == StudentProfile.RegisteredBy.PEER,
+                        "email_answers": email_answers, "invalid_is_error": invalid_is_error,
+                        "check_supervisor": named_supervisor,
                     },
                 )
                 if not validator.is_valid():
@@ -888,7 +916,8 @@ def register(request):
                     "override_field": f"students.{index}.overrides.{warning['override_field']}",
                 } for warning in registration_warnings(
                     validator.validated_data, email_answers, known_schools,
-                    check_supervisor=named_supervisor and index == 0,
+                    check_supervisor=named_supervisor and index == 0, invalid_is_error=invalid_is_error,
+                    guardian_accounts=guardian_accounts,
                 )])
             if errors:
                 raise serializers.ValidationError(errors)
@@ -1165,9 +1194,14 @@ class RegistrationManagementView(APIView):
                 serializer.is_valid(raise_exception=True)
                 serializer.save(updated_by=request.user, updated_at=timezone.now())
                 # Codes held for student groups last until registration ends,
-                # so they move with its end.
+                # so they move with its end: 4 months from being held at least.
                 GroupCodeReservation.objects.filter(expires_at__gt=timezone.now()).update(
-                    expires_at=registration_end(serializer.instance),
+                    expires_at=Greatest(
+                        Value(registration_end(serializer.instance), output_field=DateTimeField()),
+                        ExpressionWrapper(
+                            F("created_at") + GroupCodeReservation.HOLD, output_field=DateTimeField(),
+                        ),
+                    ),
                 )
                 return Response({"window": serializer.data})
             if action == "invite":
