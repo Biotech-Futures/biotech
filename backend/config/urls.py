@@ -87,6 +87,7 @@ _api_v1_patterns = [
     # Submissions is v1-only: it has no legacy unprefixed callers to support,
     # so it is deliberately left out of _DUAL_MOUNTS.
     path("submissions/", include("apps.submissions.urls")),
+    path("assistant/", include("apps.assistant.urls")),
     path("", include("apps.users.urls")),
 ]
 

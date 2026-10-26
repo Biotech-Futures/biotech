@@ -255,6 +255,8 @@ REST_FRAMEWORK = {
         # The same, on the admin portal's Add user.
         'admin_user_email_check': '60/min',
         'admin_import_email_check': '30/min',
+        # The help assistant, per person: far above anyone typing questions.
+        'assistant_ask': '20/min',
     },
 }
 

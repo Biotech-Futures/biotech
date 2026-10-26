@@ -31,6 +31,22 @@
             />
           </form>
 
+          <!-- Support agents work the ticket queue; the assistant is for the
+               people using the platform. -->
+          <template v-if="!auth.isSupportOnly">
+            <button
+              type="button"
+              class="theme-toggle"
+              aria-label="Open help assistant"
+              title="Help"
+              :aria-expanded="isHelpOpen"
+              @click="isHelpOpen = !isHelpOpen"
+            >
+              <i class="fas fa-circle-question" aria-hidden="true"></i>
+            </button>
+            <HelpAssistant v-show="isHelpOpen" @close="isHelpOpen = false" />
+          </template>
+
           <button
             type="button"
             class="theme-toggle"
@@ -351,6 +367,7 @@ import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
+import HelpAssistant from '@/components/HelpAssistant.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { formatOrdinalDate, SYDNEY_TIME_ZONE } from '@/utils/date'
@@ -395,6 +412,7 @@ const handleLogout = async () => {
 
 const THEME_STORAGE_KEY = 'biotech-theme'
 const isDark = ref(false)
+const isHelpOpen = ref(false)
 
 const applyTheme = (dark: boolean) => {
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
