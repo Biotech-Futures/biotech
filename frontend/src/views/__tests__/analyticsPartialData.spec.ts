@@ -426,11 +426,16 @@ describe('independent analytics sources', () => {
     const w = await show(UsersPage)
     const arcs = w.findAll('.role-donut-segment')
     const arcTotal = arcs.reduce(
-      (sum, segment) => sum + Number(segment.attributes('stroke-dasharray')?.split(' ')[0] ?? 0),
+      (sum, segment) => sum + Number(segment.attributes('data-draw-percent') ?? 0),
       0,
     )
 
     expect(arcTotal).toBeCloseTo(100)
+    expect(arcs.every((segment) => {
+      const rendered = Number(segment.attributes('stroke-dasharray')?.split(' ')[0] ?? 0)
+      const exact = Number(segment.attributes('data-draw-percent') ?? 0)
+      return exact === 0 ? rendered === 0 : rendered >= exact
+    })).toBe(true)
     expect(w.get('.role-content .legend-list').text()).toContain('Students1 (33.3%)')
     expect(w.get('.role-content .legend-list').text()).toContain('Mentors1 (33.3%)')
     expect(w.get('.role-content .legend-list').text()).toContain('Supervisors1 (33.3%)')
