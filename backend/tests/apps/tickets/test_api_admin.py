@@ -4960,3 +4960,132 @@ class QueueExportFormulaInjectionTests(QueueExportTestCase):
 
         self.assertEqual(cell.data_type, "s")
         self.assertTrue(cell.quotePrefix)
+
+
+class RequesterGroupsTests(AdminTicketAPITestCase):
+    """C-39: the details tab names the groups the requester is in. The client
+    asked on 26 October 2026 to "show the group numbers in this details page";
+    a group's number is its name ("BTF07"), not the join code."""
+
+    def groups_on(self, ticket):
+        return self.client.get(f"{QUEUE}{ticket.pk}/").json()["data"]["requester"]["groups"]
+
+    def join(self, name, *, user=None, left=False, deleted=False):
+        from apps.groups.models import GroupMembership, Groups
+
+        group = Groups.objects.create(group_name=name)
+        if deleted:
+            Groups.objects.filter(pk=group.pk).update(deleted_at=timezone.now())
+        joined = timezone.now() - timedelta(days=30)
+        GroupMembership.objects.create(
+            group=group,
+            user=user or self.requester,
+            joined_at=joined,
+            left_at=joined + timedelta(days=1) if left else None,
+        )
+        return group
+
+    def test_every_group_the_requester_is_in_now_is_named_in_order(self):
+        btf186 = self.join("BTF186")
+        btf07 = self.join("BTF07")
+        self.assertEqual(
+            self.groups_on(self.make_ticket()),
+            [{"id": btf07.pk, "name": "BTF07"}, {"id": btf186.pk, "name": "BTF186"}],
+        )
+
+    def test_a_group_the_requester_left_or_one_since_deleted_is_left_out(self):
+        self.join("BTF10", left=True)
+        self.join("BTF11", deleted=True)
+        current = self.join("BTF12")
+        self.assertEqual(self.groups_on(self.make_ticket()), [{"id": current.pk, "name": "BTF12"}])
+
+    def test_someone_else_in_a_group_does_not_put_it_on_the_ticket(self):
+        self.join("BTF20", user=self.other_requester)
+        self.assertEqual(self.groups_on(self.make_ticket()), [])
+
+
+class QueueExportReaderZoneTests(QueueExportTestCase):
+    """C-37 to C-40: the page sends the zone its table is shown in (DEC-068),
+    and the file is written in that zone, so it reads like the screen."""
+
+    def setUp(self):
+        super().setUp()
+        ticket = self.make_ticket(subject="Winter")
+        Ticket.objects.filter(pk=ticket.pk).update(
+            support_updated_at=datetime(2026, 9, 3, 5, 37, tzinfo=dt_timezone.utc)
+        )
+
+    def last_activity(self, body):
+        return {row[2].value: row[6] for row in self.body_rows(body)}["Winter"]
+
+    def test_the_zone_the_page_sends_wins_over_a_profile_still_on_utc(self):
+        # The agent's profile is the platform's default, UTC.
+        cell = self.last_activity({"timeZone": "Australia/Sydney"})
+        self.assertEqual(cell.value, datetime(2026, 9, 3, 15, 37))
+        self.assertEqual(cell.number_format, 'd mmm yyyy, hh:mm AM/PM "AEST"')
+
+    def test_an_unreadable_sent_zone_falls_back_to_the_profile_instead_of_failing(self):
+        User.objects.filter(pk=self.agent.pk).update(timezone="Australia/Perth")
+        for sent in ("Mars/Olympus_Mons", "../../etc/passwd", "x" * 5000, 7):
+            with self.subTest(sent=str(sent)[:20]):
+                cell = self.last_activity({"timeZone": sent})
+                self.assertEqual(cell.value, datetime(2026, 9, 3, 13, 37))
+                self.assertEqual(cell.number_format, 'd mmm yyyy, hh:mm AM/PM "AWST"')
+
+    def test_the_file_is_named_for_the_readers_own_day(self):
+        # 13:30 UTC on 1 January is already 00:30 on the 2nd in Sydney (AEDT).
+        moment = datetime(2030, 1, 1, 13, 30, tzinfo=dt_timezone.utc)
+        with patch("apps.tickets.views_admin.timezone") as clock:
+            clock.now.return_value = moment
+            response = self.export({"timeZone": "Australia/Sydney"})
+        self.assertEqual(
+            response["Content-Disposition"],
+            'attachment; filename="tickets-2030-01-02.xlsx"',
+        )
+
+
+class AnalyticsReaderZoneTests(AdminTicketAPITestCase):
+    """C-37 to C-40: the page sends its reader's zone as ``tz`` (DEC-068), and a
+    bare date in the window is that reader's day, not a UTC one."""
+
+    URL = f"{QUEUE}analytics/"
+
+    def data(self, **params):
+        response = self.client.get(self.URL, params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["data"]
+
+    def test_a_bare_date_opens_at_the_readers_midnight(self):
+        # 1 October 2026 is still AEST (+10): daylight saving starts on the 4th.
+        window = self.data(**{"from": "2026-10-01", "tz": "Australia/Sydney"})["window"]
+        self.assertEqual(window["from"], "2026-09-30T14:00:00+00:00")
+
+    def test_a_bare_closing_date_ends_at_the_readers_next_midnight_after_the_clocks_change(self):
+        # Midnight starting 25 October 2026 is AEDT (+11).
+        window = self.data(**{"to": "2026-10-24", "tz": "Australia/Sydney"})["window"]
+        self.assertEqual(window["to"], "2026-10-24T13:00:00+00:00")
+
+    def test_a_ticket_counts_on_the_readers_day(self):
+        ticket = self.make_ticket()
+        # 1:00 am on 1 October in Sydney, which is still 30 September in UTC.
+        Ticket.objects.filter(pk=ticket.pk).update(
+            created_at=datetime(2026, 9, 30, 15, 0, tzinfo=dt_timezone.utc)
+        )
+        day = {"from": "2026-10-01", "to": "2026-10-01"}
+        self.assertEqual(self.data(**day, tz="Australia/Sydney")["demand"]["volume"], 1)
+        self.assertEqual(self.data(**day)["demand"]["volume"], 0)
+
+    def test_without_a_zone_the_window_is_still_read_in_utc(self):
+        self.assertEqual(
+            self.data(**{"from": "2026-03-01"})["window"]["from"], "2026-03-01T00:00:00+00:00"
+        )
+
+    def test_an_instant_with_an_offset_keeps_it(self):
+        window = self.data(**{"from": "2026-10-01T00:00:00Z", "tz": "Australia/Sydney"})["window"]
+        self.assertEqual(window["from"], "2026-10-01T00:00:00+00:00")
+
+    def test_a_zone_that_does_not_exist_is_refused_not_a_crash(self):
+        for tz in ("Mars/Olympus_Mons", "../../etc/passwd", "x" * 5000):
+            with self.subTest(tz=tz[:20]):
+                response = self.client.get(self.URL, {"from": "2026-10-01", "tz": tz})
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

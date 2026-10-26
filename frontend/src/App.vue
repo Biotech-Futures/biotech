@@ -226,6 +226,12 @@
                 </li>
               </ul>
             </li>
+            <!-- Last, while the pages are hidden: when this year's challenge
+                 starts (Management > Challenge Start), in its own box. -->
+            <li v-if="challengeStartNote && !isSidebarCollapsed" class="sidebar-note" data-test="challenge-start-note">
+              <i class="fas fa-calendar-day sidebar-note__icon" aria-hidden="true"></i>
+              <span>This year's challenge will start on <strong>{{ challengeStartNote }}</strong>.</span>
+            </li>
           </ul>
         </nav>
 
@@ -347,6 +353,7 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
+import { formatOrdinalDate, SYDNEY_TIME_ZONE } from '@/utils/date'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { landingPath } from '@/utils/landing'
@@ -498,7 +505,15 @@ type MainNavEntry =
       collapsed: boolean
     }
 
-const { shown: supervisorPagesShown } = useSupervisorPages()
+const { shown: supervisorPagesShown, challengeStartsAt, now: pagesClock } = useSupervisorPages()
+// While the pages are hidden from a student, mentor or supervisor, the menu
+// says when this year's challenge starts (its date, in Sydney), once it's
+// set and still to come.
+const challengeStartNote = computed(() => {
+  if (auth.isAdmin || auth.isSupportOnly || supervisorPagesShown.value || !challengeStartsAt.value) return ''
+  if (Date.parse(challengeStartsAt.value) <= pagesClock.value) return ''
+  return formatOrdinalDate(challengeStartsAt.value, SYDNEY_TIME_ZONE)
+})
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
@@ -595,6 +610,7 @@ const sidebarSections = computed(() => {
         { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },
         { label: 'Tasks', to: '/admin/tasks', active: path === '/admin/tasks' },
         { label: 'Role Tasks', to: '/admin/role-tasks', active: path.startsWith('/admin/role-tasks') },
+        { label: 'Group Plans', to: '/admin/plan', active: path === '/admin/plan' || path.startsWith('/admin/plan/') },
         { label: 'System Emails', to: '/admin/emails', active: path === '/admin/emails' },
         { label: 'Grading', to: '/grading', active: path.startsWith('/grading') },
         { label: 'Management', to: '/management', active: path.startsWith('/management') },
@@ -1529,6 +1545,28 @@ select {
 
 .sidebar.is-collapsed .sidebar-link span {
   display: none;
+}
+
+/* When this year's challenge starts: a box of its own, below the menu. */
+.sidebar-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 1.25rem 1rem 0.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(1, 113, 81, 0.22);
+  border-radius: 8px;
+  background: var(--light-green);
+  color: var(--teal);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.sidebar-note__icon {
+  flex: none;
+  margin-top: 0.2rem;
+  color: var(--dark-green);
+  font-size: 1.1rem;
 }
 
 .sidebar-icon {

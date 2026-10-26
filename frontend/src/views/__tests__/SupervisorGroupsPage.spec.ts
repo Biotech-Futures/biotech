@@ -6,8 +6,10 @@ import SupervisorGroupsPage from '@/views/SupervisorGroupsPage.vue'
 import {
   addSupervisedGroupMembers,
   createAllWaitingGroups,
+  fetchGroupingPreference,
   fetchSupervisedGroups,
   removeSupervisedGroupMembers,
+  saveGroupingPreference,
   saveSupervisedGroupOrder,
   type SupervisedGroup,
 } from '@/utils/supervisedGroups'
@@ -20,6 +22,8 @@ vi.mock('@/utils/supervisedGroups', () => ({
   removeSupervisedGroupMembers: vi.fn(),
   deleteSupervisedGroup: vi.fn(),
   saveSupervisedGroupOrder: vi.fn(),
+  fetchGroupingPreference: vi.fn(),
+  saveGroupingPreference: vi.fn(),
 }))
 
 vi.mock('@/utils/supervisedStudents', () => ({
@@ -79,9 +83,56 @@ const group = (
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
+  vi.mocked(fetchGroupingPreference).mockResolvedValue({ grouping_preference: '', school_name: 'Example School' })
 })
 
 describe('SupervisorGroupsPage', () => {
+  it('asks at the top how students without a group are matched, and saves the answer', async () => {
+    vi.mocked(fetchSupervisedStudents).mockResolvedValue([student(1, 'Amy', null)])
+    vi.mocked(fetchSupervisedGroups).mockResolvedValue([])
+    vi.mocked(saveGroupingPreference).mockResolvedValue({
+      grouping_preference: 'cross_school',
+      school_name: 'Example School',
+    })
+    const wrapper = mount(SupervisorGroupsPage, {
+      global: { stubs: { SupervisorStudentSheet: true, GroupEditorModal: true } },
+    })
+    await flushPromises()
+
+    const question = wrapper.get('.grouping-question')
+    expect(wrapper.element.querySelector('section')).toBe(question.element)
+    expect(question.text()).toContain("I'd like the teams to remain within Example School")
+    expect(question.text()).toContain('Only if you have at least 2 students in all groups.')
+    expect(question.findAll<HTMLInputElement>('input').some((input) => input.element.checked)).toBe(false)
+
+    await question.get('[data-test="grouping-cross-school"]').setValue()
+    await flushPromises()
+
+    expect(saveGroupingPreference).toHaveBeenCalledWith('cross_school')
+    expect(question.get<HTMLInputElement>('[data-test="grouping-cross-school"]').element.checked).toBe(true)
+    expect(question.get('.grouping-status').text()).toBe('Saved.')
+  })
+
+  it('keeps the earlier answer, and says why, when a new one cannot be saved', async () => {
+    vi.mocked(fetchSupervisedStudents).mockResolvedValue([student(1, 'Amy', null)])
+    vi.mocked(fetchSupervisedGroups).mockResolvedValue([])
+    vi.mocked(fetchGroupingPreference).mockResolvedValue({ grouping_preference: 'school_only', school_name: '' })
+    vi.mocked(saveGroupingPreference).mockRejectedValue(new Error('The server could not be reached.'))
+    const wrapper = mount(SupervisorGroupsPage, {
+      global: { stubs: { SupervisorStudentSheet: true, GroupEditorModal: true } },
+    })
+    await flushPromises()
+
+    const question = wrapper.get('.grouping-question')
+    expect(question.text()).toContain("I'd like the teams to remain within your school")
+    await question.get('[data-test="grouping-cross-school"]').setValue()
+    await flushPromises()
+
+    expect(question.get<HTMLInputElement>('[data-test="grouping-school-only"]').element.checked).toBe(true)
+    expect(question.get<HTMLInputElement>('[data-test="grouping-cross-school"]').element.checked).toBe(false)
+    expect(question.get('.grouping-status').text()).toBe('The server could not be reached.')
+  })
+
   it('keeps groups formed while registering in the Waiting Area, the rest on the board', async () => {
     vi.mocked(fetchSupervisedStudents).mockResolvedValue([
       student(1, 'Amy', 10),

@@ -149,7 +149,9 @@ class NewYearChangesTests(TestCase):
         self.mentor = _person("mentor-run@test.com")
         MentorProfile.objects.create(user=self.mentor)
         self.supervisor = _person("supervisor-run@test.com")
-        self.supervisor_profile = SupervisorProfile.objects.create(user=self.supervisor, register_after_close=True)
+        self.supervisor_profile = SupervisorProfile.objects.create(
+            user=self.supervisor, register_after_close=True, grouping_preference="school_only",
+        )
         # An admin who supervises too stays an admin, active.
         self.admin_supervisor = _person("admin-supervisor-run@test.com")
         AdminScope.objects.create(user=self.admin_supervisor)
@@ -309,6 +311,8 @@ class NewYearChangesTests(TestCase):
         self.assertEqual(PresentationSlot.objects.count(), 1)
         self.supervisor_profile.refresh_from_db()
         self.assertFalse(self.supervisor_profile.register_after_close)
+        # Asked again how the new year's students are matched.
+        self.assertEqual(self.supervisor_profile.grouping_preference, "")
 
     def test_every_emails_sent_progress_starts_again(self):
         run = EmailSendRun.objects.get(key="finalist_notification")

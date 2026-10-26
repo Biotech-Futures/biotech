@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'apps.user_sessions',
     'apps.matching_runtime',
     'apps.tasks',
+    'apps.plans',
     'apps.meetings',
     'apps.workshops',
     'apps.certificates',
@@ -247,6 +248,13 @@ REST_FRAMEWORK = {
         # The public consent page, per IP: generous for a family sharing a
         # connection, tight enough to make guessing links pointless.
         'guardian_consent': '60/hour',
+        # A registration page checking each email box as it's left, per
+        # person: a family or a classroom registering together stays well
+        # under it, a script spending QuickEmailVerification lookups doesn't.
+        'registration_email_field_check': '30/min',
+        # The same, on the admin portal's Add user.
+        'admin_user_email_check': '60/min',
+        'admin_import_email_check': '30/min',
     },
 }
 
@@ -920,3 +928,7 @@ EMAIL_PRECHECK_QUEUED_STALL_SECONDS = config("EMAIL_PRECHECK_QUEUED_STALL_SECOND
 # Refuse an address QuickEmailVerification answered as not existing when an
 # admin edits a user or a student changes their guardian. Off unless set.
 EMAIL_CHECK_ON_EDIT = config("EMAIL_CHECK_ON_EDIT", default="false", cast=env_bool)
+
+# Hours a stored "couldn't be verified" email answer is reused, so a check at
+# preview and at Submit don't both pay for it.
+QEV_UNKNOWN_MAX_AGE_HOURS = config("QEV_UNKNOWN_MAX_AGE_HOURS", default=24, cast=int)

@@ -63,6 +63,7 @@ describe('parseStudentCsv', () => {
     expect(result.invalid).toEqual([])
     expect(result.valid).toEqual([
       {
+        rowNumber: 2,
         firstName: 'Ada',
         lastName: 'Lovelace',
         email: 'ada.lovelace@example.edu',

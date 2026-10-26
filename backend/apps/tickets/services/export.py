@@ -59,23 +59,30 @@ NO_REQUESTER_LABEL = "-"
 _FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
 
 
-def export_zone(name) -> ZoneInfo:
-    """The zone the exporter's times are written in: their profile's, else UTC.
+def export_zone(name, sent=None) -> ZoneInfo:
+    """The zone the exporter's times are written in.
 
-    The table shows each reader their own browser's time, and a file has to
-    pick one zone for everybody who later opens it. The exporter's profile
-    zone is the platform's existing answer to "whose clock" for times the
-    server writes out (event reminder emails read the same field). It
-    defaults to UTC and most admins have never changed it, which is why every
+    First the zone their page sent (``sent``): the ticket pages' own rule,
+    their Profile timezone or their computer's while the profile still says
+    UTC (C-37 to C-40, DEC-068), so the file reads the way the table on their
+    screen does. Without one, their profile's (``name``), else UTC. A file has
+    to pick one zone for everybody who later opens it, which is why every
     time cell states its zone rather than leaving the reader to assume one.
 
-    An unknown or empty value falls back to UTC instead of failing: a bad
-    profile row must not stop the export.
+    An unknown or empty value falls through to the next instead of failing: a
+    bad profile row, or a page sending something odd, must not stop the
+    export.
     """
-    try:
-        return ZoneInfo(name or "UTC")
-    except (ZoneInfoNotFoundError, ValueError, TypeError):
-        return ZoneInfo("UTC")
+    for candidate in (sent, name):
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        try:
+            return ZoneInfo(candidate)
+        # OSError: a name too long for the file system is a lookup that
+        # fails, not a crash.
+        except (ZoneInfoNotFoundError, ValueError, OSError):
+            continue
+    return ZoneInfo("UTC")
 
 
 def _put(ws, row, column, value):

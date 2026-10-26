@@ -2,8 +2,7 @@
  * The public registration's progress (role, option, step and what's typed),
  * kept in this browser tab, so a refresh or a visit to another page loses
  * nothing. Session storage, not local: it goes when the tab closes, as many
- * register on shared school computers. Profile photos aren't kept (files
- * can't be). Cleared once the registration is submitted.
+ * register on shared school computers. Cleared once the registration is submitted.
  */
 import type { RegistrationForms, RegistrationJourney } from './registration'
 
@@ -13,8 +12,8 @@ const KEY = 'biotech.registration.draft'
 // 4: a group's Support step gone (its guardian on Your profile, its
 // supervisor on Group). 6: a mentor's hours a week, relevant background and
 // how they'd mentor gone (the server refuses them). 7: a supervisor's own
-// registration.
-const VERSION = 7
+// registration. 8: pronouns and a profile photo gone.
+const VERSION = 8
 
 export type RegistrationDraft = {
   version: number
@@ -43,13 +42,7 @@ export function readDraft(invitationToken?: string | null): RegistrationDraft | 
 
 export function saveDraft(draft: Omit<RegistrationDraft, 'version'>) {
   try {
-    sessionStorage.setItem(
-      KEY,
-      // Files (a profile photo) can't be kept: saved as none.
-      JSON.stringify({ ...draft, version: VERSION }, (_key, value) =>
-        typeof File !== 'undefined' && value instanceof File ? null : value,
-      ),
-    )
+    sessionStorage.setItem(KEY, JSON.stringify({ ...draft, version: VERSION }))
   } catch {
     // Storage unavailable (private mode, full): progress just isn't kept.
   }

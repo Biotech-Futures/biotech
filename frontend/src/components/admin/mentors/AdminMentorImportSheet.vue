@@ -51,7 +51,17 @@
         <span v-if="invalidRows.length" class="mentor-import__badge">
           {{ invalidRows.length }} skipped
         </span>
+        <span v-if="warnedRows.length" class="mentor-import__badge mentor-import__badge--warning">
+          {{ warnedRows.length }} with warnings
+        </span>
       </section>
+
+      <p v-if="emailCheck.state.checking" class="mentor-import__hint" role="status" data-test="import-email-check">
+        Checking emails{{ emailCheck.state.total ? ` (${emailCheck.state.done} of ${emailCheck.state.total})` : '' }}...
+      </p>
+      <p v-else-if="emailCheck.state.note" class="mentor-import__hint" role="status" data-test="import-email-note">
+        {{ emailCheck.state.note }}
+      </p>
 
       <section v-if="validRows.length" class="mentor-import__section">
         <div class="mentor-import__section-head">
@@ -80,6 +90,26 @@
             Showing first {{ PREVIEW_LIMIT }} rows.
           </p>
         </div>
+      </section>
+
+      <section v-if="warnedRows.length" class="mentor-import__section" data-test="import-warnings">
+        <div class="mentor-import__section-head">
+          <h3>Check before importing</h3>
+          <span>{{ warnedRows.length }} row{{ warnedRows.length === 1 ? '' : 's' }}</span>
+        </div>
+        <div class="mentor-import__invalid-list">
+          <div
+            v-for="row in warnedRows"
+            :key="row.rowNumber"
+            class="mentor-import__invalid-row mentor-import__invalid-row--warning"
+          >
+            <span>Row {{ row.rowNumber }} - {{ row.email }}</span>
+            <strong>{{ row.warnings.map((warning) => warning.message).join(' ') }}</strong>
+          </div>
+        </div>
+        <p class="mentor-import__hint">
+          These rows are still imported. To change one, correct the file and choose it again.
+        </p>
       </section>
 
       <section v-if="invalidRows.length" class="mentor-import__section">
@@ -158,6 +188,7 @@ import {
 } from '@/utils/adminMentorCsv'
 import type { ImportRowError } from '@/utils/adminStudentCsv'
 import { logApiError } from '@/utils/apiError'
+import { applyImportCheck, useImportEmailCheck, type ImportRowWarning } from '@/utils/importEmailCheck'
 
 const PREVIEW_LIMIT = 10
 
@@ -181,7 +212,35 @@ const result = ref<MentorBulkImportResult | null>(null)
 
 const hasParsedRows = computed(() => validRows.value.length > 0 || invalidRows.value.length > 0)
 const previewRows = computed(() => validRows.value.slice(0, PREVIEW_LIMIT))
-const canImport = computed(() => validRows.value.length > 0 && !importing.value && !result.value)
+const canImport = computed(
+  () => validRows.value.length > 0 && !importing.value && !result.value && !emailCheck.state.checking
+)
+
+// Each address in the file checked once it's chosen: a row's problems skip
+// it, its warnings are listed (and it's still imported).
+const emailCheck = useImportEmailCheck('mentors')
+const rowWarnings = ref(new Map<number, ImportRowWarning[]>())
+const warnedRows = computed(() =>
+  validRows.value.flatMap((row) => {
+    const warnings = rowWarnings.value.get(row.rowNumber)
+    return warnings ? [{ rowNumber: row.rowNumber, email: row.email, warnings }] : []
+  })
+)
+
+const checkEmails = async () => {
+  const rows = validRows.value
+  const results = await emailCheck.check(rows.map((row) => ({
+      row: row.rowNumber,
+      email: row.email,
+      firstName: row.firstName,
+      lastName: row.lastName,
+    })))
+  if (!results) return
+  const checked = applyImportCheck(rows, invalidRows.value, results)
+  validRows.value = checked.valid
+  invalidRows.value = checked.invalid
+  rowWarnings.value = checked.warnings
+}
 
 const reset = () => {
   fileName.value = ''
@@ -190,6 +249,8 @@ const reset = () => {
   validRows.value = []
   invalidRows.value = []
   result.value = null
+  emailCheck.cancel()
+  rowWarnings.value = new Map()
   if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -214,12 +275,15 @@ const onFileChange = async (event: Event) => {
   validRows.value = []
   invalidRows.value = []
   result.value = null
+  emailCheck.cancel()
+  rowWarnings.value = new Map()
   if (!file) return
 
   try {
     const parsed = parseMentorCsv(await file.text())
     validRows.value = parsed.valid
     invalidRows.value = parsed.invalid
+    void checkEmails()
   } catch (parseError) {
     fileError.value =
       parseError instanceof Error ? parseError.message : 'Failed to parse the CSV file.'
@@ -339,6 +403,16 @@ const runImport = async () => {
   color: var(--text-muted);
   font-size: 0.875rem;
   font-weight: 600;
+}
+
+.mentor-import__badge--warning {
+  border-color: rgba(180, 83, 9, 0.35);
+  background-color: rgba(180, 83, 9, 0.08);
+  color: #b45309;
+}
+
+.mentor-import__invalid-row--warning strong {
+  color: #b45309;
 }
 
 .mentor-import__preview-list,

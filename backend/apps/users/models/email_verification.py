@@ -1,6 +1,8 @@
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -11,8 +13,8 @@ class EmailVerification(models.Model):
     Only answers from the service are stored: a call that failed (timeout,
     outage, bad response) leaves nothing here, so the address is tried again
     next time. A valid or invalid answer is reused until it is older than the
-    configured maximum age; an unknown one costs no credit, so it is always
-    checked again."""
+    configured maximum age (QEV_RESULT_MAX_AGE_DAYS); an unknown one only for
+    QEV_UNKNOWN_MAX_AGE_HOURS, then it's checked again."""
 
     class Status(models.TextChoices):
         VALID = "valid", "Valid"
@@ -48,15 +50,19 @@ class EmailVerification(models.Model):
         return str(email or "").strip().lower()
 
     @classmethod
-    def reusable(cls, emails, *, max_age_days: int) -> dict:
-        """The stored valid or invalid answers for ``emails`` checked within
-        the last ``max_age_days`` days, keyed by normalised address."""
+    def reusable(cls, emails, *, max_age_days: int, unknown_max_age_hours=None) -> dict:
+        """The stored answers for ``emails`` still fresh enough to reuse, keyed
+        by normalised address: valid or invalid within ``max_age_days`` days,
+        unknown within ``unknown_max_age_hours`` (QEV_UNKNOWN_MAX_AGE_HOURS)."""
         addresses = {cls.normalise(email) for email in emails} - {""}
         if not addresses:
             return {}
-        cutoff = timezone.now() - timedelta(days=max_age_days)
-        rows = cls.objects.filter(
-            email__in=addresses, status__in=cls.REUSABLE_STATUSES, checked_at__gte=cutoff,
+        if unknown_max_age_hours is None:
+            unknown_max_age_hours = int(getattr(settings, "QEV_UNKNOWN_MAX_AGE_HOURS", 24))
+        now = timezone.now()
+        rows = cls.objects.filter(email__in=addresses).filter(
+            Q(status__in=cls.REUSABLE_STATUSES, checked_at__gte=now - timedelta(days=max_age_days))
+            | Q(status=cls.Status.UNKNOWN, checked_at__gte=now - timedelta(hours=unknown_max_age_hours))
         )
         return {row.email: row for row in rows}
 

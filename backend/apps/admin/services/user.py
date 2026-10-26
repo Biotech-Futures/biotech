@@ -24,6 +24,7 @@ from apps.users.profile_images import delete_profile_image_file, profile_image_u
 from apps.submissions.services import current_cohort
 from apps.users.returning import bring_back_for_this_year, earlier_challenge_year
 from apps.users.email_verification import check_one_address, invalid_address_message
+from apps.users.serializers import PLACEHOLDER_ADDRESS, is_placeholder_email, new_guardian_email_problem
 from apps.users.mentor_registration import (
     MAX_WORDS as MENTOR_MAX_WORDS, STUDY_YEARS as MENTOR_STUDY_YEARS,
 )
@@ -439,7 +440,7 @@ def ensure_admin_email_available(email: str) -> Optional[str]:
     Check if email is already in use by any user.
     Returns error message if email exists, None otherwise.
     """
-    if User.objects.filter(email=email).exists():
+    if User.objects.filter(email__iexact=email).exists():
         return "Account email already exists"
     return None
 
@@ -794,6 +795,8 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "hasLoggedIn": user.last_login is not None,
         "lastLogin": user.last_login.isoformat() if user.last_login else None,
         "accountStatus": "active" if user.is_active else "deactivated",
+        # When the account was created; registration analytics count from it.
+        "createdAt": user.date_joined.isoformat(),
         "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
         "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
         "supervisorName": supervisor_name,
@@ -1115,6 +1118,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "hasLoggedIn": user.last_login is not None,
             "lastLogin": user.last_login.isoformat() if user.last_login else None,
             "accountStatus": "active" if user.is_active else "deactivated",
+            "createdAt": user.date_joined.isoformat(),
             "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
             "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
             "supervisorName": supervisor_name,
@@ -1234,14 +1238,40 @@ def add_users_by_role(
             results.append({"input": input_data, "msg": refusal, "data": None})
             continue
 
-        # Check if user exists
-        if User.objects.filter(email=email).exists():
+        # What Add user's own check refuses as each box is left
+        # (user_email_check): not an address, or the template's placeholder.
+        from apps.admin.user_email_check import (
+            TAKEN, account_email_problem, guardian_email_problem, supervisor_email_problem,
+        )
+
+        problem = account_email_problem(email)
+        if problem and problem != TAKEN:
+            results.append({"input": input_data, "msg": problem, "data": None})
+            continue
+
+        # Check if user exists (in any case)
+        if problem == TAKEN:
             results.append({
                 "input": input_data,
                 "msg": "Email already exists",
                 "data": None
             })
             continue
+
+        # A student's guardian: an address, not the student's own, nor a student's.
+        guardian_email = str(input_data.get("guardianEmail") or "").strip().lower()
+        if role == "student" and guardian_email:
+            problem = guardian_email_problem(guardian_email, email)
+            if problem:
+                results.append({"input": input_data, "msg": problem, "data": None})
+                continue
+        # And their supervisor: never a student, mentor or admin made one.
+        supervisor_email = str(input_data.get("supervisorEmail") or "").strip().lower()
+        if role == "student" and supervisor_email:
+            problem = supervisor_email_problem(supervisor_email, email)
+            if problem:
+                results.append({"input": input_data, "msg": problem, "data": None})
+                continue
         
         # Only an email and a role are needed: an admin may add someone before
         # their country, school or year are known. A year given is 9 to 12.
@@ -1787,6 +1817,9 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "Email is not a valid email address", "data": None}
         if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
             return {"msg": "Account email already exists", "data": None}
+        # A new address only, so an older one can still be edited around.
+        if new_email != (user.email or "").strip().lower() and is_placeholder_email(new_email):
+            return {"msg": PLACEHOLDER_ADDRESS, "data": None}
         if invalid := check_one_address(new_email, current=user.email):
             return {"msg": invalid_address_message(invalid), "data": None}
     email_changed = new_email != user.email.strip().lower()
@@ -1846,6 +1879,11 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 if guardian_email == new_email.strip().lower():
                     return {"msg": "Guardian email cannot be the student's own email", "data": None}
                 current_guardian = StudentProfile.objects.filter(user_id=user_id).values_list("pg_email", flat=True).first()
+                # A new guardian only: not a placeholder, nor a student's account.
+                if guardian_email != (current_guardian or "").strip().lower() and (
+                    problem := new_guardian_email_problem(guardian_email)
+                ):
+                    return {"msg": problem, "data": None}
                 if invalid := check_one_address(guardian_email, current=current_guardian):
                     return {"msg": invalid_address_message(invalid, "The guardian's email address"), "data": None}
     

@@ -1,6 +1,6 @@
-// Pronouns as registering asks for them: a listed choice, or Other with
-// their own words. Used where a student's pronouns are edited later.
-import { PRONOUN_OPTIONS } from '@/registration/registration'
+// Pronouns: a listed choice, or Other with their own words. Registering no
+// longer asks for them; used where a user's pronouns are edited later.
+export const PRONOUN_OPTIONS = ['She/her', 'He/him', 'They/them', 'Other'] as const
 
 /** The choices. None saved shows as Not set, emptied again with the box's ×. */
 export const PRONOUN_SELECT_OPTIONS = PRONOUN_OPTIONS.map((pronoun) => ({ value: pronoun, label: pronoun }))

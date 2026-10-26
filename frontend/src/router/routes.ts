@@ -102,7 +102,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/reset-password', redirect: (to) => ({ path: '/auth/reset-password', query: to.query }) },
-  { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
+  { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue'), meta: { siteHeader: true } },
   // Guardians open this from the consent email; no account needed.
   { path: '/consent/:token', name: 'guardian-consent', component: () => import('@/views/ConsentPage.vue'), meta: { public: true, siteHeader: true } },
   // Opened from a supervisor's Copy Details Link; no account needed.
@@ -127,6 +127,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/finalist', name: 'group-finalist', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/results', name: 'group-results', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups/:id/plan', name: 'group-plan', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/submission/:id', redirect: (to) => `/groups/${to.params.id}/submission` },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id(\\d+)', name: 'resource-detail', component: () => import('@/views/ResourceDetailPage.vue') },
@@ -140,6 +141,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/role-tasks', name: 'admin-role-tasks', component: () => import('@/views/admin/AdminRoleTasksPage.vue'), meta: { requiresAdmin: true } },
+  // The Group Plans builder and current-cohort progress.
+  { path: '/admin/plan', name: 'admin-plan', component: () => import('@/views/admin/AdminPlanTasksPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/plan/progress', name: 'admin-plan-progress', component: () => import('@/views/admin/AdminPlanProgressPage.vue'), meta: { requiresAdmin: true } },
   {
     path: '/admin/views',
     name: 'admin-views',

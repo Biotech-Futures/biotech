@@ -1,7 +1,7 @@
 <template>
-  <!-- Late links: one student registers on their own with each, once, for 3
-       days, while registration is closed. Made and listed in one card, as
-       Presentation Times are. -->
+  <!-- Late links: one student registers on their own with each, once, for the
+       days set beside Create Late Link (3 to start), while registration is
+       closed. Made and listed in one card, as Presentation Times are. -->
   <section class="card late-links">
     <!-- Headed as a Management page's first card is (Late Registration's). -->
     <div class="card-header">
@@ -9,11 +9,23 @@
     </div>
     <p class="late-links__hint">
       A late link lets one student register on their own while registration is closed. Each link
-      works once, for 3 days.
+      works once, for the number of days you set.
     </p>
 
     <form class="late-links__form" @submit.prevent="create">
-      <button type="submit" class="btn btn-primary btn-sm" :disabled="isCreating">
+      <label class="late-links__field">
+        <span>Days</span>
+        <input
+          v-model.number="linkDays"
+          type="number"
+          min="1"
+          step="1"
+          required
+          class="late-links__days app-input app-input--compact"
+          data-test="late-link-days"
+        />
+      </label>
+      <button type="submit" class="btn btn-primary btn-field" :disabled="isCreating || !daysValid">
         {{ isCreating ? 'Creating…' : 'Create Late Link' }}
       </button>
     </form>
@@ -21,7 +33,7 @@
     <!-- The new link, to copy and send. -->
     <div v-if="created?.url" class="late-links__created" data-test="late-link-created">
       <span class="late-links__url">{{ created.url }}</span>
-      <button type="button" class="btn btn-outline btn-sm" @click="copy(created.url, created.id)">
+      <button type="button" class="btn btn-outline btn-field" @click="copy(created.url, created.id)">
         <i
           :class="copiedId === created.id ? 'fas fa-check' : 'fas fa-copy'"
           aria-hidden="true"
@@ -114,8 +126,11 @@ const copiedId = ref<number | null>(null)
 const created = ref<LateLink | null>(null)
 const error = ref('')
 
-// How long a new link works for.
-const LINK_DAYS = 3
+// How many days a new link works for, set beside Create Late Link.
+const linkDays = ref<number | ''>(3)
+const daysValid = computed(
+  () => typeof linkDays.value === 'number' && Number.isInteger(linkDays.value) && linkDays.value >= 1,
+)
 
 const rows = computed(() =>
   links.value.map((link) => ({
@@ -140,11 +155,13 @@ const load = async () => {
 }
 
 const create = async () => {
+  if (!daysValid.value) return
+  const days = linkDays.value as number
   isCreating.value = true
   error.value = ''
   try {
     created.value = await createLateLink(
-      new Date(Date.now() + LINK_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString(),
     )
     links.value = [created.value, ...links.value]
   } catch (err) {
@@ -205,6 +222,20 @@ onMounted(load)
 }
 
 /* Each field as Extend Deadline's: its label small above it. */
+.late-links__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--teal);
+}
+
+/* The shared compact box (app-input), narrow for a number of days. */
+.late-links__days {
+  width: 7rem;
+  max-width: none;
+}
+
 /* The new link, on one line with Copy, wrapping when long. */
 .late-links__created {
   display: flex;

@@ -11,11 +11,6 @@ describe('registration gateway contract', () => {
     const forms = createRegistrationForms()
     forms.studentIndividual.student.email = ' Student@Example.com '
     forms.studentIndividual.student.emailConfirm = 'Student@example.com'
-    forms.studentIndividual.student.profilePhoto = {
-      name: 'profile.png',
-      type: 'image/png',
-      size: 2048,
-    }
     Object.assign(forms.studentIndividual.student, {
       previewUrl: 'blob:local-preview',
       file: new File(['photo'], 'profile.png', { type: 'image/png' }),
@@ -30,11 +25,6 @@ describe('registration gateway contract', () => {
     expect(serialized).not.toContain('emailConfirm')
     expect(serialized).not.toContain('previewUrl')
     expect(serialized).not.toContain('"file"')
-    expect(request.payload.student.profilePhoto).toEqual({
-      name: 'profile.png',
-      type: 'image/png',
-      size: 2048,
-    })
   })
 
   it('can represent authoritative field errors through an injected test gateway', async () => {

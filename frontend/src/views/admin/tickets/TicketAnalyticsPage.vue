@@ -6,10 +6,10 @@
            section, this names the tab inside it. The card titles below are
            h3 and the chart titles h4, one level under each. -->
       <h2 class="ticket-analytics__title">Ticket analytics</h2>
-      <!-- The designer's shorter wording (second round, D2-19). The rule is
-           the ticket numbering's: a window that starts on 1 March opens at
-           11am Sydney time. -->
-      <p class="ticket-analytics__subtitle">All dates and times are in UTC.</p>
+      <!-- The designer's shorter wording (second round, D2-19), which said
+           UTC until 26 October 2026. The dates are now read in the reader's
+           own zone (C-37 to C-40, DEC-068), so the sentence names it. -->
+      <p class="ticket-analytics__subtitle">All dates and times are in your time zone, {{ zoneLabel }}.</p>
     </header>
 
     <!-- Filters in one row above the charts. Held on the page, not on the
@@ -246,6 +246,8 @@ import {
   windowProblem
 } from '@/components/admin/tickets/analytics/analyticsFormat'
 import { logApiError } from '@/utils/apiError'
+import { formatTimeZoneLabel } from '@/utils/date'
+import { ticketTimeZone } from '@/utils/ticketDates'
 import { fetchAssignees, fetchTicketAnalytics, wasRefused } from '@/utils/ticketAgentAPI'
 import {
   TICKET_STATUS_LABELS,
@@ -254,6 +256,9 @@ import {
   type TicketAnalytics,
   type TicketStatus
 } from '@/utils/ticketAgentSchema'
+
+// The zone the server reads the window in, named for the reader.
+const zoneLabel = formatTimeZoneLabel(ticketTimeZone())
 
 const from = ref('')
 const to = ref('')

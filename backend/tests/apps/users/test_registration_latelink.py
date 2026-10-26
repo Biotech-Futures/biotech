@@ -607,12 +607,21 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         self.assertNotIn("warnings", response.data)
         self.assert_not_consumed(invite)
 
-    def test_a_student_may_register_without_a_supervisor(self):
+    def test_a_student_must_name_a_supervisor(self):
         del self.body["payload"]["supervisor"]
         response = self.submit()
-        self.assertEqual(response.status_code, 201, response.data)
-        row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
-        self.assertEqual(row.supervisor_details, {})
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(
+            {field: response.data["fields"][field] for field in (
+                "supervisor.firstName", "supervisor.lastName", "supervisor.email",
+            )},
+            {
+                "supervisor.firstName": ["Enter the supervisor first name."],
+                "supervisor.lastName": ["Enter the supervisor last name."],
+                "supervisor.email": ["Enter the supervisor email."],
+            },
+        )
+        self.assertFalse(RegistrationSubmission.objects.exists())
         self.assertFalse(StudentSupervisor.objects.exists())
 
     def test_a_nominated_supervisor_is_only_their_name_and_email(self):

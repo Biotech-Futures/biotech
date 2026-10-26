@@ -1,4 +1,5 @@
-"""Management > Challenge Start > Release Resources: every resource (not the
+"""When each resource is released, the Resources page's admin columns (once
+Management > Challenge Start's Release Resources): every resource (not the
 files embedded in pages), whether it's shown, its release date, and when it
 was released last year, for admins; and changing whether it's shown or its
 release date (apps.resources.release)."""

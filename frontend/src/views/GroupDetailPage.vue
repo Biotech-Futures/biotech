@@ -1878,9 +1878,9 @@ import {
 } from '@/utils/tasksAPI'
 
 const route = useRoute()
-// Submission, Finalist or Results open: the page scrolls as a whole, rather
-// than holding the group's card and tabs while the section scrolls below.
-const SECTION_ROUTES = ['group-submission', 'group-finalist', 'group-results']
+// Submission, Finalist, Results or Plan open: the page scrolls as a whole,
+// rather than holding the group's card and tabs while the section scrolls below.
+const SECTION_ROUTES = ['group-submission', 'group-finalist', 'group-results', 'group-plan']
 const onSectionPage = computed(() => SECTION_ROUTES.includes(String(route.name)))
 const router = useRouter()
 const auth = useAuthStore()
@@ -2540,7 +2540,7 @@ const loadGroupOptions = async () => {
 
 const switchGroup = (id) => {
   if (!id || id === routeGroupId.value) return
-  // Stays on the section open (Submission, Finalist or Results).
+  // Stays on the section open (Submission, Finalist, Results or Plan).
   const name = onSectionPage.value ? String(route.name) : 'group-detail'
   void router.push({ name, params: { id } })
 }

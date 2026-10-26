@@ -80,7 +80,7 @@ urlpatterns = [
     path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
     # Management > Challenge Start.
     path("challenge-start/", ChallengeStartView.as_view(), name="challenge-start"),
-    # Challenge Start > Release Resources.
+    # When each resource is released: the Resources page's admin columns.
     path("resource-releases/", ResourceReleasesView.as_view(), name="resource-releases"),
     path("resource-releases/<int:resource_id>/", ResourceReleaseView.as_view(), name="resource-release"),
     # Management > New Year: the year in progress, and Start new year.

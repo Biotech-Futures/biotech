@@ -1,4 +1,4 @@
-"""Release Resources (Management > Challenge Start): when students, mentors and
+"""Releasing resources (the Resources page, for admins): when students, mentors and
 supervisors get a resource. Shown, it's theirs now; hidden, it's theirs from
 its release date (the start of that day, Sydney time), or not at all without
 one. Admins always have it.
