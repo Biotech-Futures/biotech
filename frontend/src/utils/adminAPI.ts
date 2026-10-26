@@ -1869,13 +1869,25 @@ export interface MentorAssignment {
 
 export const confirmMentorAssignments = (
   assignments: MentorAssignment[],
-  options: { notifyDeparting?: boolean; notifyIncoming?: boolean } = {}
+  options: {
+    notifyDeparting?: boolean
+    notifyIncoming?: boolean
+    /** This admin's "idle after" setting. The server refuses a mentor who is
+     *  idle by it, so sending the same number the screen used is what keeps it
+     *  from rejecting a mentor the screen just offered. */
+    idleDays?: number
+    /** Set only where the admin names the mentor instead of taking a
+     *  suggestion. Waives the idle check, never the account check. */
+    allowIdle?: boolean
+  } = {}
 ) =>
   adminPost<AdminEnvelope<{ confirmedCount: number }>>('/mentor-match/confirm/', {
     assignments,
     // Omitted means "notify" server-side; the admin opts out, not in.
     notifyDeparting: options.notifyDeparting ?? true,
-    notifyIncoming: options.notifyIncoming ?? true
+    notifyIncoming: options.notifyIncoming ?? true,
+    ...(options.idleDays === undefined ? {} : { idleDays: options.idleDays }),
+    ...(options.allowIdle ? { allowIdle: true } : {})
   }).then((env) => ({ msg: env.msg, confirmedCount: env.data.confirmedCount }))
 
 export const unassignMentors = (
@@ -1895,10 +1907,12 @@ export interface MentorReplacePayload {
   /** Both default to true server-side when omitted. */
   notifyDeparting?: boolean
   notifyIncoming?: boolean
+  /** This admin's "idle after" setting, which the server enforces against. */
+  idleDays?: number
 }
 
 /** Swap one group's mentor for another (POST /mentor-match/replace/). Rejects
- *  if the new mentor is already at capacity. */
+ *  if the new mentor is at capacity, deactivated, or idle by `idleDays`. */
 export const replaceMentor = (payload: MentorReplacePayload) =>
   adminPost<AdminEnvelope<{ replaced: number }>>('/mentor-match/replace/', payload).then(
     (env) => ({ msg: env.msg, replaced: env.data.replaced })

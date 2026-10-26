@@ -119,6 +119,103 @@ def _idle_mentor_ids(mentor_ids: List[int], idle_days: int) -> set:
     return set(mentor_ids) - spoke_recently - joined_recently - no_group
 
 
+MAX_IDLE_DAYS = 365
+
+
+def _requested_idle_days(input_data: Dict[str, Any]) -> int:
+    """The admin's own "idle after" setting, as sent with the request.
+
+    It has to travel with the mutation rather than be assumed here: an admin
+    working to a 60-day threshold is shown mentors who are quiet at 30, and
+    enforcing 30 server-side would reject the very replacements the screen just
+    offered. Clamped so a stray or hostile value cannot switch the check off.
+    """
+    raw = input_data.get('idleDays', input_data.get('idle_days'))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_IDLE_DAYS
+    return max(1, min(MAX_IDLE_DAYS, value))
+
+
+def _assert_mentors_eligible(
+    mentor_ids: List[int],
+    idle_days: int,
+    *,
+    field: str,
+    exempt_ids: Optional[Set[int]] = None,
+    allow_idle: bool = False,
+) -> None:
+    """Refuse to assign a mentor the screens would not have offered.
+
+    The admin screens and ``recommend_mentors_for_group`` both filter these
+    out, but filtering is presentation: an older frontend, a scripted request
+    or a replayed one reaches the mutation directly. Both mutation paths call
+    this so the rule is enforced once, where it cannot be skipped.
+
+    Two reasons to refuse, and they are different facts. A deactivated account
+    is never assignable - that is not the admin's call to make here, it is made
+    on the Users page. Idle is measured against ``idle_days``, so an admin who
+    genuinely wants a quiet mentor can widen their own threshold rather than
+    needing a back door.
+
+    ``exempt_ids`` are mentors already sitting on the group they are being
+    assigned to. Re-picking them changes nothing, so there is nothing to
+    protect against, and refusing would block a harmless no-op.
+
+    ``field`` is the request field to report against, named by the caller. It
+    cannot be inferred from the number of mentors: a batch of one is still the
+    batch path, and reporting it under the single-replace field would have the
+    bulk dialog looking for an error where there is none.
+
+    ``allow_idle`` is for the flows where an admin names the mentor rather than
+    taking a suggestion - editing one mentor's own group list from their
+    profile. Being quiet is a reason not to *suggest* someone, not a reason to
+    stop an admin assigning them on purpose. It never waives the account check:
+    a deactivated account stays unassignable by every path.
+    """
+    candidates = [m for m in mentor_ids if m not in (exempt_ids or set())]
+    if not candidates:
+        return
+
+    deactivated = set(
+        User.objects
+        .filter(id__in=candidates, is_active=False)
+        .values_list('id', flat=True)
+    )
+    # Only ask about the rest: a deactivated account is reported for that, which
+    # is the more specific reason.
+    idle = set() if allow_idle else _idle_mentor_ids(
+        [m for m in candidates if m not in deactivated], idle_days
+    )
+    if not deactivated and not idle:
+        return
+
+    names = dict(
+        User.objects
+        .filter(id__in=deactivated | idle)
+        .values_list('id', 'email')
+    )
+    raise ValidationError({
+        field: {
+            'message': (
+                'One or more mentors cannot be assigned: a deactivated account '
+                'is never assignable, and an idle one is not offered at the '
+                'requested threshold.'
+            ),
+            'idleDays': idle_days,
+            'ineligible': [
+                {
+                    'mentorUserId': mentor_id,
+                    'email': names.get(mentor_id),
+                    'reason': 'inactive' if mentor_id in deactivated else 'idle',
+                }
+                for mentor_id in sorted(deactivated | idle)
+            ],
+        },
+    })
+
+
 def _build_mentor_sources(idle_days: int = DEFAULT_IDLE_DAYS) -> List[Dict[str, Any]]:
     """Active, non-idle mentors as algorithm 'mentor sources', with their load."""
     accepted_count_rows = (
@@ -676,6 +773,26 @@ def replace_mentor(input_data: Dict[str, Any], initiated_by=None) -> Dict[str, i
             ),
         })
 
+    # A mentor the screens would not have offered must not be assignable by a
+    # request that skipped them. Re-picking the mentor already on the group is
+    # a no-op, so it stays allowed however quiet they are.
+    already_on_group = set(
+        GroupMembership.objects
+        .filter(
+            group_id=group_id,
+            user_id=new_mentor_id,
+            left_at__isnull=True,
+            user__mentorprofile__isnull=False,
+        )
+        .values_list('user_id', flat=True)
+    )
+    _assert_mentors_eligible(
+        [new_mentor_id],
+        _requested_idle_days(input_data),
+        field='newMentorUserId',
+        exempt_ids=already_on_group,
+    )
+
     # Who is leaving, read before the row is closed.
     departing_id = (
         GroupMembership.objects
@@ -793,6 +910,41 @@ def confirm_mentor_assignments(input_data: Dict[str, Any], initiated_by=None) ->
                 'overCapacity': over_capacity,
             },
         })
+
+    # Same rule as the single replace, enforced on the batch path too.
+    sitting = {
+        (row['user_id'], row['group_id'])
+        for row in GroupMembership.objects
+        .filter(
+            group_id__in=group_ids,
+            left_at__isnull=True,
+            user__mentorprofile__isnull=False,
+        )
+        .values('user_id', 'group_id')
+    }
+    # Exempt only a mentor whose every assignment in this batch is a no-op. One
+    # who already sits on group A is still newly arriving at group B, and that
+    # arrival is what the check is for.
+    unchanged_mentors = {
+        mentor_id
+        for mentor_id in mentor_ids
+        if all(
+            (mentor_id, a['group_id']) in sitting
+            for a in assignments
+            if a['mentor_user_id'] == mentor_id
+        )
+    }
+    # Set by the flow that edits one mentor's own group list, where the admin
+    # picked the person deliberately. The matcher and the replacement dialogs
+    # leave it off, so a suggestion-driven path cannot assign a quiet mentor.
+    allow_idle = input_data.get('allowIdle', input_data.get('allow_idle')) is True
+    _assert_mentors_eligible(
+        mentor_ids,
+        _requested_idle_days(input_data),
+        field='assignments',
+        exempt_ids=unchanged_mentors,
+        allow_idle=allow_idle,
+    )
 
     # Remove existing mentor assignments
     existing_mentor_rows = (

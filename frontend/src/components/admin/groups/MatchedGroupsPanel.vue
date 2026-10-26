@@ -442,6 +442,9 @@ const confirmReplace = async (group: MatchedGroup) => {
       await unassignMentors([group.groupId], { notifyDeparting: notifyDeparting.value })
     } else {
       await replaceMentor({
+        // The server enforces the same rule this screen filtered by, so it has
+        // to be told which threshold the screen was using.
+        idleDays: idleDays.value,
         membershipId: group.membershipId,
         groupId: group.groupId,
         newMentorUserId: Number(selectedMentorId.value),

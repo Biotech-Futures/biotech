@@ -8,6 +8,7 @@ import {
   fetchUnmatchedGroups
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
+import { useIdleThreshold } from '@/composables/admin/useIdleThreshold'
 import {
   type MentorGroupRecommendation,
   type MentorMatchGroup,
@@ -54,6 +55,9 @@ export type RecommendationSortKey =
   | 'score'
 
 export function useMentorMatching() {
+  // Shared with the Mentors and Matched Groups screens, and sent with the
+  // confirm so the server enforces the threshold the admin is working to.
+  const { idleDays } = useIdleThreshold()
   const loading = ref(false)
   /** Initial load of the two reference lists, before any match is run. */
   const loadingLists = ref(true)
@@ -382,7 +386,7 @@ export function useMentorMatching() {
     confirming.value = true
     error.value = ''
     try {
-      await confirmMentorAssignments(payload)
+      await confirmMentorAssignments(payload, { idleDays: idleDays.value })
       await run()
       return true
     } catch (confirmError) {

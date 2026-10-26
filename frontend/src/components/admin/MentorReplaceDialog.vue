@@ -281,6 +281,7 @@ const confirm = async () => {
     await Promise.all([
       assignments.length
         ? confirmMentorAssignments(assignments, {
+            idleDays: idleDays.value,
             notifyDeparting: notifyDeparting.value,
             notifyIncoming: notifyIncoming.value
           }).then((result) => result.confirmedCount)

@@ -468,3 +468,275 @@ class IdleMentorsAreNotRecommendedTests(TestCase):
         # Quiet for 45 days: idle at the default 30, not yet at 60.
         self.assertNotIn(mentor.id, self._suggested_ids(30))
         self.assertIn(mentor.id, self._suggested_ids(60))
+
+
+class IneligibleMentorsAreRefusedTests(TestCase):
+    """The mutations enforce what the screens only filter.
+
+    Both the admin screens and ``recommend_mentors_for_group`` leave out
+    deactivated and idle mentors, but that is presentation. A stale frontend or
+    a scripted request posts straight to the mutation, so the rule is enforced
+    there too - once, in a check both paths share.
+    """
+
+    def setUp(self):
+        self.group = Groups.objects.create(group_name="Needs a mentor")
+        self.other_group = Groups.objects.create(group_name="Also needs one")
+        self.student = User.objects.create_user(
+            email="elig-student@example.com", first_name="Sam", password="pw",
+        )
+        GroupMembership.objects.create(
+            user=self.student, group=self.group, membership_role=STUDENT_ROLE,
+        )
+
+    def _mentor(self, email, *, is_active=True, joined_days_ago=400,
+                last_message_days_ago=None, group=None):
+        user = User.objects.create_user(
+            email=email, first_name=email[:4], password="pw",
+        )
+        User.objects.filter(pk=user.pk).update(
+            date_joined=timezone.now() - timedelta(days=joined_days_ago),
+            is_active=is_active,
+        )
+        MentorProfile.objects.create(
+            user=user, institution="Uni", mentor_reason="Help", max_group_count=5,
+        )
+        if group is not None:
+            GroupMembership.objects.create(
+                user=user, group=group, membership_role=MENTOR_ROLE,
+            )
+        if last_message_days_ago is not None:
+            message = Messages.objects.create(
+                group=group or self.group, sender_user=user, message_text="hi",
+            )
+            Messages.objects.filter(pk=message.pk).update(
+                sent_at=timezone.now() - timedelta(days=last_message_days_ago)
+            )
+        return user
+
+    def _sitting(self, group):
+        """The mentor currently on ``group``, and their membership id."""
+        mentor = self._mentor(
+            "sitting-%s@example.com" % group.id,
+            last_message_days_ago=90,
+            group=group,
+        )
+        membership_id = GroupMembership.objects.get(
+            user=mentor, group=group, membership_role=MENTOR_ROLE,
+        ).id
+        return mentor, membership_id
+
+    # -- single replace -----------------------------------------------------
+
+    def test_replace_refuses_a_deactivated_mentor(self):
+        _, membership_id = self._sitting(self.group)
+        disabled = self._mentor("disabled@example.com", is_active=False)
+
+        with self.assertRaises(ValidationError) as caught:
+            replace_mentor({
+                "membershipId": membership_id,
+                "groupId": self.group.id,
+                "newMentorUserId": disabled.id,
+            })
+
+        detail = caught.exception.detail["newMentorUserId"]
+        self.assertEqual(detail["ineligible"][0]["reason"], "inactive")
+        # The swap did not happen.
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                user=disabled, group=self.group, left_at__isnull=True,
+            ).exists()
+        )
+
+    def test_replace_refuses_an_idle_mentor(self):
+        _, membership_id = self._sitting(self.group)
+        quiet = self._mentor(
+            "quiet@example.com", last_message_days_ago=90, group=self.other_group,
+        )
+
+        with self.assertRaises(ValidationError) as caught:
+            replace_mentor({
+                "membershipId": membership_id,
+                "groupId": self.group.id,
+                "newMentorUserId": quiet.id,
+            })
+
+        detail = caught.exception.detail["newMentorUserId"]
+        self.assertEqual(detail["ineligible"][0]["reason"], "idle")
+
+    def test_replace_honours_the_threshold_sent_with_the_request(self):
+        # Quiet for 45 days: idle at the default 30, not at 60. Enforcing a
+        # fixed 30 here would reject what the screen just offered.
+        _, membership_id = self._sitting(self.group)
+        mentor = self._mentor(
+            "tuned@example.com", last_message_days_ago=45, group=self.other_group,
+        )
+        payload = {
+            "membershipId": membership_id,
+            "groupId": self.group.id,
+            "newMentorUserId": mentor.id,
+        }
+
+        with self.assertRaises(ValidationError):
+            replace_mentor(dict(payload))
+
+        self.assertEqual(replace_mentor({**payload, "idleDays": 60}), {"replaced": 1})
+
+    def test_a_threshold_big_enough_to_disable_the_check_is_clamped(self):
+        _, membership_id = self._sitting(self.group)
+        quiet = self._mentor(
+            "huge@example.com", last_message_days_ago=900, group=self.other_group,
+        )
+
+        with self.assertRaises(ValidationError):
+            replace_mentor({
+                "membershipId": membership_id,
+                "groupId": self.group.id,
+                "newMentorUserId": quiet.id,
+                "idleDays": 10000,
+            })
+
+    def test_replace_still_allows_re_picking_the_sitting_mentor(self):
+        # A no-op: they are already on the group, so there is nothing to guard
+        # against, and refusing would break a harmless request.
+        sitting, membership_id = self._sitting(self.group)
+
+        result = replace_mentor({
+            "membershipId": membership_id,
+            "groupId": self.group.id,
+            "newMentorUserId": sitting.id,
+        })
+
+        self.assertEqual(result, {"replaced": 1})
+
+    def test_replace_allows_a_mentor_with_no_group(self):
+        # Never posted and never could. Refusing them would be the deadlock the
+        # idle rule already avoids everywhere else.
+        _, membership_id = self._sitting(self.group)
+        unassigned = self._mentor("spare@example.com")
+
+        result = replace_mentor({
+            "membershipId": membership_id,
+            "groupId": self.group.id,
+            "newMentorUserId": unassigned.id,
+        })
+
+        self.assertEqual(result, {"replaced": 1})
+
+    # -- bulk confirm -------------------------------------------------------
+
+    def test_confirm_refuses_a_deactivated_mentor(self):
+        disabled = self._mentor("bulk-disabled@example.com", is_active=False)
+
+        with self.assertRaises(ValidationError) as caught:
+            confirm_mentor_assignments({
+                "assignments": [
+                    {"groupId": self.group.id, "mentorUserId": disabled.id},
+                ],
+            })
+
+        detail = caught.exception.detail["assignments"]
+        self.assertEqual(detail["ineligible"][0]["reason"], "inactive")
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                user=disabled, left_at__isnull=True,
+            ).exists()
+        )
+
+    def test_confirm_refuses_an_idle_mentor(self):
+        quiet = self._mentor(
+            "bulk-quiet@example.com",
+            last_message_days_ago=90,
+            group=self.other_group,
+        )
+
+        with self.assertRaises(ValidationError) as caught:
+            confirm_mentor_assignments({
+                "assignments": [
+                    {"groupId": self.group.id, "mentorUserId": quiet.id},
+                ],
+            })
+
+        self.assertEqual(
+            caught.exception.detail["assignments"]["ineligible"][0]["reason"], "idle"
+        )
+
+    def test_confirm_checks_a_sitting_mentors_other_arrival(self):
+        # Sitting on one group does not excuse arriving at a second. Exempting
+        # by mentor id alone would let this through.
+        quiet = self._mentor(
+            "bulk-both@example.com", last_message_days_ago=90, group=self.other_group,
+        )
+
+        with self.assertRaises(ValidationError):
+            confirm_mentor_assignments({
+                "assignments": [
+                    {"groupId": self.other_group.id, "mentorUserId": quiet.id},
+                    {"groupId": self.group.id, "mentorUserId": quiet.id},
+                ],
+            })
+
+    def test_confirm_allows_a_sitting_mentor_re_confirmed_alone(self):
+        quiet = self._mentor(
+            "bulk-noop@example.com", last_message_days_ago=90, group=self.other_group,
+        )
+
+        result = confirm_mentor_assignments({
+            "assignments": [
+                {"groupId": self.other_group.id, "mentorUserId": quiet.id},
+            ],
+        })
+
+        self.assertEqual(result, {"confirmedCount": 1})
+
+    # -- the deliberate override ------------------------------------------
+
+    def test_allow_idle_lets_an_admin_assign_a_quiet_mentor_on_purpose(self):
+        # The flow that edits one mentor's own group list. Quiet is a reason
+        # not to suggest someone, not a reason to stop an admin naming them.
+        quiet = self._mentor(
+            "named@example.com", last_message_days_ago=90, group=self.other_group,
+        )
+
+        result = confirm_mentor_assignments({
+            "assignments": [
+                {"groupId": self.group.id, "mentorUserId": quiet.id},
+            ],
+            "allowIdle": True,
+        })
+
+        self.assertEqual(result, {"confirmedCount": 1})
+
+    def test_allow_idle_does_not_waive_the_account_check(self):
+        # The one rule no path may override: a deactivated account is managed
+        # on the Users page, not worked around from here.
+        disabled = self._mentor("named-disabled@example.com", is_active=False)
+
+        with self.assertRaises(ValidationError) as caught:
+            confirm_mentor_assignments({
+                "assignments": [
+                    {"groupId": self.group.id, "mentorUserId": disabled.id},
+                ],
+                "allowIdle": True,
+            })
+
+        self.assertEqual(
+            caught.exception.detail["assignments"]["ineligible"][0]["reason"],
+            "inactive",
+        )
+
+    def test_the_suggestion_driven_paths_do_not_set_the_override(self):
+        # Guards the split: replace_mentor has no override at all, so a quiet
+        # mentor offered by a stale dropdown is still refused.
+        _, membership_id = self._sitting(self.group)
+        quiet = self._mentor(
+            "stale@example.com", last_message_days_ago=90, group=self.other_group,
+        )
+
+        with self.assertRaises(ValidationError):
+            replace_mentor({
+                "membershipId": membership_id,
+                "groupId": self.group.id,
+                "newMentorUserId": quiet.id,
+                "allowIdle": True,
+            })

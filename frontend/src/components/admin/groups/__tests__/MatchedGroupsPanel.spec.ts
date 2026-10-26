@@ -393,6 +393,9 @@ describe('MatchedGroupsPanel', () => {
       membershipId: 100,
       groupId: 1,
       newMentorUserId: 23,
+      // The server enforces eligibility against this, so the screen has to say
+      // which threshold it filtered by or a widened one would be rejected.
+      idleDays: DEFAULT_IDLE_DAYS,
       // Both notifications are opt-out, so an untouched form sends true.
       notifyDeparting: true,
       notifyIncoming: true
@@ -565,6 +568,7 @@ describe('MatchedGroupsPanel', () => {
     expect(call).toBeDefined()
     expect(JSON.parse(String(call[1].body))).toEqual({
       assignments: [{ groupId: 2, mentorUserId: 23 }],
+      idleDays: DEFAULT_IDLE_DAYS,
       notifyDeparting: true,
       notifyIncoming: true
     })
