@@ -61,11 +61,12 @@ export const student: AdminUser = {
   mentorBackground: null, mentorInstitution: null, mentorReason: null, mentorMaxGroupCount: null,
   yearLevel: null, joinPermissionReceived: true, guardianEmail: 'guardian@example.test', interests: [],
   isAdmin: false, isActive: true, hasLoggedIn: true, lastLogin: '2026-10-15T00:00:00Z',
-  accountStatus: 'active', invitedAt: '2026-08-01T00:00:00Z', activatedAt: '2026-08-01T00:00:00Z',
+  accountStatus: 'active', createdAt: '2026-08-01T00:00:00Z',
+  invitedAt: '2026-08-01T00:00:00Z', activatedAt: '2026-08-01T00:00:00Z',
   supervisorName: null, supervisorEmail: null,
 }
 
-/** A user registered at `registered`, otherwise like the sample student. */
+/** A user registered (createdAt, the API's date_joined) at `registered`, otherwise like the sample student. */
 export const registeredUser = (id: number, role: string, registered: string, overrides: Partial<AdminUser> = {}): AdminUser => ({
   ...student,
   id,
@@ -73,6 +74,7 @@ export const registeredUser = (id: number, role: string, registered: string, ove
   firstName: role.charAt(0).toUpperCase() + role.slice(1),
   lastName: String(id),
   email: `${role}${id}@example.test`,
+  createdAt: registered,
   invitedAt: registered,
   activatedAt: registered,
   lastLogin: null,

@@ -27,7 +27,7 @@ const users: api.AdminUser[] = [
   registeredUser(4, 'supervisor', '2025-02-01T00:00:00Z', {
     hasLoggedIn: true, lastLogin: '2026-10-15T00:00:00Z', isActive: false, accountStatus: 'deactivated',
   }),
-  registeredUser(9, 'student', '2024-01-01T00:00:00Z', { isAdmin: true }),
+  registeredUser(9, 'student', '2026-01-01T00:00:00Z', { isAdmin: true }),
 ]
 const mentor = { id: '2', name: 'Mentor 2', email: 'mentor2@example.test', role: 'mentor', membershipId: 2 }
 const groups: api.AdminGroup[] = [
@@ -89,11 +89,15 @@ function mockSources() {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  // The Overview opens on the current calendar year.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-20T12:00:00Z'))
   data.clearLiveAnalyticsCache()
   mockSources()
 })
 afterEach(() => {
   unmountPages()
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -111,16 +115,16 @@ const attention = (w: VueWrapper) => w.findAll('.attention-detail-row').map((row
 ])
 
 describe('Analytics overview page', () => {
-  it('shows participant headlines for the data year, compared with the year before', async () => {
+  it('shows participant headlines for the current year, compared with the year before', async () => {
     const w = await show(OverviewPage)
 
     const yearSelect = w.get('select[aria-label="Analytics year"]')
-    expect(yearSelect.findAll('option').map((option) => option.text())).toEqual(['2026'])
+    expect(yearSelect.findAll('option').map((option) => option.text())).toEqual(['2026', '2025'])
     expect((yearSelect.element as HTMLSelectElement).value).toBe('2026')
     expect(summaryCards(w)).toEqual([
-      ['Total Students', '2', 'Increased by 100% vs 2025', 'Registered student participants'],
+      ['Total Students', '2', 'Increased by 100% vs 2025', 'Registered\nstudent'],
       // No mentors were registered by 2025, so there is no change to show.
-      ['Total Mentors', '1', null, 'Registered mentors'],
+      ['Total Mentors', '1', null, 'Registered\nmentors'],
       ['Total Supervisors', '1', 'No change vs 2025', 'Registered supervisors'],
       ['Logged In', '75%', 'Increased by 50% vs 2025', '3 of 4 participants have logged in'],
     ])
@@ -299,7 +303,7 @@ describe('Analytics overview page', () => {
     expect(csv).toContain('Report,Covers,Year 2026,,\r\n')
     expect(csv).toContain('Report,Filter: Registration period,year,,\r\n')
     expect(csv).not.toContain('Unavailable data')
-    expect(csv).toContain('Headline,Total Students,2,,Registered student participants\r\n')
+    expect(csv).toMatch(/\r\nHeadline,Total Students,2,,/)
     expect(csv).toContain('Headline,Total Students (2025),1,,Previous year\r\n')
     expect(csv).toContain('Headline,Logged In (2025),50,%,Previous year\r\n')
     expect(csv).toContain('Headline,Logged In,75,%,3 of 4 participants have logged in\r\n')
@@ -317,7 +321,7 @@ describe('Analytics overview page', () => {
     const csv = await downloadedCsv(await show(OverviewPage))
 
     expect(csv).toContain('Report,Unavailable data,participant details; resource activity,,Could not be loaded; related figures are left out\r\n')
-    expect(csv).toContain('Headline,Total Students,,,Registered student participants\r\n')
+    expect(csv).toMatch(/\r\nHeadline,Total Students,,,/)
     expect(csv).toContain('Users,Users,,,Unavailable\r\n')
     expect(csv).toContain('Resources,Resources,,,Unavailable\r\n')
     expect(csv).toContain('Messages,Messages,23,Messages,Messages stored in the live database\r\n')

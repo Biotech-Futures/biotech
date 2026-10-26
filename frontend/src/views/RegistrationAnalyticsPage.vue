@@ -336,7 +336,16 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in pagedRows" :key="row.id">
+            <tr
+              v-for="row in pagedRows"
+              :key="row.id"
+              class="registration-follow-up-row--clickable"
+              role="link"
+              tabindex="0"
+              @click="openRegistrationStudent(row)"
+              @keydown.enter="openRegistrationStudent(row)"
+              @keydown.space.prevent="openRegistrationStudent(row)"
+            >
               <td>
                 <strong>{{ row.student }}</strong
                 ><small>{{ row.email }}</small>
@@ -388,7 +397,7 @@ import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatu
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import BtfIcon from '@/components/BtfIcon.vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
@@ -475,6 +484,15 @@ const visibleSeries = ref<TrendSeries[]>(['students', 'mentors'])
 const page = ref(1)
 const pageSize = 7
 const route = useRoute()
+const router = useRouter()
+
+function openRegistrationStudent(row: RegistrationFollowUp) {
+  void router.push({
+    name: 'admin-users',
+    query: { tab: 'students', search: row.email },
+    hash: '#admin-users-table',
+  })
+}
 
 useAnalyticsRefreshState('registration', {
   startDate,
@@ -1102,6 +1120,16 @@ h2 {
   color: var(--analytics-ui-muted, var(--btf-muted));
   font-size: 11px;
 }
+
+/* These labels and helper lines fit on one line, so the shared two-line KPI
+   reservations only leave empty space below the content on this page. */
+.registration-analytics-page .kpi-grid .kpi-card {
+  padding-block: 13px;
+}
+.registration-analytics-page .kpi-grid .kpi-label,
+.registration-analytics-page .kpi-grid .kpi-card small {
+  min-height: 0 !important;
+}
 .primary-grid,
 .status-grid,
 .secondary-grid {
@@ -1527,6 +1555,17 @@ td:first-child small {
   margin-top: 3px;
   color: var(--analytics-ui-muted, var(--btf-muted));
 }
+.registration-follow-up-row--clickable {
+  cursor: pointer;
+}
+.registration-follow-up-row--clickable:hover td,
+.registration-follow-up-row--clickable:focus-visible td {
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green)) 35%, var(--analytics-ui-surface, white));
+}
+.registration-follow-up-row--clickable:focus-visible {
+  outline: 2px solid var(--analytics-ui-accent, var(--btf-dark-green));
+  outline-offset: -2px;
+}
 .sort-button {
   display: inline-flex;
   align-items: center;
@@ -1784,18 +1823,11 @@ td:first-child small {
 .sticky-filter-card {
   position: -webkit-sticky !important;
   position: sticky !important;
-  top: 84px !important;
+  top: 0 !important;
   z-index: 100 !important;
   isolation: isolate;
   background: var(--analytics-ui-surface, #ffffff) !important;
   box-shadow: 0 8px 18px rgba(23, 66, 67, 0.10) !important;
-}
-
-@media (max-width: 1000px) {
-  .sticky-filter-card {
-    position: relative !important;
-    top: 0 !important;
-  }
 }
 
 
