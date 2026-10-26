@@ -46,6 +46,10 @@
       />
       <button type="submit" :disabled="isAsking || !draft.trim()">Send</button>
     </form>
+    <!-- "May": without an API key on the server, answers come from the built-in FAQ. -->
+    <p class="help-assistant__notice">
+      This chat may be sent to a third-party AI provider. Please don't include sensitive information.
+    </p>
   </section>
 </template>
 
@@ -112,7 +116,7 @@ async function ask(text: string) {
   right: 1rem;
   z-index: 1001;
   width: min(380px, calc(100vw - 2rem));
-  max-height: min(560px, calc(100vh - 6rem));
+  max-height: min(640px, calc(100vh - 6rem));
   display: flex;
   flex-direction: column;
   background: var(--white);
@@ -236,6 +240,14 @@ async function ask(text: string) {
   background: var(--dark-green);
   color: #fff;
   cursor: pointer;
+}
+
+.help-assistant__notice {
+  margin: 0;
+  padding: 0 1rem 0.6rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted);
 }
 
 .help-assistant button:disabled {
