@@ -5,6 +5,7 @@ import { defineComponent, h } from 'vue'
 
 import { pureAgent } from '@/__tests__/supportAccountFixtures'
 import { ApiError } from '@/utils/apiError'
+import { ticketTimeZone } from '@/utils/ticketDates'
 import type { QueueWalk } from '@/utils/ticketAgentAPI'
 import type { TicketQueue, TicketRow } from '@/utils/ticketAgentSchema'
 
@@ -951,7 +952,7 @@ describe('the last activity column', () => {
       month: 'short',
       hour: '2-digit',
       minute: '2-digit',
-      timeZone: pureAgent.timezone
+      timeZone: ticketTimeZone()
     } as const
     const withoutZone = new Date(ROW.supportUpdatedAt).toLocaleString('en-AU', stamp)
     const withZone = new Date(ROW.supportUpdatedAt).toLocaleString('en-AU', {

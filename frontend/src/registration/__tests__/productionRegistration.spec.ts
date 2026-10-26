@@ -87,12 +87,12 @@ describe('production registration normalization', () => {
     expect(request.payload).not.toHaveProperty('supervisor')
   })
 
-  it('sends a nominated supervisor only when one was given, as it is optional', () => {
+  it('always sends supervisor details when registering individually or creating a group', () => {
     const forms = createRegistrationForms()
     for (const journey of ['student_individual', 'student_team'] as const) {
       expect(
         buildProductionRegistrationRequest(buildRegistrationRequest(journey, forms)).payload,
-      ).not.toHaveProperty('supervisor')
+      ).toHaveProperty('supervisor', { firstName: '', lastName: '', email: '' })
     }
     Object.assign(forms.studentIndividual.supervisor, {
       firstName: 'Sam',

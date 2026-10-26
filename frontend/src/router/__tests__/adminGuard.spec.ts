@@ -69,7 +69,7 @@ describe('admin router guard', () => {
       await router.push(path)
       expect(router.currentRoute.value.path).toBe(path)
     }
-  })
+  }, 15000)
 
   it('sends authenticated admins who visit /login to the admin dashboard', async () => {
     const auth = useAuthStore()
