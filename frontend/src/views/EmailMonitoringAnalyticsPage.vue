@@ -29,6 +29,8 @@
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
 
+    <EmailVerificationUsage :refresh-token="verificationRefreshToken" />
+
     <AnalyticsDataState
       :loading="isLoading"
       :error="loadError"
@@ -634,6 +636,7 @@
 
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
+import EmailVerificationUsage from '@/components/analytics/EmailVerificationUsage.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -952,10 +955,12 @@ function emailBundleIsEmpty(bundle: EmailAnalyticsBundle) {
 }
 
 const analyticsRefreshBusy = ref(false)
+const verificationRefreshToken = ref(0)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await loadAnalytics(true, true) })
 
 async function loadAnalytics(force = false, preserveFilters = false) {
   if (analyticsRefreshBusy.value) return
+  if (force) verificationRefreshToken.value += 1
   analyticsRefreshBusy.value = true
   if (!preserveFilters || !lastUpdated.value) isLoading.value = true
   loadError.value = ''
