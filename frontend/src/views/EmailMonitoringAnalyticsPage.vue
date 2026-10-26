@@ -273,14 +273,14 @@
         <div>
           <dt><span class="log-status partial">Partial</span></dt>
           <dd>
-            Some recipients received the email and some could not be reached, so it did not go to everyone.
+            Some recipients' mail servers accepted the email and some could not be reached.
             This happens when a mail server refuses an address (for example a mistyped or closed mailbox)
             or the send stopped part-way.
           </dd>
         </div>
         <div>
           <dt><span class="log-status failed">Failed</span></dt>
-          <dd>No recipient received the email.</dd>
+          <dd>No recipient's mail server accepted the email.</dd>
         </div>
         <p>
           Who was missed and why is listed in

@@ -1222,7 +1222,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           type: row.email_type_label,
           sentAt: formatLogTime(row.started_at),
           sentAtIso: row.started_at,
-          status: logStatus(row.status, row.delivered, row.failed, row.status === 'sending'),
+          status: logStatus(row.status, row.attempted, row.delivered, row.failed, row.status === 'sending'),
           attempted: row.attempted,
           delivered: row.delivered,
           failed: row.failed,
@@ -1241,6 +1241,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           sentAtIso: row.started_at,
           status: logStatus(
             row.status,
+            row.recipient_count,
             row.success_count,
             row.failure_count,
             isRecentIncompleteAnnouncement(row, email.snapshot_at),
@@ -1276,13 +1277,19 @@ export function buildRecipientEmailLogs(rows: EmailSendToRecipient[]): EmailLog[
   }))
 }
 
-function logStatus(status: string, delivered: number, failed: number, sending = false): EmailLog['status'] {
+function logStatus(
+  status: string,
+  attempted: number,
+  delivered: number,
+  failed: number,
+  sending = false,
+): EmailLog['status'] {
   if (sending) return 'Sending'
   // Counts describe the completed result more reliably than a stale status
   // value left behind by an interrupted or older delivery workflow.
-  if (delivered > 0 && failed > 0) return 'Partial'
-  if (delivered > 0) return 'Delivered'
-  if (failed > 0) return 'Failed'
+  if (delivered <= 0) return 'Failed'
+  if (failed > 0 || delivered < attempted) return 'Partial'
+  if (attempted > 0 && delivered >= attempted) return 'Delivered'
   if (status === 'partial') return 'Partial'
   if (status === 'failed') return 'Failed'
   return 'Delivered'
