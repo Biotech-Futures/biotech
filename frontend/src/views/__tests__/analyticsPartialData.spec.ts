@@ -8,6 +8,7 @@ import MessagesPage from '@/views/MessagesAnalyticsPage.vue'
 import ResourcesPage from '@/views/ResourcesAnalyticsPage.vue'
 import ActivityPage from '@/views/ActivityAnalyticsPage.vue'
 import UsersPage from '@/views/UsersAnalyticsPage.vue'
+import AnalyticsPage from '@/views/AnalyticsPage.vue'
 
 vi.mock('@/utils/liveAnalyticsApi', () => ({
   fetchAllUsers: vi.fn(), fetchAllGroups: vi.fn(), fetchMentors: vi.fn(),
@@ -149,6 +150,20 @@ async function downloadedCsv(wrapper: VueWrapper, option = 'Summary') {
 const error = new Error('HTTP 500')
 
 describe('independent analytics sources', () => {
+  it('includes years recorded only in the yearly login history', () => {
+    expect(data.analyticsYears({
+      users: [],
+      groupActivity: activity,
+      loginActivity: {
+        by_day: [],
+        by_year: [{ year: 2025, students: 1, mentors: 0, supervisors: 0, total: 1 }],
+        active_users: { daily: 0, weekly: 0, monthly: 0 },
+        latest_activity_date: null,
+        query_range: { start: null, end: null },
+      },
+    })).toEqual([2026, 2025])
+  })
+
   it('derives participant and group year comparisons from creation dates', () => {
     const participantComparison = data.participantYearComparison([
       student,
@@ -209,6 +224,50 @@ describe('independent analytics sources', () => {
     expect(w.get('.kpi-grid').text()).toContain('Total Users1')
     expect(w.get('.kpi-grid').text()).toContain('Mentors1')
     expect(w.get('.kpi-grid').text()).toContain('Students0')
+  })
+
+  it('offers historical years and compares overview participants with the previous year', async () => {
+    const participant = (id: number, role: string, createdAt: string) => ({
+      ...student,
+      id,
+      role,
+      email: `${role}-${id}@example.test`,
+      createdAt,
+      invitedAt: createdAt,
+      activatedAt: createdAt,
+    })
+    vi.mocked(api.fetchAllUsers).mockResolvedValue([
+      participant(1, 'student', '2025-02-01T00:00:00Z'),
+      participant(2, 'mentor', '2025-03-01T00:00:00Z'),
+      participant(3, 'supervisor', '2025-04-01T00:00:00Z'),
+      participant(4, 'student', '2026-02-01T00:00:00Z'),
+      participant(5, 'mentor', '2026-03-01T00:00:00Z'),
+      participant(6, 'supervisor', '2026-04-01T00:00:00Z'),
+    ])
+    vi.mocked(api.fetchLoginActivity).mockResolvedValue({
+      by_day: [{ date: '2026-10-15', students: 2, mentors: 1, supervisors: 1, total: 4 }],
+      by_year: [
+        { year: 2025, students: 1, mentors: 1, supervisors: 1, total: 3 },
+        { year: 2026, students: 2, mentors: 1, supervisors: 1, total: 4 },
+      ],
+      active_users: { daily: 4, weekly: 4, monthly: 4 },
+      latest_activity_date: '2026-10-15',
+      query_range: { start: null, end: null },
+    })
+
+    const w = await show(AnalyticsPage)
+    const yearSelect = w.get('[aria-label="Analytics year"]')
+    expect((yearSelect.element as HTMLSelectElement).value).toBe('2026')
+    expect(yearSelect.findAll('option').map((option) => option.text())).toEqual(['2026', '2025'])
+
+    const summaryCards = () => w.findAll('.summary-card')
+    expect(summaryCards().filter((card) => card.find('.analytics-year-change').exists())).toHaveLength(4)
+    expect(summaryCards().find((card) => card.text().includes('Total Students'))?.text()).toContain('↑100%')
+    expect(summaryCards().find((card) => card.text().includes('Logged In'))?.text()).toContain('↓33.3%')
+
+    await yearSelect.setValue('2025')
+    expect(summaryCards().find((card) => card.text().includes('Total Students'))?.text()).toContain('Total Students12025')
+    expect(summaryCards().some((card) => card.find('.analytics-year-change').exists())).toBe(false)
   })
 
   it('does not label a later login as Never in an earlier year', () => {

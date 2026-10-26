@@ -168,6 +168,13 @@ describe('buildRegistrationAnalytics', () => {
           invitedAt: '2024-01-01T00:00:00Z',
           activatedAt: '2024-01-02T00:00:00Z',
         }),
+        user({
+          id: 3,
+          createdAt: null,
+          guardianEmail: null,
+          invitedAt: '2024-02-01T00:00:00Z',
+          activatedAt: '2024-02-02T00:00:00Z',
+        }),
       ],
       groupActivity: fullActivity,
     })
@@ -175,6 +182,8 @@ describe('buildRegistrationAnalytics', () => {
     expect(result.trend).toEqual([
       { date: '2025-03-04', students: 1, mentors: 0 },
     ])
+    expect(result.followUps).toEqual([])
+    expect(data.registeredByYear(user({ createdAt: null }), 2026)).toBe(false)
   })
 })
 

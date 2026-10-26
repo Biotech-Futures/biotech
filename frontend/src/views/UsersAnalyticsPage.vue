@@ -1908,7 +1908,7 @@ function usersDetails() {
         loggedInLater ? `Logged in after ${asOfDay}` : activityStatusLabel(days),
         isoUtc(user.lastLogin),
         days,
-        isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
+        isoUtc(user.createdAt),
         user.groupName,
         user.schoolName,
         user.country?.countryName,

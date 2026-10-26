@@ -329,16 +329,17 @@ import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { AnalyticsYearData } from '@/types/analytics'
 import {
   buildOverviewAnalytics,
   buildRegistrationAnalytics,
-  liveAnalyticsYear,
+  analyticsYears,
   loadOverviewAnalyticsBundle,
   participantYearComparison,
+  registeredByYear,
   type OverviewAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import { useRouter } from 'vue-router'
@@ -352,6 +353,7 @@ const comparisonPreviousYear = ref(currentYear - 1)
 const overviewComparisons = ref<Record<string, { current: number; previous: number }>>({})
 const selectedData = ref<AnalyticsYearData>({ summary: [], modules: [], attention: [] })
 const registrationTrend = ref<Array<{ date: string; students: number; mentors: number }>>([])
+const loadedBundle = ref<OverviewAnalyticsBundle | null>(null)
 const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
@@ -493,8 +495,7 @@ const registrationYearComparison = computed(() => {
     const year = Number(row.date.slice(0, 4))
     yearlyTotals.set(year, (yearlyTotals.get(year) ?? 0) + row.students + row.mentors)
   }
-  const years = [...yearlyTotals.keys()].sort((a, b) => a - b)
-  const year = years[years.length - 1] ?? selectedYear.value
+  const year = selectedYear.value
   return {
     current: yearlyTotals.get(year) ?? 0,
     previous: yearlyTotals.get(year - 1) ?? 0,
@@ -583,6 +584,76 @@ function overviewBundleIsEmpty(bundle: OverviewAnalyticsBundle) {
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await loadAnalytics(true, true) })
 
+function applySelectedYear(year: number) {
+  const bundle = loadedBundle.value
+  if (!bundle) return
+
+  const data = buildOverviewAnalytics(bundle)
+  const comparison = participantYearComparison(bundle.users, year)
+  const currentLoginRow = bundle.loginActivity?.by_year.find((row) => row.year === year)
+  const previousLoginRow = bundle.loginActivity?.by_year.find((row) => row.year === comparison.previousYear)
+  const currentParticipants = bundle.users.filter((user) =>
+    !user.isAdmin
+    && ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase())
+    && registeredByYear(user, year),
+  )
+  const currentLoginCount = currentLoginRow?.total
+    ?? (year === currentYear ? currentParticipants.filter((user) => user.hasLoggedIn).length : 0)
+  const currentLoginRate = comparison.current.total
+    ? currentLoginCount / comparison.current.total * 100
+    : 0
+  const previousLoginRate = comparison.previous.total && previousLoginRow
+    ? previousLoginRow.total / comparison.previous.total * 100
+    : 0
+
+  comparisonPreviousYear.value = comparison.previousYear
+  overviewComparisons.value = {
+    ...(comparison.previous.students > 0
+      ? { 'Total Students': { current: comparison.current.students, previous: comparison.previous.students } }
+      : {}),
+    ...(comparison.previous.mentors > 0
+      ? { 'Total Mentors': { current: comparison.current.mentors, previous: comparison.previous.mentors } }
+      : {}),
+    ...(comparison.previous.supervisors > 0
+      ? { 'Total Supervisors': { current: comparison.current.supervisors, previous: comparison.previous.supervisors } }
+      : {}),
+    ...(previousLoginRow && comparison.previous.total > 0 && previousLoginRate > 0
+      ? { 'Logged In': { current: currentLoginRate, previous: previousLoginRate } }
+      : {}),
+  }
+
+  data.summary = data.summary.map((item) => {
+    if (item.label === 'Total Participants') {
+      return {
+        ...item,
+        value: String(comparison.current.total),
+        helper: `${comparison.current.students} students · ${comparison.current.mentors} mentors · ${comparison.current.supervisors} supervisors`,
+        trend: String(year),
+      }
+    }
+    if (item.label !== 'Logged In') return item
+    if (item.unavailable) return { ...item, trend: String(year) }
+    if (!currentLoginRow && year !== currentYear) {
+      return {
+        ...item,
+        value: '—',
+        helper: `No recorded login history is available for ${year}.`,
+        trend: String(year),
+        unavailable: true,
+      }
+    }
+    return {
+      ...item,
+      value: `${Math.round(currentLoginRate)}%`,
+      helper: `${currentLoginCount} of ${comparison.current.total} participants have logged in`,
+      trend: String(year),
+      unavailable: false,
+    }
+  })
+
+  selectedData.value = data
+}
+
 async function loadAnalytics(force = false, preserveFilters = false) {
   if (analyticsRefreshBusy.value) return
   analyticsRefreshBusy.value = true
@@ -591,29 +662,13 @@ async function loadAnalytics(force = false, preserveFilters = false) {
   try {
     const bundle = await loadOverviewAnalyticsBundle(force)
     unavailableSources.value = bundle.unavailableSources ?? []
-    const year = liveAnalyticsYear(bundle)
-    const comparison = participantYearComparison(bundle.users, year)
-    comparisonPreviousYear.value = comparison.previousYear
-    const currentLoginCount = bundle.loginActivity?.by_year.find((row) => row.year === year)?.total ?? 0
-    const previousLoginCount = bundle.loginActivity?.by_year.find((row) => row.year === comparison.previousYear)?.total ?? 0
-    const currentLoginRate = comparison.current.total
-      ? currentLoginCount / comparison.current.total * 100
-      : 0
-    const previousLoginRate = comparison.previous.total
-      ? previousLoginCount / comparison.previous.total * 100
-      : 0
-    overviewComparisons.value = {
-      'Total Students': { current: comparison.current.students, previous: comparison.previous.students },
-      'Total Mentors': { current: comparison.current.mentors, previous: comparison.previous.mentors },
-      'Total Supervisors': { current: comparison.current.supervisors, previous: comparison.previous.supervisors },
-      'Logged In': { current: currentLoginRate, previous: previousLoginRate },
-    }
-    availableAnalyticsYears.value = [year]
+    loadedBundle.value = bundle
+    availableAnalyticsYears.value = analyticsYears(bundle)
     if (!preserveFilters || !availableAnalyticsYears.value.includes(selectedYear.value)) {
-      selectedYear.value = year
+      selectedYear.value = currentYear
     }
-    selectedData.value = buildOverviewAnalytics(bundle)
     registrationTrend.value = buildRegistrationAnalytics(bundle).trend
+    applySelectedYear(selectedYear.value)
     isEmpty.value = unavailableSources.value.length === 0 && overviewBundleIsEmpty(bundle)
     hasLoaded.value = true
     markUpdated()
@@ -633,6 +688,8 @@ function refreshAnalytics() {
 }
 
 onMounted(() => loadAnalytics())
+
+watch(selectedYear, (year) => applySelectedYear(year))
 
 const moduleIcons: Record<string, string> = {
   registration: 'fas fa-user-plus',

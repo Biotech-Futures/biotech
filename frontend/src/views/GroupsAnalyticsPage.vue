@@ -987,7 +987,7 @@ function unassignedStudents() {
       user.email,
       user.schoolName,
       user.supervisorName,
-      isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
+      isoUtc(user.createdAt),
     ])
   return {
     fileName: exportFileName('groups', 'students-without-group', isoDay(new Date())),

@@ -388,11 +388,10 @@ function participantCounts(users: AdminUser[]): ParticipantYearCounts {
   }
 }
 
-/** Registered by the end of `year`. Undated legacy accounts can only be
- *  represented safely in the live year. */
+/** Registered by the end of `year`, using Django User.date_joined only. */
 export function registeredByYear(user: AdminUser, year: number) {
   const joined = registrationDate(user)
-  return joined ? joined.getUTCFullYear() <= year : year === new Date().getUTCFullYear()
+  return joined !== null && joined.getUTCFullYear() <= year
 }
 
 export function participantYearComparison(users: AdminUser[], year: number) {
@@ -686,7 +685,11 @@ export function buildRegistrationAnalytics(bundle: ParticipantAnalyticsBundle) {
 
   const followUps: RegistrationFollowUp[] = []
   for (const user of students) {
-    const registered = registrationDate(user) ?? asOf
+    const registered = registrationDate(user)
+    // The API contract supplies Django's non-null date_joined value. If an
+    // older or malformed response omits it, do not fabricate a registration
+    // date from invitation, activation or the analytics snapshot date.
+    if (!registered) continue
     const base = {
       id: user.id,
       student: `${user.firstName} ${user.lastName}`.trim() || user.email,
@@ -733,6 +736,7 @@ export function analyticsYears(bundle: Pick<LiveBundle, 'users' | 'groupActivity
   const years = new Set<number>([new Date().getUTCFullYear()])
   for (const row of bundle.groupActivity.messages_by_day) years.add(Number(row.date.slice(0, 4)))
   for (const row of bundle.loginActivity?.by_day ?? []) years.add(Number(row.date.slice(0, 4)))
+  for (const row of bundle.loginActivity?.by_year ?? []) years.add(row.year)
   for (const user of bundle.users) {
     const date = registrationDate(user)
     if (date) years.add(date.getUTCFullYear())
