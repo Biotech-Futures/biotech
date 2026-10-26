@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { registerProfileTimeZone } from '@/utils/date'
 import { actorOptions, when } from '../auditRows'
@@ -98,6 +98,17 @@ describe('when', () => {
       })
     )
     expect(printed).toContain(':30')
+  })
+
+  it('reads a Profile still on the default of UTC in the computer’s zone', () => {
+    // C-37, C-38, C-40: the client's admin account never chose a zone.
+    vi.stubEnv('TZ', 'Asia/Kolkata')
+    registerProfileTimeZone(() => 'UTC')
+
+    const printed = when('2026-09-01T09:00:00Z')
+    expect(printed).toContain(':30')
+    expect(printed).not.toContain('UTC')
+    vi.unstubAllEnvs()
   })
 })
 

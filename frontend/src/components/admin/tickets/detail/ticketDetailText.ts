@@ -12,7 +12,7 @@
 import { ApiError } from '@/utils/apiError'
 import { attachmentErrorMessage, ticketRefusalReason } from '@/utils/ticketAgentAPI'
 import type { TicketMessage } from '@/utils/ticketAgentSchema'
-import { getSetTimeZone } from '@/utils/date'
+import { ticketTimeZone } from '@/utils/ticketDates'
 
 /** Date only, for "Member since".
  *
@@ -23,7 +23,7 @@ export function whenDate(value: string): string {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-    timeZone: getSetTimeZone()
+    timeZone: ticketTimeZone()
   })
 }
 
@@ -35,12 +35,13 @@ export function when(value: string): string {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    // Rendered in the reader's set time zone (their Profile timezone, or
-    // their computer's when the profile names none), so the zone has to be on
-    // screen. Same rule as the queue's last activity column: the same message
-    // reads 03:37 pm for an agent set to Sydney and 02:37 am for one set to
-    // Sao Paulo, and agents in two places read this timeline to each other.
-    timeZone: getSetTimeZone(),
+    // Rendered in the reader's zone (utils/ticketDates.ticketTimeZone: their
+    // Profile timezone, or their computer's when the profile names none or
+    // still says UTC), so the zone has to be on screen. Same rule as the
+    // queue's last activity column: the same message reads 03:37 pm for an
+    // agent in Sydney and 02:37 am for one in Sao Paulo, and agents in two
+    // places read this timeline to each other.
+    timeZone: ticketTimeZone(),
     timeZoneName: 'short'
   })
 }

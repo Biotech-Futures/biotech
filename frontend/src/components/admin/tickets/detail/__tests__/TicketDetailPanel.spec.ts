@@ -317,6 +317,8 @@ describe('AI screening review', () => {
       'Message approved and restored by Sam Reid.'
     )
     expect(panel.wrapper.emitted('changed')).toHaveLength(1)
+    // C-41: the decision is stored, so the panel closes.
+    expect(panel.wrapper.emitted('close')).toHaveLength(1)
   })
 
   it('deletes a suppressed message immediately without a browser confirmation', async () => {
@@ -345,6 +347,29 @@ describe('AI screening review', () => {
       'Message deleted by Sam Reid.'
     )
     expect(panel.wrapper.emitted('changed')).toHaveLength(1)
+    expect(panel.wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('stays open, with the reason, when a decision is not stored (C-41)', async () => {
+    api.reviewScreeningMessage.mockRejectedValue(
+      await serverError(500, {
+        error: 'Internal server error',
+        code: 'internal_server_error',
+        request_id: 'a1'
+      })
+    )
+    const panel = await openPanel(
+      ticketWith({ channel: 'ai_screening', screeningReview: pendingReview })
+    )
+
+    await panel.page.get('.ticket-panel__screening-approve').trigger('click')
+    await flushPromises()
+
+    expect(panel.wrapper.emitted('close')).toBeUndefined()
+    expect(panel.page.findAll('[role="alert"]').map((alert) => alert.text()).join(' ')).toContain(
+      'That change was not saved.'
+    )
+    expect(panel.page.get('.ticket-panel__screening-approve').attributes('disabled')).toBeUndefined()
   })
 })
 
