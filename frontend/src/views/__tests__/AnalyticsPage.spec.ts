@@ -301,6 +301,7 @@ describe('Analytics overview page', () => {
     expect(csv).not.toContain('Unavailable data')
     expect(csv).toContain('Headline,Total Students,2,,Registered student participants\r\n')
     expect(csv).toContain('Headline,Total Students (2025),1,,Previous year\r\n')
+    expect(csv).toContain('Headline,Logged In (2025),50,%,Previous year\r\n')
     expect(csv).toContain('Headline,Logged In,75,%,3 of 4 participants have logged in\r\n')
     expect(csv).toContain('Attention required,Groups without mentors,1,,1 groups currently have no mentor assigned. Review group allocation and mentor coverage.\r\n')
     expect(csv).toContain('New Registrations,New Registrations,2,latest year,Account creation dates for current participants by year.\r\n')
@@ -321,5 +322,34 @@ describe('Analytics overview page', () => {
     expect(csv).toContain('Resources,Resources,,,Unavailable\r\n')
     expect(csv).toContain('Messages,Messages,23,Messages,Messages stored in the live database\r\n')
     expect(csv).not.toContain('Attention required,Students not assigned to groups')
+    // Without participants there is no previous year to compare with, not a year of zeros.
+    expect(csv).not.toContain('(2025)')
+  })
+
+  it('leaves out the login comparison when login history fails, keeping the participant ones', async () => {
+    vi.mocked(api.fetchLoginActivity).mockRejectedValue(error)
+    const w = await show(OverviewPage)
+
+    expect(summaryCards(w).map(([label, value, change]) => [label, value, change])).toEqual([
+      ['Total Students', '2', 'Increased by 100% vs 2025'],
+      ['Total Mentors', '1', null],
+      ['Total Supervisors', '1', 'No change vs 2025'],
+      ['Logged In', '75%', null],
+    ])
+    const csv = await downloadedCsv(w)
+    expect(csv).toContain('Headline,Total Students (2025),1,,Previous year\r\n')
+    expect(csv).toContain('Headline,Logged In,75,%,3 of 4 participants have logged in\r\n')
+    expect(csv).not.toContain('Logged In (2025)')
+  })
+
+  it('exports the previous-year login rate as a whole percentage', async () => {
+    // Three participants by 2025, one of whom logged in that year: 33.3%.
+    vi.mocked(api.fetchAllUsers).mockResolvedValue([
+      ...structuredClone(users),
+      registeredUser(5, 'mentor', '2025-05-01T00:00:00Z'),
+    ])
+    const csv = await downloadedCsv(await show(OverviewPage))
+
+    expect(csv).toContain('Headline,Logged In (2025),33,%,Previous year\r\n')
   })
 })
