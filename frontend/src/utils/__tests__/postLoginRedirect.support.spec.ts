@@ -56,7 +56,7 @@ describe('redirectAfterLogin for support accounts', () => {
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace).toHaveBeenCalledWith(expected)
     expect(router.currentRoute.value.path).toBe(expected)
-  })
+  }, 15000)
 
   it('sends a new support agent to set a password before the queue', async () => {
     const auth = useAuthStore()

@@ -830,6 +830,29 @@ class LegacyTests(RegistrationSetup, TestCase):
         # The supervisor they named, who had no account, is created for them.
         self.assertTrue(SupervisorProfile.objects.filter(user__email="teacher@example.com").exists())
 
+    def test_legacy_requires_supervisor_details_without_consuming_a_late_link(self):
+        self.close_window()
+        invite = self.mint()
+        fields = ("SupervisorEmail", "SupervisorFirstName", "SupervisorSurname")
+        cases = [{field: None for field in fields}]
+        cases.extend({field: value} for field in fields for value in (None, "", "   "))
+        for changes in cases:
+            with self.subTest(changes=changes):
+                body = self.legacy()
+                for field, value in changes.items():
+                    if value is None:
+                        body["body"].pop(field)
+                    else:
+                        body["body"][field] = value
+                response = self.client.post(
+                    INTAKE, body, format="json", HTTP_X_REGISTRATION_INVITATION=invite["token"],
+                )
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertTrue(any(key.startswith("supervisor") for key in response.data["fields"]))
+                self.assertFalse(StudentProfile.objects.exists())
+                self.assertFalse(RegistrationSubmission.objects.exists())
+                self.assert_not_consumed(invite)
+
     def test_legacy_cannot_bypass_window_or_self_guardian_validation(self):
         self.close_window()
         self.assertEqual(self.client.post(INTAKE, self.legacy(), format="json").status_code, 400)

@@ -170,6 +170,39 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
         )
         self.assertEqual(Groups.objects.count(), 1)
 
+    def test_joining_inherits_the_groups_recorded_nomination(self):
+        code = self.registered_group()
+        body = self.joiner(code)
+        del body["payload"]["supervisor"]
+        response = self.post_batch(body)
+        self.assertEqual(response.status_code, 201, response.data)
+        from apps.users.models import RegistrationSubmission
+        original, joined = RegistrationSubmission.objects.order_by("created_at", "pk")
+        self.assertEqual(joined.supervisor_details, original.supervisor_details)
+
+    def test_joining_uses_the_groups_assigned_supervisor(self):
+        code = self.registered_group()
+        group = Groups.objects.get(code=code)
+        GroupMembership.objects.create(
+            group=group, user=self.supervisor,
+            membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR,
+        )
+        body = self.joiner(code)
+        del body["payload"]["supervisor"]
+        response = self.post_batch(body)
+        self.assertEqual(response.status_code, 201, response.data)
+        from apps.users.models import StudentProfile
+        self.assertEqual(StudentProfile.objects.get(user__email="learner50@students.example.test").supervisor, self.profile)
+
+    def test_joining_a_legacy_group_without_a_supervisor_saves_nothing(self):
+        group = Groups.create_with_code()
+        body = self.joiner(group.code)
+        del body["payload"]["supervisor"]
+        response = self.post_batch(body)
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("group.joinCode", response.data["fields"])
+        self.assertFalse(User.objects.filter(email="learner50@students.example.test").exists())
+
     def test_an_unknown_code_saves_nothing(self):
         response = self.post_batch(self.joiner("999999"))
         self.assertEqual(response.status_code, 400)

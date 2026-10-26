@@ -969,7 +969,7 @@
 
     <section v-if="user?.role === 'supervisor'" class="admin-users-detail__section" data-test="admin-supervisees">
       <div class="admin-users-detail__heading">
-        <h3>Supervisees</h3>
+        <h3>Students ({{ user.supervisees?.length || 0 }})</h3>
         <button
           v-if="editable && editing !== 'supervisees'"
           type="button"
@@ -977,7 +977,7 @@
           data-test="admin-edit-supervisees"
           @click="startEdit('supervisees')"
         >
-          Edit
+          Add
         </button>
       </div>
       <!-- Their students, each with its ×, and any student to add. -->
@@ -1024,16 +1024,15 @@
           <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
         </div>
       </form>
-      <dl v-else class="admin-users-detail__list">
-        <div v-for="supervisee in user.supervisees || []" :key="supervisee.email" class="admin-users-detail__item">
-          <dt>{{ supervisee.name || '—' }}</dt>
-          <dd>{{ supervisee.email }}</dd>
-        </div>
-        <div v-if="!user.supervisees?.length" class="admin-users-detail__item">
-          <dt>Students</dt>
-          <dd>—</dd>
-        </div>
-      </dl>
+      <p v-if="!user.supervisees?.length" class="admin-users-detail__students-empty">No students yet.</p>
+      <ul v-else class="admin-users-detail__students">
+        <li v-for="supervisee in user.supervisees || []" :key="supervisee.email" class="admin-users-detail__student">
+          <div class="admin-users-detail__student-info">
+            <span class="admin-users-detail__student-name">{{ supervisee.name || '—' }}</span>
+            <span class="admin-users-detail__student-email">{{ supervisee.email }}</span>
+          </div>
+        </li>
+      </ul>
     </section>
 
     <section v-if="user?.role === 'admin'" class="admin-users-detail__section">
@@ -2585,6 +2584,48 @@ const sendConsentRequest = async () => {
   color: var(--teal);
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+.admin-users-detail__students {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.admin-users-detail__student {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background-color: var(--bg-light);
+  border-radius: 8px;
+}
+
+.admin-users-detail__student-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-users-detail__student-name {
+  font-weight: 600;
+  color: var(--teal);
+}
+
+.admin-users-detail__student-email {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.admin-users-detail__students-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
 }
 
 .admin-users-detail__consent-request {

@@ -322,12 +322,12 @@
             </h2>
 
             <!-- An admin (Management > Registration): their students'
-                 supervisor first, if they have one, before the students: an
+                 supervisor first, before the students: an
                  existing supervisor, found by email. -->
             <div v-if="adminChoosesSupervisor && currentStep === 0" class="step-stack admin-supervisor">
               <div class="section-divider section-divider--first">
                 <h3>Supervisor</h3>
-                <p>A supervisor is usually a teacher, but can also be a guardian.</p>
+                <p>Enter an existing supervisor's email or select a suggestion. A supervisor is required.</p>
               </div>
               <SupervisorSearchField
                 id="admin-supervisor-email"
@@ -362,30 +362,30 @@
               <div v-else-if="currentStep === 2" class="step-stack">
                 <div class="section-divider section-divider--first">
                   <h3>Supervisor</h3>
-                  <p>A supervisor is usually a teacher, but can also be a guardian.</p>
+                  <p>Enter your supervisor's name and email. These details are required.</p>
                 </div>
                 <div class="field-grid">
                   <RegistrationTextField
                     id="student-individual-supervisor-first"
                     v-model="forms.studentIndividual.supervisor.firstName"
                     label="Supervisor first name"
-                    :error="errors['studentIndividual.supervisor.firstName']"
                     required
+                    :error="errors['studentIndividual.supervisor.firstName']"
                   />
                   <RegistrationTextField
                     id="student-individual-supervisor-last"
                     v-model="forms.studentIndividual.supervisor.lastName"
                     label="Supervisor last name"
-                    :error="errors['studentIndividual.supervisor.lastName']"
                     required
+                    :error="errors['studentIndividual.supervisor.lastName']"
                   />
                   <RegistrationTextField
                     id="student-individual-supervisor-email"
                     v-model="forms.studentIndividual.supervisor.email"
                     label="Supervisor email"
+                    required
                     type="email"
                     :error="errors['studentIndividual.supervisor.email']"
-                    required
                     wide
                     @blur="checkOwnBox('studentIndividual.supervisor.email')"
                   />
@@ -484,30 +484,30 @@
                   <!-- The group's supervisor, on a line below its code. -->
                   <div class="section-divider">
                     <h3>Supervisor</h3>
-                    <p>A supervisor is usually a teacher, but can also be a guardian.</p>
+                    <p>Enter your supervisor's name and email. These details are required.</p>
                   </div>
                   <div class="field-grid">
                     <RegistrationTextField
                       id="student-team-supervisor-first"
                       v-model="forms.studentTeam.supervisor.firstName"
                       label="Supervisor first name"
-                      :error="errors['studentTeam.supervisor.firstName']"
                       required
+                      :error="errors['studentTeam.supervisor.firstName']"
                     />
                     <RegistrationTextField
                       id="student-team-supervisor-last"
                       v-model="forms.studentTeam.supervisor.lastName"
                       label="Supervisor last name"
-                      :error="errors['studentTeam.supervisor.lastName']"
                       required
+                      :error="errors['studentTeam.supervisor.lastName']"
                     />
                     <RegistrationTextField
                       id="student-team-supervisor-email"
                       v-model="forms.studentTeam.supervisor.email"
                       label="Supervisor email"
+                      required
                       type="email"
                       :error="errors['studentTeam.supervisor.email']"
-                      required
                       wide
                       @blur="checkOwnBox('studentTeam.supervisor.email')"
                     />
@@ -2639,7 +2639,7 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
             },
           ],
         },
-        // As on the Group step: its supervisor (optional) after its code.
+        // As on the Group step: its required supervisor after its code.
         {
           title: 'Supervisor',
           items: [
@@ -2858,8 +2858,7 @@ const validateEmail = (key: string, value: string, label: string) => {
     clientErrors[key] = `Enter a valid ${label.toLowerCase()}.`
 }
 
-// A nominated supervisor is optional: none at all, or their name and email.
-// A student registering themselves names their supervisor: all of it.
+// A nominated supervisor must have a name and valid email.
 const validateSupervisor = (supervisor: SupervisorDetails, prefix: string) => {
   requireValue(`${prefix}.firstName`, supervisor.firstName, 'Enter the supervisor first name.')
   requireValue(`${prefix}.lastName`, supervisor.lastName, 'Enter the supervisor last name.')
@@ -2910,15 +2909,10 @@ const validateCurrentStep = () => {
   clearErrors()
   if (!journey.value) return false
   const step = currentStep.value
-  // An admin's students' supervisor, on the first step: one of the list, if any.
-  if (
-    adminChoosesSupervisor.value &&
-    step === 0 &&
-    forms.adminSupervisorEmail.trim() &&
-    registrationSupervisors.value.length &&
-    !chosenSupervisor.value
-  )
-    clientErrors.supervisorEmail = 'Choose a supervisor from the list.'
+  // The list is autocomplete only: it can fail to load or omit a profile.
+  // Require a valid email here; the server checks that the supervisor exists.
+  if (adminChoosesSupervisor.value && step === 0)
+    validateEmail('supervisorEmail', forms.adminSupervisorEmail, 'Supervisor email')
 
   if (journey.value === 'student_individual') {
     if (step === 0)
