@@ -90,7 +90,7 @@ describe('useStudentMatching confirm', () => {
     await expect(matching.confirm()).resolves.toBe(true)
     expect(confirmStudentAssignments).toHaveBeenCalledWith([
       { studentId: 1, groupId: 'new-Australia-1' }
-    ])
+    ], { onlyUngrouped: true })
   })
 
   it('refuses to confirm when only formed-group assignments remain', async () => {

@@ -481,7 +481,7 @@ describe('StudentMatchingPanel', () => {
     )
     expect(confirmCall).toBeDefined()
     const body = JSON.parse((confirmCall![1] as RequestInit).body as string)
-    expect(body.assignments).toEqual([{ studentId: 1, groupId: 10 }])
+    expect(body.assignments).toEqual([{ studentId: 1, groupId: 'new-Australia-1' }])
     // It placed students with no group: refused if one has joined a group since.
     expect(body.onlyUngrouped).toBe(true)
   })
@@ -514,11 +514,12 @@ describe('StudentMatchingPanel', () => {
     wrapper = mount(StudentMatchingPanel)
     await runMatch(wrapper)
 
-    expect(wrapper.text()).toContain('BTF11')
+    expect(wrapper.text()).toContain('Suggested Group 1')
+    expect(wrapper.text()).toContain('Suggested Group 2')
 
-    // "Has recommended students" hides the group nobody was proposed for.
-    await wrapper.find('select').setValue('needs_action')
-    expect(wrapper.text()).toContain('BTF10')
-    expect(wrapper.text()).not.toContain('BTF11')
+    // "Full groups" hides the proposed group that still has open seats.
+    await pickAppSelect(wrapper, '.student-matching__select', 'Full groups')
+    expect(wrapper.text()).toContain('Suggested Group 2')
+    expect(wrapper.text()).not.toContain('Suggested Group 1')
   })
 })
