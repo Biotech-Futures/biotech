@@ -713,7 +713,10 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     }
 
 
-def _reject_assignments_into_formed_groups(assignments: List[Dict[str, Any]]) -> None:
+def _reject_assignments_into_formed_groups(
+    assignments: List[Dict[str, Any]],
+    current: List[GroupMembership],
+) -> None:
     """Refuse the whole confirm if any student is being placed into a group that
     already has members (MA3).
 
@@ -722,11 +725,13 @@ def _reject_assignments_into_formed_groups(assignments: List[Dict[str, Any]]) ->
     into an existing group. Synthetic ``new-`` ids are the form path and are fine.
     """
     target_group_ids = set()
+    target_students_by_group: Dict[int, Set[int]] = defaultdict(set)
     for item in assignments:
         group_id = item['group_id']
         if isinstance(group_id, str) and group_id.startswith('new-'):
             continue
         target_group_ids.add(group_id)
+        target_students_by_group[group_id].add(item['student_id'])
 
     if not target_group_ids:
         return
@@ -736,6 +741,26 @@ def _reject_assignments_into_formed_groups(assignments: List[Dict[str, Any]]) ->
         .filter(group_id__in=target_group_ids, left_at__isnull=True)
         .values_list('group_id', flat=True)
     )
+    if not formed_group_ids:
+        return
+
+    current_by_group: Dict[int, Set[int]] = defaultdict(set)
+    target_by_student = {
+        item['student_id']: item['group_id']
+        for item in assignments
+    }
+    departing_group_ids = set()
+    for membership in current:
+        current_by_group[membership.group_id].add(membership.user_id)
+        if target_by_student.get(membership.user_id) != membership.group_id:
+            departing_group_ids.add(membership.group_id)
+
+    allowed_group_ids = departing_group_ids | {
+        group_id
+        for group_id, student_ids in target_students_by_group.items()
+        if student_ids <= current_by_group[group_id]
+    }
+    formed_group_ids -= allowed_group_ids
     if not formed_group_ids:
         return
 
@@ -785,7 +810,6 @@ def confirm_student_assignments(input_data: Dict[str, Any], created_by=None) -> 
         for sid, gid in unique_by_student.items()
     ]
 
-    _reject_assignments_into_formed_groups(assignments)
     student_ids = [a['student_id'] for a in assignments]
     student_role = GroupMembership.MembershipRoleChoices.STUDENT
     now = timezone.now()
@@ -874,7 +898,9 @@ def confirm_student_assignments(input_data: Dict[str, Any], created_by=None) -> 
             try:
                 check_room_for_students(groups[group_id], incoming[group_id], named=True)
             except DjangoValidationError as exc:
-                raise ValidationError({'assignments': exc.messages}) from exc
+                raise ValidationError({'assignments': list(exc.messages)}) from exc
+
+        _reject_assignments_into_formed_groups(assignments, current)
 
         # Create memberships
         memberships = [
