@@ -10,6 +10,10 @@
     <dd>{{ ticket.requester ? whenDate(ticket.requester.registeredAt) : '—' }}</dd>
     <dt>Region</dt>
     <dd>{{ ticket.region || 'Unknown' }}</dd>
+    <!-- C-39: the groups the requester is in now, named the way admins know
+         them, which for an auto-named group is its number ("BTF07"). -->
+    <dt>{{ groups.length > 1 ? 'Groups' : 'Group' }}</dt>
+    <dd>{{ groupsText }}</dd>
     <dt>Category</dt>
     <dd>{{ categoryLabel(ticket.category) }}</dd>
     <dt>Channel</dt>
@@ -31,11 +35,21 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import { categoryLabel, type TicketDetail } from '@/utils/ticketAgentSchema'
 
 import { when, whenDate } from './ticketDetailText'
 
-defineProps<{ ticket: TicketDetail }>()
+const props = defineProps<{ ticket: TicketDetail }>()
+
+const groups = computed(() => props.ticket.requester?.groups ?? [])
+const groupsText = computed(() => {
+  // No list at all is a ticket the platform raised, or a backend from before
+  // the list was sent: nothing is known, which is not the same as no group.
+  if (!props.ticket.requester?.groups) return '—'
+  return groups.value.length ? groups.value.map((group) => group.name).join(', ') : 'Not in a group'
+})
 </script>
 
 <style scoped>

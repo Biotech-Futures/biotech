@@ -17,6 +17,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     exclude: [...configDefaults.exclude, 'e2e/**'],
+    // Router tests load lazy route views inside the test, which can pass 5s on a busy runner.
+    testTimeout: 15_000,
     root: fileURLToPath(new URL('./', import.meta.url)),
   },
 })

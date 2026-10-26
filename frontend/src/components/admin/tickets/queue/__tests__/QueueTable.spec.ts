@@ -1,6 +1,7 @@
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { registerProfileTimeZone } from '@/utils/date'
 import type { TicketRow } from '@/utils/ticketAgentSchema'
 import QueueTable from '../QueueTable.vue'
 
@@ -33,6 +34,8 @@ function show(tickets: TicketRow[], selectedIds: number[] = []) {
 afterEach(() => {
   wrapper?.unmount()
   wrapper = null
+  vi.unstubAllEnvs()
+  registerProfileTimeZone(() => undefined)
 })
 
 function cells(rowIndex = 0) {
@@ -71,6 +74,20 @@ describe('the queue table', () => {
     // spells the word out.
     expect(priority).toBe('High priority')
     expect(assignee).toBe('Sam Reid')
+  })
+
+  it('shows last activity in the reader’s own zone when their Profile still says UTC', () => {
+    // C-37: the client's admin account never chose a zone, and this column
+    // read "25 Oct, 11:09 pm UTC". 00:00 UTC is 5:30 am in Kolkata, so the
+    // half hour can only come from the computer's zone.
+    vi.stubEnv('TZ', 'Asia/Kolkata')
+    registerProfileTimeZone(() => 'UTC')
+    show([ROW])
+
+    const row = cells()
+    const lastActivity = row[row.length - 1]!
+    expect(lastActivity).toContain(':30')
+    expect(lastActivity).not.toContain('UTC')
   })
 
   it('says who is missing when a ticket has no requester or no owner', () => {

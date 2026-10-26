@@ -536,6 +536,11 @@ async function decideScreening(decision: 'approve' | 'delete'): Promise<void> {
   screeningDecisionError.value = null
   try {
     await write(id, () => reviewScreeningMessage(id, decision))
+    // The decision is the whole job on a moderation ticket, so the panel
+    // closes once it is stored (C-41: the client asked on 26 October 2026
+    // that "when I click approve or reject, the slide over page should
+    // close"). A decision that fails keeps the panel open with its error.
+    if (id === props.ticketId) close()
   } catch (error) {
     logApiError('screening decision', error)
     if (id === props.ticketId) {

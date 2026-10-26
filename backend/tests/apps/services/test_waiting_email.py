@@ -132,6 +132,38 @@ class SendWaitingTests(TestCase):
             send_system_email("registration_student", "amy@example.test", CONTEXT)
         self.kept = WaitingEmail.objects.get()
 
+    def test_old_queued_email_counts_in_the_window_when_it_is_sent(self):
+        from apps.admin.services.analytics import get_email_delivery_analytics
+
+        sent_at = timezone.now()
+        WaitingEmail.objects.filter(pk=self.kept.pk).update(
+            created_at=sent_at - timedelta(hours=25),
+        )
+        with mock.patch("django.utils.timezone.now", return_value=sent_at):
+            self.assertEqual(send_waiting("info"), {"sent": 1, "failed": 0})
+            metric = EmailDeliveryMetric.objects.get(email_type="registration_student")
+            self.assertEqual(metric.started_at, sent_at)
+            self.assertEqual(metric.completed_at, sent_at)
+            self.assertEqual(get_email_delivery_analytics()["totals"]["attempted"], 1)
+
+        with mock.patch("django.utils.timezone.now", return_value=sent_at + timedelta(hours=24)):
+            self.assertEqual(get_email_delivery_analytics()["totals"]["attempted"], 0)
+
+    def test_old_queued_email_failure_is_timestamped_when_resolved(self):
+        from apps.admin.services.analytics import get_email_delivery_analytics
+
+        resolved_at = timezone.now()
+        WaitingEmail.objects.filter(pk=self.kept.pk).update(
+            created_at=resolved_at - timedelta(hours=25),
+        )
+        self.kept.refresh_from_db()
+        with mock.patch("django.utils.timezone.now", return_value=resolved_at):
+            waiting_email._missed(self.kept, {"amy@example.test": "address refused"})
+            metric = EmailDeliveryMetric.objects.get(email_type="registration_student")
+            self.assertEqual(metric.started_at, resolved_at)
+            self.assertEqual((metric.attempted_count, metric.delivered_count, metric.failed_count), (1, 0, 1))
+            self.assertEqual(get_email_delivery_analytics()["totals"]["failed"], 1)
+
     def test_once_the_server_can_be_reached_it_goes_as_it_was_built(self):
         self.assertEqual(send_waiting("info"), {"sent": 1, "failed": 0})
         [sent] = mail.outbox

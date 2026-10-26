@@ -335,6 +335,30 @@ def _finished(
         _hook(row, "missed", missed)
 
 
+def _sent(row: WaitingEmail, delivered: list[str]) -> None:
+    """Compatibility helper for a completed all-success retry."""
+    sent_at = timezone.now()
+    _finished(
+        row,
+        delivered,
+        {},
+        started_at=sent_at,
+        completed_at=sent_at,
+    )
+
+
+def _missed(row: WaitingEmail, missed: dict[str, str]) -> None:
+    """Compatibility helper for a completed all-failed retry."""
+    resolved_at = timezone.now()
+    _finished(
+        row,
+        [],
+        missed,
+        started_at=resolved_at,
+        completed_at=resolved_at,
+    )
+
+
 def give_up(now=None) -> int:
     """Give up on the waiting emails past their time: those they were due are
     noted as missed, and each kept for Resend. Kept-for-Resend copies past
