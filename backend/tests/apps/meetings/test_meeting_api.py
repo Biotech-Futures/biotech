@@ -5,8 +5,11 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
+from django.contrib.auth import get_user_model
+
 from apps.audit.models import AuditLog
 from apps.events.models import EventRsvp
+from apps.groups.models import GroupMembership
 from apps.meetings import services
 from apps.meetings.models import GroupMeeting, MeetingSummary
 
@@ -49,11 +52,18 @@ class ScheduleMeetingTests(MeetingGroupMixin, APITestCase):
             AuditLog.objects.filter(entity_type="group_meeting", action="create").exists()
         )
 
-    def test_a_supervisor_and_an_admin_can_schedule_too(self):
-        for user in (self.supervisor, self.admin):
-            self.client.force_login(user)
-            response = self.client.post(LIST_URL, self.payload(), format="json")
-            self.assertEqual(response.status_code, 201, (user.email, response.data))
+    def test_an_admin_can_schedule_too(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(LIST_URL, self.payload(), format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+
+    def test_a_supervisor_cannot_schedule_a_meeting(self):
+        # Mentors run the group's meetings; a supervisor follows them
+        # (d67ff842, #562, which the owner took to be the client's wish).
+        self.client.force_login(self.supervisor)
+        response = self.client.post(LIST_URL, self.payload(), format="json")
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(GroupMeeting.objects.exists())
 
     def test_a_student_cannot_schedule_a_meeting(self):
         self.client.force_login(self.student)
@@ -232,9 +242,28 @@ class ChangeMeetingTests(MeetingGroupMixin, APITestCase):
 
     def test_a_co_mentor_who_did_not_book_it_can_still_edit_it(self):
         meeting = self.book()
-        self.client.force_login(self.supervisor)
+        co_mentor = get_user_model().objects.create_user(email="co-mentor@example.com", password="pw")
+        GroupMembership.objects.create(
+            group=self.group, user=co_mentor,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+        self.client.force_login(co_mentor)
         response = self.client.patch(detail_url(meeting), {"title": "Renamed"}, format="json")
         self.assertEqual(response.status_code, 200)
+
+    def test_a_supervisor_cannot_edit_or_cancel(self):
+        # d67ff842 (#562): a supervisor reads the group's meetings, as a
+        # student does, and changes none of them.
+        meeting = self.book()
+        self.client.force_login(self.supervisor)
+        self.assertEqual(
+            self.client.patch(detail_url(meeting), {"title": "Renamed"}, format="json").status_code,
+            403,
+        )
+        self.assertEqual(self.client.delete(detail_url(meeting)).status_code, 403)
+        meeting.event.refresh_from_db()
+        self.assertEqual(meeting.event.event_name, "Weekly check-in")
+        self.assertIsNone(meeting.event.deleted_at)
 
     def test_a_student_cannot_edit_or_cancel(self):
         meeting = self.book()
