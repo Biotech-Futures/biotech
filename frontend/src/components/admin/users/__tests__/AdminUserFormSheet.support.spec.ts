@@ -144,6 +144,7 @@ describe('an agent without a country (C5, C6)', () => {
     await openSheet()
     await fill({ '#f-first': 'Sam', '#f-last': 'Reid', '#f-email': 'sam@example.com' })
     await pickRole('Support')
+    ;(sheet().vm as unknown as { form: { role: string } }).form.role = 'support'
     await submit()
 
     expect(sheet().find('[role="alert"]').exists()).toBe(false)

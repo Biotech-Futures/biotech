@@ -17,7 +17,9 @@ def body(**guardian):
     return {
         "Title": "kid@students.example.test", "FirstName": "Kid", "Surname": "Student",
         "Country": "Australia", "Region": "NSW", "SchoolName": "Example High", "YearLevel": "10",
-        "Areaofinterest": "Biotechnology", "RegisteredBy": "supervisor", **guardian,
+        "Areaofinterest": "Biotechnology", "RegisteredBy": "supervisor",
+        "SupervisorEmail": "supervisor@example.test",
+        "SupervisorFirstName": "Sam", "SupervisorSurname": "Teacher", **guardian,
     }
 
 
@@ -63,7 +65,10 @@ class JourneyTests(MultiStudentSetup, TestCase):
         )
 
     def request(self, journey, offset):
-        return batch("supervisor_individual" if journey == "admin" else journey, offset=offset)
+        body = batch("supervisor_individual" if journey == "admin" else journey, offset=offset)
+        if journey == "admin":
+            body["payload"]["supervisorEmail"] = self.supervisor.email
+        return body
 
     def submit(self, *args, **kwargs):
         # More registrations than the per-IP limit allows in one test.

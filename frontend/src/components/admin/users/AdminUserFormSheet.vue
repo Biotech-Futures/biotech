@@ -1156,7 +1156,7 @@ const validateForm = (): boolean => {
       return false
     }
   }
-  if (chosenPronouns() === null) {
+  if (form.pronounsChoice === 'Other' && chosenPronouns() === null) {
     formError.value = 'Enter their pronouns.'
     return false
   }

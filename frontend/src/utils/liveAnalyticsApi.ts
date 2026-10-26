@@ -28,7 +28,8 @@ export type AdminUser = {
   accountStatus: string
   invitedAt: string | null
   activatedAt: string | null
-  createdAt?: string | null
+  /** Django User.date_joined, exposed by the admin users API. */
+  createdAt: string | null
   supervisorName: string | null
   supervisorEmail: string | null
 }

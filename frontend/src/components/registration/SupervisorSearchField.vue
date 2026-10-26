@@ -2,7 +2,10 @@
   <!-- An existing supervisor, found by their email and picked from the list
        (their name and school beside it): laid out as the form's other fields. -->
   <label class="supervisor-search registration-field--wide">
-    <span :id="`${id}-label`" class="supervisor-search__label">{{ label }}</span>
+    <span :id="`${id}-label`" class="supervisor-search__label">
+      {{ label }}
+      <span class="required-mark" aria-hidden="true">*</span>
+    </span>
     <span class="supervisor-search__box">
       <i class="fas fa-magnifying-glass supervisor-search__icon" aria-hidden="true"></i>
       <input
@@ -10,6 +13,7 @@
         class="app-input app-input--wide"
         :value="modelValue"
         type="text"
+        required
         autocomplete="off"
         placeholder="Search by email"
         :aria-invalid="Boolean(error)"

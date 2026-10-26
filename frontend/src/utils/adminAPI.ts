@@ -282,6 +282,8 @@ export interface AdminUser {
   hasLoggedIn: boolean
   lastLogin: string | null
   accountStatus: 'active' | 'deactivated'
+  /** Django User.date_joined: the authoritative account registration time. */
+  createdAt?: string | null
   invitedAt: string | null
   activatedAt: string | null
   supervisorName: string | null

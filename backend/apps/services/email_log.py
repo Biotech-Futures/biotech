@@ -55,6 +55,7 @@ def note_send(
     failed: int | None = None,
     source_mailbox: str | None = None,
     started_at=None,
+    completed_at=None,
     recipients=None,
     last_sent: bool = True,
     ref: dict | None = None,
@@ -96,6 +97,7 @@ def note_send(
             failed=failed or 0,
             initiated_by=by,
             started_at=started_at,
+            completed_at=completed_at,
             recipients=recipients,
             missed=missed,
         )

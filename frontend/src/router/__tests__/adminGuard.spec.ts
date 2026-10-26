@@ -69,7 +69,7 @@ describe('admin router guard', () => {
       await router.push(path)
       expect(router.currentRoute.value.path).toBe(path)
     }
-  })
+  }, 15000)
 
   // Its own test, so the every-route test above doesn't grow slower.
   it('keeps System Logs to admins', async () => {

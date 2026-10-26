@@ -125,14 +125,6 @@
         </div>
       </article>
 
-      <article class="kpi-card">
-        <div class="kpi-icon warning"><i class="fas fa-triangle-exclamation"></i></div>
-        <div>
-          <span>Never Logged In</span>
-          <strong><AnalyticsNumber :value="sourceAvailable('users') ? selectedNeverLoggedIn : '—'" /></strong>
-          <small>Needs attention</small>
-        </div>
-      </article>
     </div>
 
     <section class="filter-card sticky-filter-card">
@@ -537,7 +529,16 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="group in filteredGroupRows" :key="group.id">
+              <tr
+                v-for="group in filteredGroupRows"
+                :key="group.id"
+                class="activity-drilldown-row"
+                role="link"
+                tabindex="0"
+                @click="openActivityGroup(group)"
+                @keydown.enter="openActivityGroup(group)"
+                @keydown.space.prevent="openActivityGroup(group)"
+              >
                 <td>
                   <strong>{{ group.name }}</strong>
                   <small class="group-id-label">ID {{ group.id }}</small>
@@ -618,7 +619,16 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="user in filteredUsers" :key="user.id">
+              <tr
+                v-for="user in filteredUsers"
+                :key="user.id"
+                class="activity-drilldown-row"
+                role="link"
+                tabindex="0"
+                @click="openActivityUser(user)"
+                @keydown.enter="openActivityUser(user)"
+                @keydown.space.prevent="openActivityUser(user)"
+              >
                 <td><strong>{{ user.name }}</strong></td>
                 <td><span :class="['role-pill', user.role.toLowerCase()]">{{ user.role }}</span></td>
                 <td>{{ formatLogin(user.lastLogin) }}</td>
@@ -696,7 +706,7 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { LoginActivityResponse } from '@/utils/liveAnalyticsApi'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   ActivityAnalyticsData,
   ActivityRole,
@@ -780,6 +790,7 @@ const exportDisabled = computed(() => isLoading.value || !!loadError.value || is
   ? !sourceAvailable('groups') || !sourceAvailable('groupActivity')
   : !sourceAvailable('users')))
 const route = useRoute()
+const router = useRouter()
 const issueContext = ref<'inactive-mentors' | 'deactivated' | ''>('')
 
 const viewMode = ref<'users' | 'groups'>('users')
@@ -1496,6 +1507,33 @@ function userDetailStatusLabel(user: (typeof yearUsers.value)[number]) {
 function userDetailStatusClass(user: (typeof yearUsers.value)[number]) {
   if (!issueContext.value) return user.status.toLowerCase()
   return accountIsInactive(user) ? 'inactive' : 'active'
+}
+
+function adminPeopleTab(role: ActivityRole) {
+  if (role === 'Student') return 'students'
+  if (role === 'Mentor') return 'mentors'
+  return 'supervisors'
+}
+
+function openActivityUser(user: (typeof yearUsers.value)[number]) {
+  const account = liveCoreBundle.value?.users.find((item) => item.id === user.id)
+  void router.push({
+    name: 'admin-users',
+    query: {
+      tab: adminPeopleTab(user.role),
+      search: account?.email ?? user.name,
+      ...(accountIsInactive(user) ? { status: 'inactive' } : {}),
+    },
+    hash: '#admin-users-table',
+  })
+}
+
+function openActivityGroup(group: GroupActivityDetailRow) {
+  void router.push({
+    name: 'admin-groups',
+    query: { search: group.name },
+    hash: '#admin-groups-table',
+  })
 }
 
 const filteredUsers = computed(() => {
@@ -2484,6 +2522,19 @@ tbody tr:hover td {
   background: rgba(186, 215, 184, .35);
 }
 
+.activity-drilldown-row {
+  cursor: pointer;
+}
+
+.activity-drilldown-row:focus-visible {
+  outline: 2px solid var(--analytics-ui-accent, #017151);
+  outline-offset: -2px;
+}
+
+.activity-drilldown-row:focus-visible td {
+  background: rgba(186, 215, 184, .35);
+}
+
 .sortable {
   cursor: pointer;
   white-space: nowrap;
@@ -2977,7 +3028,7 @@ tbody tr:hover td {
 
 
 /* Activity sticky filters and fixed table widths */
-.activity-analytics-page .sticky-filter-card { position: sticky; top: 72px; z-index: 20; background: var(--analytics-ui-page, #fff); box-shadow: 0 8px 20px rgba(23,66,67,.08); }
+.activity-analytics-page .sticky-filter-card { position: sticky; top: 0; z-index: 20; background: var(--analytics-ui-page, #fff); box-shadow: 0 8px 20px rgba(23,66,67,.08); }
 .activity-analytics-page .date-filter-control input { width:100%; height:38px; box-sizing:border-box; padding:0 11px; border:1px solid var(--analytics-ui-border, #dbe5e2); border-radius:8px; outline:0; background:var(--analytics-ui-page, #fff); color:var(--analytics-ui-text, #234844); font:inherit; font-size:13px; }
 .activity-analytics-page .date-filter-control input:focus { border-color:#017151; box-shadow:0 0 0 2px rgba(1,113,81,.12); }
 .activity-analytics-page .table-wrap { overflow-x:hidden; }
@@ -2998,7 +3049,6 @@ tbody tr:hover td {
 .activity-analytics-page #user-activity-details th:nth-child(5),
 .activity-analytics-page #user-activity-details td:nth-child(5) { width:15%; }
 @media (min-width:1280px) { .activity-analytics-page .sticky-filter-card { flex-wrap:nowrap !important; } .activity-analytics-page .sticky-filter-card label { min-width:0 !important; } .activity-analytics-page .sticky-filter-card .date-filter-control { flex:.85 1 175px !important; } }
-@media (max-width:1279px) { .activity-analytics-page .sticky-filter-card { position:relative; top:0; } }
 
 
 /* =========================================================
@@ -3014,7 +3064,7 @@ tbody tr:hover td {
 .activity-analytics-page .sticky-filter-card {
   position: -webkit-sticky !important;
   position: sticky !important;
-  top: 84px !important;
+  top: 0 !important;
   z-index: 100 !important;
   isolation: isolate;
   background: var(--analytics-ui-page, #ffffff) !important;
@@ -3326,24 +3376,38 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .kpi-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
   gap: 12px !important;
   margin-bottom: 16px !important;
 }
 
 .activity-analytics-page .kpi-card {
   min-width: 0 !important;
-  padding-inline: 13px !important;
-  gap: 11px !important;
+  min-height: 96px !important;
+  padding: 10px 12px !important;
+  gap: 10px !important;
 }
 
 .activity-analytics-page .kpi-card > div:not(.kpi-icon) {
   flex: 1 1 auto;
   min-width: 0;
+  align-self: flex-start !important;
+  grid-template-rows: auto 34px minmax(24px, auto) !important;
 }
 
-.activity-analytics-page .kpi-card > div:not(.kpi-icon) > strong {
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > span,
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > small {
+  min-height: 0 !important;
+}
+
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > small {
+  padding-top: 2px !important;
+}
+
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > strong,
+.activity-analytics-page .kpi-card .analytics-value-row {
   width: 100%;
+  min-height: 34px !important;
   text-align: left;
 }
 
@@ -3431,8 +3495,6 @@ tbody tr:hover td {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     align-items: end !important;
     gap: 14px !important;
-    position: relative !important;
-    top: 0 !important;
   }
 
   .activity-analytics-page .sticky-filter-card label {
