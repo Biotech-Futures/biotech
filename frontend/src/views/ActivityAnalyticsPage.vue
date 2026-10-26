@@ -125,14 +125,6 @@
         </div>
       </article>
 
-      <article class="kpi-card">
-        <div class="kpi-icon warning"><i class="fas fa-triangle-exclamation"></i></div>
-        <div>
-          <span>Never Logged In</span>
-          <strong><AnalyticsNumber :value="sourceAvailable('users') ? selectedNeverLoggedIn : '—'" /></strong>
-          <small>Needs attention</small>
-        </div>
-      </article>
     </div>
 
     <section class="filter-card sticky-filter-card">
@@ -3384,24 +3376,38 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .kpi-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
   gap: 12px !important;
   margin-bottom: 16px !important;
 }
 
 .activity-analytics-page .kpi-card {
   min-width: 0 !important;
-  padding-inline: 13px !important;
-  gap: 11px !important;
+  min-height: 96px !important;
+  padding: 10px 12px !important;
+  gap: 10px !important;
 }
 
 .activity-analytics-page .kpi-card > div:not(.kpi-icon) {
   flex: 1 1 auto;
   min-width: 0;
+  align-self: flex-start !important;
+  grid-template-rows: auto 34px minmax(24px, auto) !important;
 }
 
-.activity-analytics-page .kpi-card > div:not(.kpi-icon) > strong {
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > span,
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > small {
+  min-height: 0 !important;
+}
+
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > small {
+  padding-top: 2px !important;
+}
+
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > strong,
+.activity-analytics-page .kpi-card .analytics-value-row {
   width: 100%;
+  min-height: 34px !important;
   text-align: left;
 }
 

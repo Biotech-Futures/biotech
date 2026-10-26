@@ -43,7 +43,10 @@
       <article v-for="item in kpis" :key="item.label" class="kpi-card">
         <span class="kpi-icon"><BtfIcon :name="item.icon" :size="24" /></span>
         <div class="kpi-copy">
-          <span class="kpi-label">{{ item.label }}</span>
+          <span
+            class="kpi-label"
+            :class="{ 'kpi-label--compact': item.label === 'Avg. Students per Mentor' }"
+          >{{ item.label }}</span>
           <div class="analytics-value-row">
             <strong class="kpi-value"><AnalyticsNumber :value="item.value" /></strong>
             <AnalyticsYearChange
@@ -574,7 +577,7 @@ const kpis = computed(() => [
     detail: `${percent(snapshot.value.unassigned, snapshot.value.total)}% have no groups`,
   },
   {
-    label: 'Average Students per Mentor',
+    label: 'Avg. Students per Mentor',
     value: snapshot.value.averageStudents,
     icon: 'scale',
     detail: 'Unique students per assigned mentor',
@@ -1640,21 +1643,22 @@ h2 {
 
 .mentors-analytics-page .kpi-card {
   min-width: 0 !important;
-  min-height: 108px !important;
-  padding: 14px 13px !important;
-  gap: 11px !important;
+  min-height: 96px !important;
+  padding: 10px 12px !important;
+  gap: 10px !important;
 }
 
 .mentors-analytics-page .kpi-icon {
-  width: 46px !important;
-  height: 46px !important;
-  flex: 0 0 46px !important;
-  border-radius: 12px !important;
+  width: 42px !important;
+  height: 42px !important;
+  flex: 0 0 42px !important;
+  border-radius: 11px !important;
 }
 
 .mentors-analytics-page .kpi-copy {
   min-width: 0 !important;
   flex: 1 1 auto;
+  grid-template-rows: auto 34px 6px minmax(24px, auto) !important;
 }
 
 .mentors-analytics-page .kpi-copy > .analytics-value-row {
@@ -1665,6 +1669,11 @@ h2 {
 .mentors-analytics-page .kpi-label {
   font-size: 11px !important;
   line-height: 1.2 !important;
+}
+
+.mentors-analytics-page .kpi-label--compact {
+  font-size: 10px !important;
+  white-space: nowrap;
 }
 
 .mentors-analytics-page .kpi-value {

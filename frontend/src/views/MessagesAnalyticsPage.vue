@@ -2759,6 +2759,8 @@ tbody tr:hover {
   display: flex !important;
   align-items: flex-start !important;
   min-height: 0 !important;
+  padding-top: 9px !important;
+  padding-bottom: 5px !important;
 }
 
 .messages-analytics-page .kpi-grid .kpi-card > div:not(.kpi-icon) {

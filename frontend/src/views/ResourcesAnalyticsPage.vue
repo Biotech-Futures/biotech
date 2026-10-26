@@ -1189,7 +1189,7 @@ tbody tr:hover td {
 .resources-analytics-page .kpi-card {
   min-width: 0;
   min-height: 0;
-  padding: 16px 14px;
+  padding: 9px 14px 5px;
   gap: 12px;
 }
 
@@ -1215,13 +1215,14 @@ tbody tr:hover td {
   min-width: 0 !important;
   flex: 1 1 0% !important;
   align-self: stretch;
-  grid-template-rows: 34px auto 34px !important;
+  grid-template-rows: auto auto 34px !important;
   align-content: start;
 }
 
 .resources-analytics-page .kpi-grid .kpi-card .kpi-label {
   display: flex !important;
   grid-row: 1;
+  min-height: 0 !important;
   align-items: flex-start;
   margin: 0 !important;
 }

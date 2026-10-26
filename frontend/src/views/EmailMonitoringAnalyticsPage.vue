@@ -46,7 +46,7 @@
       >
         <span class="kpi-icon"><i class="fas fa-envelope"></i></span>
         <div>
-          <span class="kpi-label">{{ mailbox.email }}</span>
+          <span class="kpi-label kpi-label--compact">{{ mailbox.email }}</span>
           <strong><AnalyticsNumber :value="mailbox.currentUsage" /></strong>
           <small>{{ mailbox.percent }}% of {{ mailbox.quotaLimit.toLocaleString() }} rolling 24-hour quota</small>
         </div>
@@ -55,7 +55,7 @@
       <article class="kpi-card">
         <span class="kpi-icon"><i class="fas fa-envelope-open-text"></i></span>
         <div>
-          <span class="kpi-label">Combined 24-Hour Usage</span>
+          <span class="kpi-label kpi-label--compact">Combined 24-Hour Usage</span>
           <strong><AnalyticsNumber :value="combinedUsage" /></strong>
           <small>Across tracked sending mailboxes</small>
         </div>
@@ -64,7 +64,7 @@
       <article class="kpi-card">
         <span class="kpi-icon"><i class="fas fa-clock"></i></span>
         <div>
-          <span class="kpi-label">Latest Recorded UTC Hour</span>
+          <span class="kpi-label kpi-label--compact">Latest Recorded UTC Hour</span>
           <strong><AnalyticsNumber :value="data.sentLastHour" /></strong>
           <small>{{ latestRecordedHourLabel }} · attempted recipients</small>
         </div>
@@ -1244,7 +1244,12 @@ h1 {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns:
+    minmax(0, 1.15fr)
+    minmax(0, 1.2fr)
+    minmax(0, 1.15fr)
+    minmax(0, 1.2fr)
+    minmax(0, 1.05fr) !important;
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -1258,10 +1263,10 @@ h1 {
 
 .kpi-card {
   min-width: 0;
-  min-height: 122px;
+  min-height: 0;
   display: flex;
   gap: 12px;
-  padding: 16px;
+  padding: 9px 16px 5px;
 }
 
 .kpi-icon {
@@ -1278,7 +1283,8 @@ h1 {
 .kpi-card > div {
   min-width: 0;
   display: grid;
-  grid-template-rows: 34px 38px 34px;
+  grid-template-rows: auto 38px 34px;
+  align-content: start;
 }
 
 .kpi-label {
@@ -1287,11 +1293,28 @@ h1 {
   font-weight: 700;
 }
 
+.kpi-label--compact {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The shared analytics theme reserves room for two-line KPI titles. These
+   titles are deliberately single-line, so keep the value directly beneath. */
+.email-monitoring-page .kpi-grid .kpi-card > div:not(.kpi-icon) > .kpi-label {
+  min-height: 0 !important;
+}
+
 .kpi-card strong {
   margin: 0;
   color: var(--analytics-ui-text, #174243);
   font-size: 30px;
   line-height: 38px;
+}
+
+.email-monitoring-page .kpi-grid .kpi-card > div:not(.kpi-icon) > strong {
+  min-height: 0 !important;
+  line-height: 1.1;
+  align-items: flex-start !important;
 }
 
 .kpi-card strong.text-value {
@@ -1737,11 +1760,19 @@ th {
   align-items: center;
 }
 
+.logs-heading > div:first-child {
+  width: 250px;
+  flex: 0 0 auto;
+}
+
 .log-actions {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .log-search,
@@ -1757,12 +1788,20 @@ th {
 }
 
 .log-search {
-  width: 210px;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 180px;
   padding: 0 11px;
 }
 
+.status-filter {
+  min-width: 0;
+  flex: 0 1 150px;
+}
+
 .status-filter select {
-  min-width: 125px;
+  width: 100%;
+  min-width: 0;
   padding: 0 10px;
 }
 
@@ -1773,6 +1812,8 @@ th {
   padding: 0 11px;
   color: var(--analytics-ui-accent, #017151);
   font-weight: 700;
+  white-space: nowrap;
+  flex: 0 0 auto;
   cursor: pointer;
 }
 
@@ -1819,7 +1860,8 @@ th {
 
 /* Recipient search and per-email recipient export. */
 .recipient-search {
-  min-width: 220px;
+  min-width: 0;
+  flex-basis: 220px;
 }
 
 .recipient-export-button {
@@ -2059,8 +2101,16 @@ th {
     flex-direction: column;
   }
 
-  .kpi-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .logs-heading > div:first-child {
+    width: auto;
+  }
+
+  .log-actions {
+    width: 100%;
+  }
+
+  .email-monitoring-page .kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
   .top-grid,
@@ -2096,8 +2146,12 @@ th {
     flex-wrap: wrap;
   }
 
-  .kpi-grid {
-    grid-template-columns: 1fr;
+  .email-monitoring-page .kpi-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .log-actions {
+    flex-wrap: wrap;
   }
 
   .quota-layout {

@@ -1120,6 +1120,16 @@ h2 {
   color: var(--analytics-ui-muted, var(--btf-muted));
   font-size: 11px;
 }
+
+/* These labels and helper lines fit on one line, so the shared two-line KPI
+   reservations only leave empty space below the content on this page. */
+.registration-analytics-page .kpi-grid .kpi-card {
+  padding-block: 13px;
+}
+.registration-analytics-page .kpi-grid .kpi-label,
+.registration-analytics-page .kpi-grid .kpi-card small {
+  min-height: 0 !important;
+}
 .primary-grid,
 .status-grid,
 .secondary-grid {
