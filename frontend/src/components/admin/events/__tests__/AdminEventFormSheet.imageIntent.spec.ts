@@ -97,10 +97,9 @@ describe('AdminEventFormSheet — image update intent (port of buildEventUpdateW
 
     // jsdom doesn't implement the Blob URL APIs; AdminEventFormSheet calls
     // these when a crop is confirmed (to preview the file) and unmounted.
-    vi.stubGlobal('URL', {
-      ...URL,
-      createObjectURL: vi.fn(() => 'blob:mock-url'),
-      revokeObjectURL: vi.fn()
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = vi.fn(() => 'blob:mock-url')
+      static revokeObjectURL = vi.fn()
     })
 
     vi.spyOn(eventsApi, 'fetchEvents').mockResolvedValue({

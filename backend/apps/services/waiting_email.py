@@ -301,6 +301,7 @@ def _sent(row: WaitingEmail, delivered: list[str]) -> None:
     """``row`` went to ``delivered``: counted, and its "sent" hook run."""
     if not delivered:
         return
+    sent_at = timezone.now()
     record_email_delivery(
         row.key,
         source_mailbox=row.from_email,
@@ -308,7 +309,9 @@ def _sent(row: WaitingEmail, delivered: list[str]) -> None:
         delivered=len(delivered),
         failed=0,
         initiated_by=row.sent_by,
-        started_at=row.created_at,
+        # Rolling usage follows this send, not when it entered the queue.
+        started_at=sent_at,
+        completed_at=sent_at,
         recipients=delivered,
     )
     _hook(row, "sent", delivered)
@@ -327,7 +330,7 @@ def _missed(row: WaitingEmail, missed: dict[str, str]) -> None:
         delivered=0,
         failed=len(missed),
         source_mailbox=row.from_email,
-        started_at=row.created_at,
+        started_at=timezone.now(),
         last_sent=False,
         ref=(row.on_sent or {}).get("ref"),
     )
