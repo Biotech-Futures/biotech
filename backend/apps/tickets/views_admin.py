@@ -18,6 +18,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Count, Q
 from datetime import datetime, time, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.http import HttpResponse
 from django.utils import timezone
@@ -92,14 +93,35 @@ SUPPORT_PERMISSIONS = [IsAuthenticated, IsSupportScoped]
 _NAMES_A_WHOLE_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def _window_bound(raw, name, *, closes_window=False):
+def _analytics_zone(raw):
+    """The zone a bare date in the analytics window is read in.
+
+    The reader's, which the page sends as ``tz`` (the ticket pages' own rule:
+    their Profile timezone, or their computer's while the profile still says
+    UTC; C-37 to C-40, DEC-068). Without one, UTC, which is what the window
+    was read in before 26 October 2026.
+    """
+    if not raw:
+        return dt_timezone.utc
+    try:
+        return ZoneInfo(raw)
+    # OSError: a name too long for the file system is a lookup that fails,
+    # not a crash.
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        raise serializers.ValidationError(
+            {"tz": "tz must be a time zone name, such as Australia/Sydney."}
+        )
+
+
+def _window_bound(raw, name, *, closes_window=False, zone=dt_timezone.utc):
     """A date or datetime from the query string, as an aware UTC instant.
 
-    A bare date is read as UTC midnight, which is the same rule the ticket
-    numbering counter uses (DEC-019). Sydney is 10-11 hours ahead, so a
-    viewer asking for "1 March" gets a window that opens at 11am their time —
-    surprising, but consistent across the product and stable across daylight
-    saving, which a local-midnight rule is not.
+    A bare date, or a time without an offset, is read in ``zone``: the
+    reader's own, so "1 March" opens the window at their midnight (C-37 to
+    C-40: the client asked for times in "the timezone of the person viewing
+    the page"). Until 26 October 2026 it was UTC midnight, the ticket
+    numbering counter's rule (DEC-019), which opened a Sydney reader's
+    "1 March" at 11am their time.
     """
     if not raw:
         return None
@@ -130,7 +152,7 @@ def _window_bound(raw, name, *, closes_window=False):
             )
         parsed = datetime.combine(day, time.min)
     if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, dt_timezone.utc)
+        parsed = timezone.make_aware(parsed, zone)
 
     # A bare date names a whole day, and the window is half-open
     # ([from, to)), so the closing bound has to be the start of the day
@@ -183,7 +205,28 @@ def _requester(ticket):
         "email": user.email,
         "region": ticket.region,
         "registeredAt": user.date_joined,
+        "groups": _requester_groups(user),
     }
+
+
+def _requester_groups(user):
+    # The groups the requester is in now, by the name admins know them by,
+    # which for an auto-named group is its number ("BTF07"). The client asked
+    # on 26 October 2026 to "show the group numbers in this details page"
+    # (C-39). Not a group's code: that is the number a student hands to
+    # teammates to join with. A deleted group is left out, and so is one that
+    # Start new year archived, since archiving deletes it too.
+    from apps.groups.models import GroupMembership
+
+    rows = (
+        GroupMembership.objects.filter(
+            user=user, left_at__isnull=True, group__deleted_at__isnull=True
+        )
+        .order_by("group__group_name", "group_id")
+        .values_list("group_id", "group__group_name")
+        .distinct()
+    )
+    return [{"id": group_id, "name": name} for group_id, name in rows]
 
 
 def _queue_row(ticket, *, overdue):
@@ -552,7 +595,9 @@ class TicketQueueExportView(APIView):
         # The table's own row builder, so every cell is the value the table
         # would show for that ticket rather than a second reading of the model.
         rows = [_queue_row(t, overdue=t.pk in flagged) for t in tickets]
-        zone = export_service.export_zone(getattr(request.user, "timezone", None))
+        zone = export_service.export_zone(
+            getattr(request.user, "timezone", None), sent=request.data.get("timeZone")
+        )
         payload = export_service.queue_workbook(rows, zone=zone)
 
         # Recorded because this is the one action here that takes students'
@@ -933,8 +978,11 @@ class TicketAnalyticsView(APIView):
     permission_classes = SUPPORT_PERMISSIONS
 
     def get(self, request):
-        start = _window_bound(request.query_params.get("from"), "from")
-        end = _window_bound(request.query_params.get("to"), "to", closes_window=True)
+        zone = _analytics_zone(request.query_params.get("tz"))
+        start = _window_bound(request.query_params.get("from"), "from", zone=zone)
+        end = _window_bound(
+            request.query_params.get("to"), "to", closes_window=True, zone=zone
+        )
         if start and end and start > end:
             raise serializers.ValidationError(
                 {"from": "from must be earlier than to."}
@@ -1088,7 +1136,9 @@ class TicketAuditExportView(APIView):
                 pk__in=[owner for owner in owner_ids if type(owner) is int]
             )
         }
-        zone = export_service.export_zone(getattr(request.user, "timezone", None))
+        zone = export_service.export_zone(
+            getattr(request.user, "timezone", None), sent=request.data.get("timeZone")
+        )
         payload = audit_export_service.audit_workbook(
             [
                 {

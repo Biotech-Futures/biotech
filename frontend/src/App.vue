@@ -1,7 +1,10 @@
 <template>
   <div
     class="app-container"
-    :class="{ 'student-dashboard-colours': auth.isStudent && ['/dashboard', '/profile'].includes(route.path) }"
+    :class="{
+      'student-dashboard-colours': auth.isStudent && ['/dashboard', '/profile'].includes(route.path),
+      'app-container--authenticated': !isLoginPage
+    }"
   >
     <!-- Hidden on the marking pages, so the preview and rubric get the
          height; the arrow below brings it back. -->
@@ -999,7 +1002,8 @@ onBeforeUnmount(() => {
 }
 
 :global(body) {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg-light);
 }
 
@@ -1042,10 +1046,15 @@ select {
 .app-container {
   width: 100%;
   max-width: none;
-  height: 100vh;
+  min-height: 100vh;
   margin: 0;
-  overflow: hidden;
   background-color: var(--bg-light);
+}
+
+/* Dashboard pages: keep sidebar fixed and scroll main content only */
+.app-container--authenticated {
+  height: 100vh;
+  overflow: hidden;
 }
 
 .header {

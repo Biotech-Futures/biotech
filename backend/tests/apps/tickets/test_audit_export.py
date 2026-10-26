@@ -265,6 +265,18 @@ class AuditExportContentTests(AuditExportTestCase):
         self.assertEqual(when.value, datetime(2026, 10, 22, 14, 59))
         self.assertIn('"AEDT"', when.number_format)
 
+    def test_the_zone_the_page_sends_is_the_one_the_file_uses(self):
+        # C-37 to C-40, DEC-068: the page sends the zone its Audit table is
+        # shown in, which for a profile still on UTC is the computer's.
+        User.objects.filter(pk=self.agent.pk).update(timezone="UTC")
+        AuditLog.objects.filter(entity_type=lifecycle.AUDIT_ENTITY_TYPE).delete()
+        # 2026-10-22 03:59 UTC is 11:59 am in Perth (AWST, UTC+8).
+        self.row("status", actor=self.agent, before={"status": "open"}, after={"status": "in_progress"},
+                 at=datetime(2026, 10, 22, 3, 59, tzinfo=dt_timezone.utc))
+        when = self.sheet(self.export({"timeZone": "Australia/Perth"})).cell(row=2, column=1)
+        self.assertEqual(when.value, datetime(2026, 10, 22, 11, 59))
+        self.assertIn('"AWST"', when.number_format)
+
     def test_an_owner_is_named_while_the_account_exists(self):
         AuditLog.objects.filter(entity_type=lifecycle.AUDIT_ENTITY_TYPE).delete()
         self.row("assign", actor=self.agent, before={"assignee_id": None}, after={"assignee_id": 987654})

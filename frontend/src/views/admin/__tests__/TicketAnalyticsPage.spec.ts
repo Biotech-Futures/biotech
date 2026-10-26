@@ -5,6 +5,7 @@ import TicketAnalyticsPage from '@/views/admin/tickets/TicketAnalyticsPage.vue'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 import { dimensionLabel } from '@/components/admin/tickets/analytics/analyticsFormat'
 import { ApiError } from '@/utils/apiError'
+import { registerProfileTimeZone } from '@/utils/date'
 import { fetchAssignees, fetchTicketAnalytics } from '@/utils/ticketAgentAPI'
 import { ticketAnalyticsSchema, type AssigneeOption, type TicketAnalytics } from '@/utils/ticketAgentSchema'
 
@@ -167,12 +168,21 @@ describe('TicketAnalyticsPage', () => {
   })
 
   it('says what the dates mean above the controls', async () => {
+    // C-37 to C-40, DEC-068: the window is read in the reader's own zone. A
+    // profile still on the default of UTC, like the client's admin account,
+    // reads as no choice, so here that is the computer's.
+    vi.stubEnv('TZ', 'America/Sao_Paulo')
+    registerProfileTimeZone(() => 'UTC')
     await openPage()
 
     // An h2, not a second h1: TicketsSection's h1 is the page's only one.
     expect(wrapper!.find('h1').exists()).toBe(false)
     expect(wrapper!.find('h2').text()).toBe('Ticket analytics')
-    expect(wrapper!.find('.ticket-analytics__subtitle').text()).toBe('All dates and times are in UTC.')
+    expect(wrapper!.find('.ticket-analytics__subtitle').text()).toBe(
+      'All dates and times are in your time zone, America/Sao Paulo.'
+    )
+    vi.unstubAllEnvs()
+    registerProfileTimeZone(() => undefined)
   })
 
   it('renders the numbers, not the string undefined', async () => {
@@ -449,13 +459,13 @@ describe('TicketAnalyticsPage', () => {
     await wrapper!.find('#ticket-analytics-from').setValue('2026-08-26')
     await flushPromises()
     expect(wrapper!.find('.ticket-analytics__window').text()).toBe(
-      'Covering 26 Aug 2026 onwards, in UTC.'
+      'Covering 26 Aug 2026 onwards, in your time zone.'
     )
 
     await wrapper!.find('#ticket-analytics-to').setValue('2026-09-03')
     await flushPromises()
     expect(wrapper!.find('.ticket-analytics__window').text()).toBe(
-      'Covering 26 Aug 2026 to 3 Sept 2026 inclusive, in UTC.'
+      'Covering 26 Aug 2026 to 3 Sept 2026 inclusive, in your time zone.'
     )
     expect(vi.mocked(fetchTicketAnalytics).mock.calls.map((call) => call[0])).toEqual([
       { from: '', to: '', dimension: 'region' },
@@ -466,7 +476,7 @@ describe('TicketAnalyticsPage', () => {
     await wrapper!.find('#ticket-analytics-from').setValue('')
     await flushPromises()
     expect(wrapper!.find('.ticket-analytics__window').text()).toBe(
-      'Covering everything up to and including 3 Sept 2026, in UTC.'
+      'Covering everything up to and including 3 Sept 2026, in your time zone.'
     )
   })
 

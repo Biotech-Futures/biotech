@@ -11,7 +11,7 @@ import {
   type AssigneeOption,
   type TicketAuditRow
 } from '@/utils/ticketAgentSchema'
-import { getSetTimeZone } from '@/utils/date'
+import { ticketTimeZone } from '@/utils/ticketDates'
 
 // The people on this screen, which is a wider set than the assignee roster:
 // a requester who reopens their own ticket appears here and never there.
@@ -24,13 +24,13 @@ export function when(value: string): string {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    // Rendered in the reader's set time zone (their Profile timezone, or
-    // their computer's when the profile names none), so the zone has to be on
-    // screen. Same rule as the queue's last activity column: the same row
-    // reads 03:37 pm for someone set to Sydney and 02:37 am for someone set to
-    // Sao Paulo, and this is the screen people quote timestamps off when they
-    // compare notes.
-    timeZone: getSetTimeZone(),
+    // Rendered in the reader's zone (utils/ticketDates.ticketTimeZone: their
+    // Profile timezone, or their computer's when the profile names none or
+    // still says UTC), so the zone has to be on screen. Same rule as the
+    // queue's last activity column: the same row reads 03:37 pm for someone in
+    // Sydney and 02:37 am for someone in Sao Paulo, and this is the screen
+    // people quote timestamps off when they compare notes.
+    timeZone: ticketTimeZone(),
     timeZoneName: 'short'
   })
 }
