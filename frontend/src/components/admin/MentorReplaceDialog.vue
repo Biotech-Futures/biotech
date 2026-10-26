@@ -119,8 +119,34 @@ const description = computed(() => {
   return `${count} group${count === 1 ? '' : 's'} ${count === 1 ? 'needs' : 'need'} a new mentor. The best match from the matcher is pre-selected - adjust any, or choose "Unassign" to leave a group unmatched.`
 })
 
+/** The whole roster by id, so a scored suggestion can be held to the same
+ *  check as the badge on the row above it. */
+const mentorById = computed(
+  () => new Map(props.mentors.map((mentor) => [mentor.mentorId, mentor]))
+)
+
+/**
+ * Replacing an idle mentor with another idle one just moves the problem to a
+ * new group, so nothing on this screen offers one.
+ *
+ * This has to be applied to the backend's scored suggestions as much as to the
+ * raw pool. Matching is deliberately more forgiving - it forgives a recent
+ * join date, which this screen does not - so it will score a mentor the row
+ * beside it is flagging. Holding both to `mentorConcern`, against the same
+ * threshold that paints the badge, is what stops the two disagreeing.
+ */
+const isOfferable = (mentorId: number): boolean => {
+  const mentor = mentorById.value.get(mentorId)
+  // The roster is every mentor, so a miss means a stale list rather than a
+  // concern we failed to spot. Nothing to hold against them.
+  return !mentor || mentorConcern(mentor, idleDays.value) === null
+}
+
+/** Filtered at the source: the "Suggested" line, the pre-selection and the
+ *  dropdown all read from here, and they must not differ on who is eligible.
+ *  Pre-selecting someone the dropdown refuses to list leaves a row stuck. */
 const suggestionsFor = (groupId: number): MentorReplaceSuggestion[] =>
-  suggestionsByGroup.value.get(groupId) ?? []
+  (suggestionsByGroup.value.get(groupId) ?? []).filter((s) => isOfferable(s.mentorUserId))
 
 const topSuggestionFor = (groupId: number): MentorReplaceSuggestion | undefined =>
   suggestionsFor(groupId).find((s) => !s.atCapacity) || suggestionsFor(groupId)[0]
@@ -148,9 +174,7 @@ const optionsFor = (groupId: number): ReplaceOption[] => {
   for (const mentor of props.mentors) {
     if (scoredIds.has(mentor.mentorId)) continue
     if (mentor.remainingCapacity <= 0) continue
-    // The scored suggestions come from the backend already filtered. These do
-    // not, so without this the dialog offers the very mentors it is replacing.
-    if (mentorConcern(mentor, idleDays.value) !== null) continue
+    if (!isOfferable(mentor.mentorId)) continue
     options.push({
       value: String(mentor.mentorId),
       label: `${mentor.name}${mentor.remainingCapacity === 0 ? ' (full)' : ''}`
@@ -176,9 +200,11 @@ const notifyIncoming = ref(true)
 const applyDefaults = () => {
   for (const group of props.inactiveGroups) {
     if (selections[group.groupId] !== undefined) continue
-    const top = (suggestionsByGroup.value.get(group.groupId) ?? []).find(
-      (s) => !s.atCapacity
-    )
+    // Through `suggestionsFor`, so an ineligible mentor is never pre-selected.
+    // Reading the raw map here meant a mentor the dropdown refused to list
+    // could still be selected, invisibly - the row looked untouched and
+    // Confirm sent them anyway. Still never someone already at capacity.
+    const top = suggestionsFor(group.groupId).find((s) => !s.atCapacity)
     if (top) selections[group.groupId] = String(top.mentorUserId)
   }
 }

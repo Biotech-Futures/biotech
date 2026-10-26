@@ -5,6 +5,11 @@ import { appSelectLabels, pickAppSelect } from '@/__tests__/appSelect'
 import { setIdleDays } from '@/composables/admin/useIdleThreshold'
 import { DEFAULT_IDLE_DAYS } from '@/utils/mentorFormat'
 
+// Old enough that the join-date grace never applies, so these fixtures are
+// judged on their messages alone. `joinedRecently` is the opposite case.
+const longAgo = '2019-01-01T00:00:00Z'
+const joinedRecently = new Date(Date.now() - 5 * 86_400_000).toISOString()
+
 const activeGroup = {
   membershipId: 100,
   groupId: 1,
@@ -21,6 +26,7 @@ const activeGroup = {
     isActive: true,
     // Recent enough not to count as idle.
     lastMessageAt: new Date().toISOString(),
+    dateJoined: longAgo,
     countryName: 'Australia',
     institution: 'USYD'
   }
@@ -38,8 +44,50 @@ const inactiveGroup = {
     name: 'Nikola Tesla',
     isActive: false,
     lastMessageAt: null,
+    dateJoined: longAgo,
     countryName: 'Singapore',
     institution: null
+  }
+}
+
+// Enabled account, but has not posted in years: idle, not inactive. The two
+// used to render identically as "Active", since only `isActive` was consulted.
+const idleGroup = {
+  membershipId: 102,
+  groupId: 3,
+  groupName: 'BTF3',
+  countryName: 'Australia',
+  studentCount: 0,
+  students: [],
+  mentor: {
+    mentorId: 24,
+    name: 'Quiet Mentor',
+    isActive: true,
+    lastMessageAt: '2020-01-01T00:00:00Z',
+    dateJoined: longAgo,
+    countryName: 'Australia',
+    institution: 'UTS'
+  }
+}
+
+// Joined five days ago and has not posted. Silent, but not idle: the matcher
+// gives a newcomer the benefit of the doubt and this screen now reads it the
+// same way, so the row should say Active.
+const gracedGroup = {
+  membershipId: 103,
+  groupId: 4,
+  groupName: 'BTF4',
+  countryName: 'Australia',
+  studentCount: 0,
+  students: [],
+  mentor: {
+    mentorId: 26,
+    name: 'New Mentor',
+    isActive: true,
+    lastMessageAt: null,
+    dateJoined: joinedRecently,
+    countryName: 'Australia',
+    institution: 'UOW'
   }
 }
 
@@ -49,11 +97,13 @@ const inactiveGroup = {
 const spokeToday = new Date().toISOString()
 
 const mentorPool = [
-  { mentorId: 20, name: 'Marie Curie', countryName: 'Australia', institution: 'USYD', interests: [], maxGroupCount: 4, currentAssignedCount: 1, remainingCapacity: 3, isActive: true, lastMessageAt: spokeToday },
-  { mentorId: 22, name: 'Ada King', countryName: 'Australia', institution: 'UNSW', interests: [], maxGroupCount: 2, currentAssignedCount: 2, remainingCapacity: 0, isActive: true, lastMessageAt: spokeToday },
-  { mentorId: 23, name: 'Rosalind Franklin', countryName: 'Australia', institution: 'ANU', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: spokeToday },
-  { mentorId: 24, name: 'Quiet Mentor', countryName: 'Australia', institution: 'UTS', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: '2020-01-01T00:00:00Z' },
-  { mentorId: 25, name: 'Deactivated Mentor', countryName: 'Australia', institution: 'UOW', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: false, lastMessageAt: spokeToday }
+  { mentorId: 20, name: 'Marie Curie', countryName: 'Australia', institution: 'USYD', interests: [], maxGroupCount: 4, currentAssignedCount: 1, remainingCapacity: 3, isActive: true, lastMessageAt: spokeToday, dateJoined: longAgo },
+  { mentorId: 22, name: 'Ada King', countryName: 'Australia', institution: 'UNSW', interests: [], maxGroupCount: 2, currentAssignedCount: 2, remainingCapacity: 0, isActive: true, lastMessageAt: spokeToday, dateJoined: longAgo },
+  { mentorId: 23, name: 'Rosalind Franklin', countryName: 'Australia', institution: 'ANU', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: spokeToday, dateJoined: longAgo },
+  { mentorId: 24, name: 'Quiet Mentor', countryName: 'Australia', institution: 'UTS', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: '2020-01-01T00:00:00Z', dateJoined: longAgo },
+  { mentorId: 25, name: 'Deactivated Mentor', countryName: 'Australia', institution: 'UOW', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: false, lastMessageAt: spokeToday, dateJoined: longAgo },
+  // Never posted, but too new to judge: offerable, unlike Quiet Mentor above.
+  { mentorId: 26, name: 'New Mentor', countryName: 'Australia', institution: 'UOW', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: null, dateJoined: joinedRecently }
 ]
 
 const fetchMockFor = (
@@ -64,6 +114,7 @@ const fetchMockFor = (
     failGroupsRefetch?: boolean
     studentUser?: unknown
     studentError?: string
+    suggestions?: unknown[]
   } = {}
 ) => {
   let matchedGroupsGets = 0
@@ -99,7 +150,7 @@ const fetchMockFor = (
             data: {
               groupId: 2,
               groupName: 'BTF2',
-              suggestions: [
+              suggestions: opts.suggestions ?? [
                 { mentorUserId: 23, name: 'Rosalind Franklin', institution: 'ANU', remainingCapacity: 2, atCapacity: false, score: 90, reason: 'Great fit' }
               ]
             }
@@ -518,6 +569,93 @@ describe('MatchedGroupsPanel', () => {
       notifyIncoming: true
     })
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('shows an enabled but quiet mentor as Idle rather than Active', async () => {
+    // The panel already counted them under "Replace Idle Mentors"; the status
+    // column said "Active" in the same row, because it only read isActive.
+    vi.stubGlobal('fetch', fetchMockFor([activeGroup, idleGroup, inactiveGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const statusOf = (groupName: string) => {
+      const row = wrapper.findAll('tbody tr').find((r) => r.text().includes(groupName))
+      return row?.find('.matched-groups__status').text()
+    }
+
+    expect(statusOf('BTF3')).toBe('Idle')
+    // The other two readings are unchanged.
+    expect(statusOf('BTF1')).toBe('Active')
+    expect(statusOf('BTF2')).toBe('Inactive')
+  })
+
+  it('treats a mentor still inside the join-date grace as active', async () => {
+    // Same reading the matcher uses, so a mentor it is happy to assign is not
+    // flagged here, and is offered as a replacement rather than filtered out.
+    vi.stubGlobal('fetch', fetchMockFor([activeGroup, gracedGroup, idleGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const rowFor = (groupName: string) =>
+      wrapper.findAll('tbody tr').find((r) => r.text().includes(groupName))
+
+    expect(rowFor('BTF4')?.find('.matched-groups__status').text()).toBe('Active')
+    // The genuinely quiet mentor is still flagged, so the grace has not simply
+    // switched the check off.
+    expect(rowFor('BTF3')?.find('.matched-groups__status').text()).toBe('Idle')
+
+    const replaceButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+
+    const labels = await appSelectLabels(wrapper, '.matched-groups__replace-select')
+    expect(labels).toContain('New Mentor')
+    expect(labels).not.toContain('Quiet Mentor')
+  })
+
+  it('does not offer an idle mentor the backend scored as a suggestion', async () => {
+    // Matching is more forgiving than this screen: it forgives a recent join
+    // date, so it will happily score a mentor the row beside it flags as idle.
+    // The top score would normally be pre-selected, which is how an idle
+    // mentor could be confirmed as a replacement in one click.
+    const fetchMock = fetchMockFor([activeGroup, inactiveGroup], {
+      suggestions: [
+        { mentorUserId: 24, name: 'Quiet Mentor', institution: 'UTS', remainingCapacity: 2, atCapacity: false, score: 150, reason: 'Top scorer' },
+        { mentorUserId: 25, name: 'Deactivated Mentor', institution: 'UOW', remainingCapacity: 2, atCapacity: false, score: 140, reason: 'Also scored' },
+        { mentorUserId: 23, name: 'Rosalind Franklin', institution: 'ANU', remainingCapacity: 2, atCapacity: false, score: 90, reason: 'Great fit' }
+      ]
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
+    await bulkButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+
+    // Pre-selection takes the top of the list, so what it landed on says which
+    // mentors survived the filter. Were either of the first two still there,
+    // Confirm would replace an idle mentor with an idle mentor.
+    expect(dialog.textContent).not.toContain('Quiet Mentor')
+    expect(dialog.textContent).not.toContain('Deactivated Mentor')
+    expect(dialog.textContent).toContain('Rosalind Franklin')
+
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim().startsWith('Confirm')
+    ) as HTMLButtonElement
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).includes('/mentor-match/confirm/') && (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit]
+    expect(JSON.parse(String(call[1].body)).assignments).toEqual([
+      { groupId: 2, mentorUserId: 23 }
+    ])
   })
 
   it('clicking on a student opens their details sheet matching AdminUserDetailSheet and close returns to matched groups', async () => {

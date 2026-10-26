@@ -45,9 +45,11 @@ describe('useAdminMentorsView sorting', () => {
     const view = useAdminMentorsView()
     const recent = new Date().toISOString()
     view.mentors.value = [
-      buildMentor({ mentorId: 1, name: 'Fine', isActive: true, lastMessageAt: recent }),
-      buildMentor({ mentorId: 2, name: 'Deactivated', isActive: false, lastMessageAt: recent }),
-      buildMentor({ mentorId: 3, name: 'Idle', isActive: true, lastMessageAt: '2020-01-01T00:00:00Z' })
+      buildMentor({ mentorId: 1, name: 'Fine', isActive: true, lastMessageAt: recent, currentAssignedCount: 1 }),
+      buildMentor({ mentorId: 2, name: 'Deactivated', isActive: false, lastMessageAt: recent, currentAssignedCount: 1 }),
+      // Mentors a group below, so the count has to say so: silence is only
+      // held against a mentor who has somewhere to break it.
+      buildMentor({ mentorId: 3, name: 'Idle', isActive: true, lastMessageAt: '2020-01-01T00:00:00Z', currentAssignedCount: 1 })
     ]
     view.matchedGroups.value = [1, 2, 3].map((id) => ({
       membershipId: id * 10,

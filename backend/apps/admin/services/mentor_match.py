@@ -499,6 +499,7 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             mentor_first_name=F('user__first_name'),
             mentor_last_name=F('user__last_name'),
             is_active=F('user__is_active'),
+            mentor_date_joined=F('user__date_joined'),
             institution=F('user__mentorprofile__institution'),
             mentor_country_name=F('user__country__country_name'),
         )
@@ -592,6 +593,10 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
                 'mentorId': r['mentor_id'],
                 'name': f"{r['mentor_first_name']} {r['mentor_last_name']}".strip(),
                 'isActive': r['is_active'],
+                'dateJoined': (
+                    r['mentor_date_joined'].isoformat()
+                    if r['mentor_date_joined'] else None
+                ),
                 'lastMessageAt': (
                     last_message_by_mentor[r['mentor_id']].isoformat()
                     if last_message_by_mentor.get(r['mentor_id'])

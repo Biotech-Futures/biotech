@@ -1551,6 +1551,7 @@ export interface AdminMentorDetail {
   remainingCapacity: number
   interests: string[]
   lastMessageAt: string | null
+  dateJoined: string | null
   hasLoggedIn?: boolean
   lastLogin?: string | null
   availability: AdminMentorAvailability[]
@@ -1813,10 +1814,11 @@ export interface MentorListItem {
   maxGroupCount: number
   currentAssignedCount: number
   remainingCapacity: number
-  // The endpoint has always sent these; they are declared so the replacement
-  // dropdowns can tell an active mentor from an idle or deactivated one.
+  // Declared so the replacement dropdowns can tell an active mentor from an
+  // idle or deactivated one, on the same terms the matcher uses.
   isActive: boolean
   lastMessageAt: string | null
+  dateJoined: string | null
 }
 
 /** Flat mentor list (GET /mentor-match/mentors/) — the fallback pool for replacements. */
@@ -1829,6 +1831,8 @@ export interface MatchedGroupMentor {
   isActive: boolean
   /** Null when they have never posted. Drives the "idle" state. */
   lastMessageAt: string | null
+  /** Excuses the silence of a mentor too new to judge, as the matcher does. */
+  dateJoined: string | null
   countryName: string | null
   institution: string | null
 }

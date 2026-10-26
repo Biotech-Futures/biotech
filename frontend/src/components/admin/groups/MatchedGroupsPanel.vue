@@ -69,8 +69,17 @@
           </div>
         </template>
         <template #cell-status="{ row }">
-          <span v-if="groupOf(row).mentor.isActive" class="matched-groups__status matched-groups__status--active">
+          <span
+            v-if="statusLabel(groupOf(row)) === 'Active'"
+            class="matched-groups__status matched-groups__status--active"
+          >
             <i class="fas fa-circle-check" aria-hidden="true"></i> Active
+          </span>
+          <span
+            v-else-if="statusLabel(groupOf(row)) === 'Idle'"
+            class="matched-groups__status matched-groups__status--warning"
+          >
+            <i class="fas fa-clock" aria-hidden="true"></i> Idle
           </span>
           <span v-else class="matched-groups__status matched-groups__status--danger">
             <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Inactive
@@ -152,9 +161,13 @@
                 <div class="matched-groups__mentor-detail-meta">
                   <span class="matched-groups__country-badge">{{ groupOf(row).mentor.countryName || 'Unknown' }}</span>
                   <span
-                    v-if="groupOf(row).mentor.isActive"
+                    v-if="statusLabel(groupOf(row)) === 'Active'"
                     class="matched-groups__status matched-groups__status--active"
                   >Active</span>
+                  <span
+                    v-else-if="statusLabel(groupOf(row)) === 'Idle'"
+                    class="matched-groups__status matched-groups__status--warning"
+                  >Idle</span>
                   <span v-else class="matched-groups__status matched-groups__status--danger">Inactive</span>
                 </div>
               </div>
@@ -324,7 +337,7 @@ const sortValue = (group: MatchedGroup, key: SortKey): string | number => {
     case 'mentor':
       return `${group.mentor.name} ${group.mentor.institution ?? ''}`
     case 'status':
-      return group.mentor.isActive ? 'Active' : 'Inactive'
+      return statusLabel(group)
   }
 }
 
@@ -357,7 +370,7 @@ const groupRows = computed(() =>
     country: group.countryName || 'Unknown',
     students: group.studentCount,
     mentor: group.mentor.name,
-    status: group.mentor.isActive ? 'Active' : 'Inactive'
+    status: statusLabel(group)
   }))
 )
 
@@ -384,6 +397,20 @@ const cancelReplace = () => {
 // job) — this is the plain mentor pool, filtered to those with a free seat,
 // or everyone once "show mentors at capacity" is on. The mentor already on
 // the group is left out: picking them is a replacement that replaces nothing.
+/**
+ * Three states, not two. A quiet mentor is still an enabled account, so a
+ * plain `isActive` check labelled them "Active" on the one screen that counts
+ * them as needing replacement - the row read Active while the same panel
+ * totalled them under "Replace Idle Mentors". Reuses `mentorConcern` and the
+ * admin's own threshold so the column cannot drift from that count.
+ */
+const statusLabel = (group: MatchedGroup): 'Active' | 'Idle' | 'Inactive' => {
+  const concern = mentorConcern(group.mentor, idleDays.value)
+  if (concern === 'inactive') return 'Inactive'
+  if (concern === 'idle') return 'Idle'
+  return 'Active'
+}
+
 const optionsFor = (group: MatchedGroup): MentorListItem[] =>
   mentors.value.filter(
     (m) =>
@@ -557,6 +584,11 @@ const onBulkConfirmed = () => {
 
 .matched-groups__status--active {
   color: #1a7f37;
+}
+
+/* Idle sits between the two: worth acting on, but not an account problem. */
+.matched-groups__status--warning {
+  color: #9a6700;
 }
 
 .matched-groups__status--danger {
