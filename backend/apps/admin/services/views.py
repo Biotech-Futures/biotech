@@ -85,7 +85,7 @@ COLUMN_HEADER_MAP: Dict[str, str] = {
 }
 
 
-# The mentor background choices as they read ("University Student – Postgraduate"),
+# The mentor background choices as they read ("Postgraduate"),
 # so a table of mentors says what they are rather than the stored code.
 MENTOR_BACKGROUND_LABELS: Dict[str, str] = dict(MentorProfile.BackgroundChoices.choices)
 

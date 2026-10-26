@@ -240,7 +240,7 @@ export const MENTOR_CSV_TEMPLATE = buildCsvTemplate(
     ['mentorReason', 'Mentor Reason', 'I want to support students exploring biotech careers.'],
     ['capacity', 'Capacity', '2'],
     ['interests', 'Expertise', 'Genetics, Bioinformatics'],
-    ['background', 'Background', 'University Student – Postgraduate'],
+    ['background', 'Background', 'Postgraduate'],
     ['institution', 'Institution or Company', 'University of Sydney']
   ]
 )

@@ -1479,6 +1479,7 @@ import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
 import { useEmailFieldChecks, type EmailBox, type StudentBoxField } from '@/registration/emailFieldCheck'
 import { studentRequestPrefixes } from '@/registration/productionRegistration'
 import { formatDayMonthTime } from '@/utils/date'
+import { MENTOR_BACKGROUND_OPTIONS } from '@/utils/userOptions'
 import {
   buildRegistrationRequest,
   REGISTRATION_GATEWAY_KEY,
@@ -1834,13 +1835,13 @@ const INDIGENOUS_OPTIONS: Array<{ value: MentorForm['indigenous']; label: string
 
 // The same backgrounds, in the same words, as everywhere a mentor's are shown:
 // from an undergraduate student up to industry.
-const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> = [
-  { value: 'undergraduate', label: 'University Student – Undergraduate' },
-  { value: 'postgraduate', label: 'University Student – Postgraduate' },
-  { value: 'hdr', label: 'University Student – HDR' },
-  { value: 'academic', label: 'Academic' },
-  { value: 'industry', label: 'Industry' },
-]
+// The same five the admin panel offers, from the one shared list (AM2), so a
+// mentor picks here exactly what an admin sees later.
+const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> =
+  MENTOR_BACKGROUND_OPTIONS.map(({ value, label }) => ({
+    value: value as MentorForm['affiliation'],
+    label
+  }))
 
 const props = withDefaults(
   defineProps<{

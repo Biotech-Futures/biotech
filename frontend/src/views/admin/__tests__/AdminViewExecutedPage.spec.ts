@@ -213,7 +213,7 @@ describe('AdminViewExecutedPage', () => {
           role: 'mentor',
           pronouns: '',
           mentorGroupCapacity: 4,
-          mentorBackgroundLabel: 'University Student - Postgraduate',
+          mentorBackgroundLabel: 'Postgraduate',
           mentorYearOfStudy: '2',
           mentorFieldOfStudy: 'Molecular Biology',
           supervisorEmail: null,
@@ -256,7 +256,7 @@ describe('AdminViewExecutedPage', () => {
     // own missing pronouns.
     const mentorCells = rows[1].findAll('.data-table-cell').map((c) => c.text().trim())
     expect(mentorCells).toContain('4')
-    expect(mentorCells).toContain('University Student - Postgraduate')
+    expect(mentorCells).toContain('Postgraduate')
     expect(mentorCells).toContain('2')
     expect(mentorCells).toContain('Molecular Biology')
     expect(mentorCells.filter((text) => text === '—').length).toBe(4)

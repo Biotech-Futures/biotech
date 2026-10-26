@@ -85,9 +85,9 @@ const lastUpdate = () =>
 const optionTexts = (wrapper: Awaited<ReturnType<typeof openForm>>) =>
   appSelectLabels(wrapper, '#f-mbg')
 
-const UG = 'University Student – Undergraduate'
-const PG = 'University Student – Postgraduate'
-const HDR = 'University Student – HDR'
+const UG = 'Undergraduate'
+const PG = 'Postgraduate'
+const HDR = 'HDR'
 const CATEGORIES = ['Academic', 'Industry', UG, PG, HDR]
 
 describe('mentor background', () => {
@@ -97,10 +97,10 @@ describe('mentor background', () => {
   })
 
   describe('form', () => {
-    it('offers exactly the five categories, in order', async () => {
+    it('offers "Not set" and exactly the five categories, in order', async () => {
       const wrapper = await openForm(mentor())
 
-      expect(await optionTexts(wrapper)).toEqual(CATEGORIES)
+      expect(await optionTexts(wrapper)).toEqual(['Not set', ...CATEGORIES])
     })
 
     it('preselects the stored category', async () => {
@@ -115,16 +115,21 @@ describe('mentor background', () => {
       expect(lastUpdate()).toMatchObject({ mentorBackground: 'academic' })
     })
 
-    it('sends the stored category back unchanged on an unrelated edit', async () => {
-      // The form sends the whole mentor block, so the background travels with
-      // every edit. What matters is that it goes back as it was.
+    it('does not send the background on an unrelated edit', async () => {
+      // Only a change is sent, so editing something else cannot rewrite what
+      // is stored - including a value the server would otherwise refuse.
       const wrapper = await openForm(mentor({ mentorBackground: 'hdr' }))
       await wrapper.find('#f-minst').setValue('UNSW')
       await submit(wrapper)
-      expect(lastUpdate()).toMatchObject({
-        mentorInstitution: 'UNSW',
-        mentorBackground: 'hdr'
-      })
+      expect(lastUpdate()).toMatchObject({ mentorInstitution: 'UNSW' })
+      expect(lastUpdate()).not.toHaveProperty('mentorBackground')
+    })
+
+    it('sends null when the background is cleared to "Not set"', async () => {
+      const wrapper = await openForm(mentor({ mentorBackground: 'hdr' }))
+      await pickAppSelect(wrapper, '#f-mbg', 'Not set')
+      await submit(wrapper)
+      expect(lastUpdate()).toMatchObject({ mentorBackground: null })
     })
 
     it('creates a mentor with the chosen category', async () => {
@@ -147,24 +152,26 @@ describe('mentor background', () => {
   })
 
   describe('older free-text values', () => {
-    it('stays selectable instead of being shown as unset', async () => {
+    it('stays selectable, and is named as not being a category', async () => {
       const wrapper = await openForm(mentor({ mentorBackground: 'Seed mentor background.' }))
 
-      expect(appSelectText(wrapper, '#f-mbg')).toBe('Seed mentor background.')
-      expect(await optionTexts(wrapper)).toEqual([...CATEGORIES, 'Seed mentor background.'])
+      expect(appSelectText(wrapper, '#f-mbg')).toBe('Seed mentor background. (not a category)')
+      expect(await optionTexts(wrapper)).toEqual([
+        'Not set',
+        'Seed mentor background. (not a category)',
+        ...CATEGORIES
+      ])
+      expect(wrapper.find('#f-mbg-legacy').text()).toContain("isn't one of the five categories")
     })
 
-    it('is sent back as it was stored on an unrelated edit', async () => {
-      // The backend lets an unrecognised value through only when it is
-      // unchanged, so sending it back exactly is what keeps the save working.
+    it('keeps it on an unrelated edit', async () => {
+      // Never sent, so it cannot be normalised away behind the admin's back.
       const wrapper = await openForm(mentor({ mentorBackground: 'Research' }))
       await wrapper.find('#f-minst').setValue('UNSW')
       await submit(wrapper)
 
-      expect(lastUpdate()).toMatchObject({
-        mentorInstitution: 'UNSW',
-        mentorBackground: 'Research'
-      })
+      expect(lastUpdate()).toMatchObject({ mentorInstitution: 'UNSW' })
+      expect(lastUpdate()).not.toHaveProperty('mentorBackground')
     })
 
     it('can be replaced by a category', async () => {
@@ -177,7 +184,8 @@ describe('mentor background', () => {
     it('is not offered for a mentor with a category or none', async () => {
       for (const stored of ['industry', null]) {
         const wrapper = await openForm(mentor({ mentorBackground: stored }))
-        expect(await optionTexts(wrapper)).toEqual(CATEGORIES)
+        expect(await optionTexts(wrapper)).toEqual(['Not set', ...CATEGORIES])
+        expect(wrapper.find('#f-mbg-legacy').exists()).toBe(false)
       }
     })
   })

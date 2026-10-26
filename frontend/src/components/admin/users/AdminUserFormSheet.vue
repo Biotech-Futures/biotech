@@ -207,7 +207,12 @@
               :options="mentorBackgroundOptions"
               :searchable="false"
               placeholder="Choose a background"
+              :aria-describedby="legacyMentorBackground ? 'f-mbg-legacy' : undefined"
             />
+            <p v-if="legacyMentorBackground" id="f-mbg-legacy" class="admin-users-form__hint">
+              This background isn't one of the five categories. It's kept as it is
+              unless you choose a category.
+            </p>
           </div>
           <div v-if="form.mentorBackground === 'industry'" class="form-field">
             <label class="form-label" for="f-mcompany">Company</label>
@@ -1009,11 +1014,33 @@ const choosePhoto = (event: Event) => {
 
 const mentorStudying = computed(() => isStudyingBackground(form.mentorBackground))
 // Registering's backgrounds, and one typed before that, as written.
-const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
+/** The background as the form loaded it, '' when there is none. */
+const originalMentorBackground = computed(() =>
+  props.user?.role === 'mentor' ? props.user.mentorBackground || '' : ''
+)
+
+/** A stored background from before the five categories, kept until replaced. */
+const legacyMentorBackground = computed(() => {
   const current = form.mentorBackground
-  return typeof current === 'string' && current && !MENTOR_BACKGROUNDS.some((option) => option.value === current)
-    ? [...MENTOR_BACKGROUNDS, { value: current, label: current }]
-    : MENTOR_BACKGROUNDS
+  return typeof current === 'string' &&
+    current &&
+    !MENTOR_BACKGROUNDS.some((option) => option.value === current)
+    ? current
+    : ''
+})
+
+// "Not set" first, so a background can be cleared. An older free-text value
+// stays selectable and is named as not being one of the categories, rather
+// than sitting among them as though it were.
+const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
+  const options: AppSelectOption[] = [{ value: null, label: 'Not set' }]
+  if (legacyMentorBackground.value) {
+    options.push({
+      value: legacyMentorBackground.value,
+      label: `${legacyMentorBackground.value} (not a category)`
+    })
+  }
+  return [...options, ...MENTOR_BACKGROUNDS]
 })
 // 1 to 5 groups as registering offers, and whatever they have now.
 const capacityOptions = computed<AppSelectOption[]>(() => {
@@ -1037,7 +1064,12 @@ const mentorPayload = (): Record<string, unknown> => {
   const industry = form.mentorBackground === 'industry'
   const times = availabilityTimes(form.mentorAvailability)
   return {
-    mentorBackground: form.mentorBackground,
+    // Omitted when untouched, so an unrelated edit leaves the stored
+    // background alone - including an older free-text one, which the server
+    // accepts only while it is unchanged.
+    ...(form.mentorBackground === originalMentorBackground.value
+      ? {}
+      : { mentorBackground: form.mentorBackground }),
     mentorCompany: industry ? form.mentorCompany : '',
     mentorInstitution: industry ? '' : form.mentorInstitution,
     mentorUniversityYear: mentorStudying.value ? form.mentorUniversityYear : '',

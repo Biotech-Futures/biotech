@@ -60,7 +60,7 @@ describe('parseMentorCsv', () => {
       'industry@example.edu,Grace,Hopper,United States,,Career guidance,1,Computing,Industry,Company One',
       'undergrad@example.edu,Alan,Turing,Australia,NSW,Share experience,2,Genetics,Undergraduate student,Uni Two',
       'academic@example.edu,Rosalind,Franklin,Australia,NSW,Share research,2,Genetics,Academic,Uni Three',
-      'postgrad@example.edu,Marie,Curie,Australia,NSW,Share research,2,Genetics,University Student – Postgraduate,Uni Four'
+      'postgrad@example.edu,Marie,Curie,Australia,NSW,Share research,2,Genetics,Postgraduate,Uni Four'
     ].join('\n')
 
     const result = parseMentorCsv(csv)

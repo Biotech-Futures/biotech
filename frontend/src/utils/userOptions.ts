@@ -24,9 +24,9 @@ export type UserRole = (typeof USER_ROLES)[number]
 export const MENTOR_BACKGROUND_OPTIONS = [
   { value: 'academic', label: 'Academic' },
   { value: 'industry', label: 'Industry' },
-  { value: 'undergraduate', label: 'University Student – Undergraduate' },
-  { value: 'postgraduate', label: 'University Student – Postgraduate' },
-  { value: 'hdr', label: 'University Student – HDR' }
+  { value: 'undergraduate', label: 'Undergraduate' },
+  { value: 'postgraduate', label: 'Postgraduate' },
+  { value: 'hdr', label: 'HDR' }
 ] as const
 export type MentorBackground = (typeof MENTOR_BACKGROUND_OPTIONS)[number]['value']
 
