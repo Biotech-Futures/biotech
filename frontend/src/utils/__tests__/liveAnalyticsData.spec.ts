@@ -141,6 +141,82 @@ describe('buildGroupsAnalytics', () => {
   })
 })
 
+describe('buildRegistrationAnalytics', () => {
+  const user = (id: number, role: string | null, registered: string | null, overrides: Partial<api.AdminUser> = {}): api.AdminUser => ({
+    id, firstName: 'User', lastName: String(id), email: `user${id}@example.test`, role,
+    country: null, state: null, groupId: null, groupName: null, schoolName: null,
+    mentorBackground: null, mentorInstitution: null, mentorReason: null, mentorMaxGroupCount: null,
+    yearLevel: null, joinPermissionReceived: true, guardianEmail: `guardian${id}@example.test`, interests: [],
+    isAdmin: false, isActive: true, hasLoggedIn: false, lastLogin: null,
+    accountStatus: 'active', invitedAt: registered, activatedAt: registered,
+    supervisorName: null, supervisorEmail: null,
+    ...overrides,
+  })
+  const bundle = (users: api.AdminUser[], messageDays: string[] = []): data.ParticipantAnalyticsBundle => ({
+    users,
+    groupActivity: { ...fullActivity, messages_by_day: messageDays.map((date) => ({ date, message_count: 1 })) },
+  })
+
+  it('counts student and mentor registrations per UTC day in every year, leaving out other roles', () => {
+    const result = data.buildRegistrationAnalytics(bundle([
+      user(1, 'student', '2025-09-01T03:00:00Z'),
+      user(2, 'Student', '2026-03-31T23:30:00Z'),
+      user(3, 'mentor', '2026-03-31T08:00:00Z'),
+      // 1 April in Sydney is still 31 March in UTC.
+      user(4, 'mentor', '2026-04-01T00:00:00+10:00'),
+      user(5, 'supervisor', '2026-03-31T09:00:00Z'),
+      user(6, 'student', '2026-03-31T10:00:00Z', { isAdmin: true }),
+      user(7, 'teacher', '2026-03-31T10:00:00Z'),
+      user(8, null, '2026-03-31T10:00:00Z'),
+    ]))
+
+    // No year filter: the Registration page narrows the trend by date range.
+    expect(result.trend).toEqual([
+      { date: '2025-09-01', students: 1, mentors: 0 },
+      { date: '2026-03-31', students: 1, mentors: 2 },
+    ])
+    expect(result.completion.registered).toBe(2)
+    expect(result.sources).toEqual([])
+  })
+
+  it('dates a registration by creation, then invitation, then activation, and keeps undated students out of the trend only', () => {
+    const result = data.buildRegistrationAnalytics(bundle([
+      user(1, 'student', null, { createdAt: '2026-05-02T00:00:00Z', invitedAt: '2026-05-01T00:00:00Z' }),
+      user(2, 'student', null, { invitedAt: '2026-06-01T00:00:00Z', activatedAt: '2026-06-03T00:00:00Z' }),
+      user(3, 'mentor', null, { activatedAt: '2026-07-01T00:00:00Z' }),
+      user(4, 'student', null),
+      user(5, 'student', 'not a date'),
+    ]))
+
+    expect(result.trend.map((point) => point.date)).toEqual(['2026-05-02', '2026-06-01', '2026-07-01'])
+    expect(result.completion.registered).toBe(4)
+  })
+
+  it('lists students missing guardian details or approval, counting days from the latest recorded date', () => {
+    const result = data.buildRegistrationAnalytics(bundle([
+      user(1, 'student', '2026-10-01T00:00:00Z'),
+      user(2, 'student', '2026-10-06T00:00:00Z', {
+        guardianEmail: null, supervisorName: 'Sam Supervisor', firstName: 'Missing', lastName: 'Guardian',
+      }),
+      user(3, 'student', '2026-09-20T00:00:00Z', { joinPermissionReceived: false }),
+      user(4, 'student', '2026-09-20T00:00:00Z', { guardianEmail: null, joinPermissionReceived: false }),
+      user(5, 'student', null, { guardianEmail: null, firstName: '', lastName: '' }),
+      user(6, 'mentor', '2026-10-01T00:00:00Z', { guardianEmail: null }),
+    ], ['2026-10-20']))
+
+    expect(result.completion).toEqual({ registered: 5, guardianDetails: 2, guardianApproved: 1 })
+    // The latest message day (20 Oct) is later than any account date.
+    expect(result.followUps.map((row) => [
+      row.id, row.issue, row.student, row.supervisor, row.registrationDate, row.daysOutstanding, row.source,
+    ])).toEqual([
+      [2, 'missing_guardian', 'Missing Guardian', 'Sam Supervisor', '2026-10-06', 14, null],
+      [3, 'awaiting_approval', 'User 3', '—', '2026-09-20', 30, null],
+      [4, 'missing_guardian', 'User 4', '—', '2026-09-20', 30, null],
+      [5, 'missing_guardian', 'user5@example.test', '—', '2026-10-20', 0, null],
+    ])
+  })
+})
+
 describe('buildRecipientEmailLogs', () => {
   it('turns each recipient search result into that recipient\'s copy of the email', () => {
     const base = {
