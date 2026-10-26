@@ -252,16 +252,6 @@
               @mousemove="moveTooltip"
               @mouseleave="hideTooltip"
             />
-            <text
-              v-for="point in lineDots"
-              :key="`value-${point.label}`"
-              :x="point.x"
-              :y="Math.max(point.y - 12, 18)"
-              text-anchor="middle"
-              class="message-value-label"
-            >
-              {{ point.value.toLocaleString() }}
-            </text>
           </svg>
 
           <div
@@ -1362,13 +1352,6 @@ function exportCsv(kind: ExportKind) {
   min-width: 210px;
 }
 
-
-.message-value-label {
-  fill: var(--analytics-ui-text, #174243);
-  font-size: 11px;
-  font-weight: 700;
-  pointer-events: none;
-}
 
 .messages-analytics-page .filter-card {
   flex-wrap: wrap;

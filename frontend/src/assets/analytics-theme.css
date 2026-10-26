@@ -269,12 +269,10 @@
 }
 
 .analytics-export-stack {
-  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   flex: 0 0 auto;
-  padding-bottom: 29px;
 }
 
 .page-actions.page-actions .analytics-export-stack > .export-button {
@@ -283,14 +281,12 @@
   flex: 0 0 auto !important;
 }
 
+/* In the layout under the export button, not absolutely placed beside it,
+   so wherever the header wraps the line stays on screen. */
 .analytics-update-status {
-  position: absolute;
-  top: 46px;
-  right: 0;
   display: flex;
   justify-content: flex-end;
-  width: max-content;
-  max-width: calc(100vw - 40px);
+  max-width: 100%;
 }
 
 .page-actions.page-actions:has(> .analytics-export-stack) {
@@ -896,17 +892,6 @@
   .email-monitoring-page .page-heading,
   .resources-analytics-page .page-heading {
     grid-template-columns: 1fr !important;
-  }
-
-  /* On these pages the export button leads the actions row, so once the
-     actions drop below the title it sits at the left edge; the status line
-     runs rightwards from it instead of past the content area. */
-  .messages-analytics-page .analytics-update-status,
-  .activity-analytics-page .analytics-update-status,
-  .email-monitoring-page .analytics-update-status {
-    left: 0;
-    right: auto;
-    justify-content: flex-start;
   }
 }
 
