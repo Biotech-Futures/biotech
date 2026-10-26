@@ -580,7 +580,9 @@ def _record_run_metrics(key: str, completed_at, work: list[Work] = ()) -> None:
             delivered=run.emailed,
             failed=failed,
             initiated_by=run.started_by,
-            started_at=run.started_at,
+            # This aggregate is finalised now; the run's original start can
+            # already be outside the rolling usage window. Keep it on the run.
+            started_at=completed_at,
             completed_at=completed_at,
             recipients=[address for address in address_of.values() if address not in waiting] if address_of else None,
             missed=missed,

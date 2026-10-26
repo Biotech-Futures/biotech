@@ -149,10 +149,10 @@ export function namedDay(value: string): string {
 
 export function describeWindow(from: string, to: string): string {
   if (from && to) {
-    return `Covering ${namedDay(from)} to ${namedDay(to)} inclusive, in UTC.`
+    return `Covering ${namedDay(from)} to ${namedDay(to)} inclusive, in your time zone.`
   }
-  if (from) return `Covering ${namedDay(from)} onwards, in UTC.`
-  return `Covering everything up to and including ${namedDay(to)}, in UTC.`
+  if (from) return `Covering ${namedDay(from)} onwards, in your time zone.`
+  return `Covering everything up to and including ${namedDay(to)}, in your time zone.`
 }
 
 /** The value axis: a whole-number step and the top of the scale.

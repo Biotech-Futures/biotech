@@ -104,6 +104,39 @@ class SendRunTests(TestCase):
             "cy@example.com": ("delivered", ""),
         })
 
+    def test_bulk_metrics_use_completion_time_and_preserve_final_counts(self):
+        from apps.admin.services.analytics import get_email_delivery_analytics
+        from apps.services.email_log import WAITING_REASON
+        from apps.services.models import EmailDeliveryMetric
+
+        completed_at = timezone.now()
+        started_at = completed_at - timedelta(hours=25)
+        run = EmailSendRun.objects.create(
+            key="test_email", started_at=started_at, finished_at=completed_at,
+            started_by=self.actor, emailed=2,
+            missed=[
+                {"who": "refused", "reason": "address refused"},
+                {"who": "waiting", "reason": WAITING_REASON},
+            ],
+        )
+        work = [Work(
+            ["sent1", "sent2", "refused", "waiting"], lambda connection, cache: [],
+            ["a@example.test", "b@example.test", "c@example.test", "d@example.test"],
+        )]
+        with mock.patch("django.utils.timezone.now", return_value=completed_at):
+            send_guard._record_run_metrics("test_email", completed_at, work)
+            metric = EmailDeliveryMetric.objects.get(email_type="test_email")
+            self.assertEqual(metric.started_at, completed_at)
+            self.assertEqual(metric.completed_at, completed_at)
+            self.assertEqual((metric.attempted_count, metric.delivered_count, metric.failed_count), (3, 2, 1))
+            self.assertEqual(metric.recipients.count(), 3)
+            self.assertEqual(get_email_delivery_analytics()["totals"]["attempted"], 3)
+
+        run.refresh_from_db()
+        self.assertEqual(run.started_at, started_at)
+        with mock.patch("django.utils.timezone.now", return_value=completed_at + timedelta(hours=24)):
+            self.assertEqual(get_email_delivery_analytics()["totals"]["attempted"], 0)
+
     def test_every_item_is_sent_and_the_progress_kept(self):
         work = [self._item(f"BTF{n}", 3) for n in range(5)] + [self._item("BTF9", 2, reached=1)]
         self._press("test_email", work)

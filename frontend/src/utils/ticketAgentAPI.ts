@@ -57,6 +57,7 @@ import {
   type TicketQueue,
   type TicketSummary
 } from './ticketAgentSchema'
+import { ticketTimeZone } from './ticketDates'
 
 const BASE = '/api/v1/admin/tickets'
 
@@ -183,7 +184,12 @@ export async function exportTickets(
 ): Promise<{ blob: Blob; filename: string }> {
   const { blob, filename } = await requestBlob(
     `${BASE}/export/`,
-    { method: 'POST', body: JSON.stringify(Object.fromEntries(activeFilters(filters))) },
+    {
+      method: 'POST',
+      // The reader's zone goes with the filters, so the file's times read like
+      // the table's (C-37 to C-40, DEC-068).
+      body: JSON.stringify({ ...Object.fromEntries(activeFilters(filters)), timeZone: ticketTimeZone() })
+    },
     'Could not export the tickets. Please try again.'
   )
   return { blob, filename: filename ?? `tickets-${localDateStamp(new Date())}.xlsx` }
@@ -370,6 +376,8 @@ export async function exportTicketAudit(
   const body: Record<string, string> = {}
   if (filters.action) body.action = filters.action
   if (filters.actor) body.actor = filters.actor
+  // Read like the table, as the queue's export is.
+  body.timeZone = ticketTimeZone()
   const { blob, filename } = await requestBlob(
     `${BASE}/audit/export/`,
     { method: 'POST', body: JSON.stringify(body) },
@@ -382,12 +390,14 @@ export type AnalyticsParams = { from?: string; to?: string; dimension?: string }
 
 // `to` is sent exactly as picked, as YYYY-MM-DD. The server alone makes a bare
 // date inclusive by adding a day ("This is the only place that may make this
-// correction"); adding it here as well would count a day twice.
+// correction"); adding it here as well would count a day twice. `tz` is the
+// reader's zone, which the server reads both dates in (C-37 to C-40, DEC-068).
 export async function fetchTicketAnalytics(params: AnalyticsParams = {}): Promise<TicketAnalytics> {
   const search = new URLSearchParams()
   if (params.from) search.set('from', params.from)
   if (params.to) search.set('to', params.to)
   if (params.dimension) search.set('dimension', params.dimension)
+  search.set('tz', ticketTimeZone())
   return ticketAnalyticsSchema.parse(
     await requestJson<unknown>(withQuery(`${BASE}/analytics/`, search))
   )

@@ -180,9 +180,10 @@ class SummaryServiceTests(MeetingGroupMixin, TestCase):
 
 
 class WhoMayManageTests(MeetingGroupMixin, TestCase):
-    def test_mentor_and_supervisor_count_as_mentors_a_student_does_not(self):
+    def test_only_a_mentor_counts_as_a_mentor(self):
+        # Not a supervisor since d67ff842 (#562).
         self.assertTrue(is_group_mentor(self.mentor, self.group.pk))
-        self.assertTrue(is_group_mentor(self.supervisor, self.group.pk))
+        self.assertFalse(is_group_mentor(self.supervisor, self.group.pk))
         self.assertFalse(is_group_mentor(self.student, self.group.pk))
         self.assertFalse(is_group_mentor(self.other_mentor, self.group.pk))
 
@@ -210,7 +211,7 @@ class WhoMayManageTests(MeetingGroupMixin, TestCase):
     def test_who_can_manage_a_meeting(self):
         meeting = self.book()
         self.assertTrue(can_manage_meeting(self.mentor, meeting))
-        self.assertTrue(can_manage_meeting(self.supervisor, meeting))
+        self.assertFalse(can_manage_meeting(self.supervisor, meeting))
         self.assertTrue(can_manage_meeting(self.admin, meeting))
         self.assertFalse(can_manage_meeting(self.student, meeting))
         self.assertFalse(can_manage_meeting(self.other_mentor, meeting))

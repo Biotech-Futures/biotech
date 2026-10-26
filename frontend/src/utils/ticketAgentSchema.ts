@@ -158,7 +158,11 @@ export const ticketDetailSchema = z.object({
       name: z.string(),
       email: z.string(),
       region: z.string(),
-      registeredAt: z.string()
+      registeredAt: z.string(),
+      // The groups the requester is in now, by name (C-39). Optional so the
+      // panel still opens against a backend from before 26 October 2026,
+      // which the frontend can briefly meet while a deploy rolls out.
+      groups: z.array(z.object({ id: z.number(), name: z.string() })).optional()
     })
     .nullable(),
   assignee: personSchema.nullable(),

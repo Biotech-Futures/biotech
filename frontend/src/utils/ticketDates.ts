@@ -10,12 +10,33 @@
  * design was checked against, so the helpers moved here rather than back
  * into that file.
  *
- * The zone is the platform's: the "set time" of utils/date.ts, which is the
- * Profile timezone, or the computer's when the profile names none. That was
- * the reader's browser zone until 18 October 2026, when the owner chose to
- * follow the rest of the platform.
+ * The zone is the reader's own: see ticketTimeZone below. That was the
+ * reader's browser zone until 18 October 2026, when the owner chose to follow
+ * the rest of the platform, and since 26 October 2026 a Profile that still
+ * says UTC no longer counts as a choice.
  */
-import { getSetTimeZone } from '@/utils/date'
+import { getBrowserTimeZone, getSetTimeZone } from '@/utils/date'
+
+// The platform's default Profile timezone, in the two spellings a browser
+// or the API may use for it.
+const UTC_NAMES = new Set(['UTC', 'Etc/UTC'])
+
+/**
+ * The zone every ticket page reads its times in.
+ *
+ * The platform's "set time" (the Profile timezone, or the computer's when the
+ * profile names none), except that a Profile still on the platform's default
+ * of UTC reads as no choice at all, and the computer's zone is used. An
+ * account gets UTC unless somebody picks a zone for it, and main only asks
+ * non-admins to pick one, after they sign in, so every admin and support
+ * agent read UTC. The client, viewing as an admin, saw the queue and a ticket
+ * in UTC on 26 October 2026 and asked for "the timezone of the person viewing
+ * the page" (C-37, C-38, C-40; DEC-068).
+ */
+export function ticketTimeZone(): string {
+  const zone = getSetTimeZone()
+  return UTC_NAMES.has(zone) ? getBrowserTimeZone() : zone
+}
 
 const toDate = (value: string | Date): Date | null => {
   const date = value instanceof Date ? value : new Date(value)
@@ -61,7 +82,7 @@ const timeOfDay = (date: Date, timeZone: string) =>
  */
 export function formatDateAU(value: string | Date): string {
   const date = toDate(value)
-  return date ? shortDate(date, getSetTimeZone()) : ''
+  return date ? shortDate(date, ticketTimeZone()) : ''
 }
 
 /**
@@ -81,7 +102,7 @@ export function formatDateAU(value: string | Date): string {
  */
 export function formatLongDateAU(value: string | Date, withWeekday = false): string {
   const date = toDate(value)
-  return date ? longDate(date, getSetTimeZone(), withWeekday) : ''
+  return date ? longDate(date, ticketTimeZone(), withWeekday) : ''
 }
 
 /**
@@ -99,7 +120,7 @@ export function formatLongDateAU(value: string | Date, withWeekday = false): str
 export function formatLongDateTimeAU(value: string | Date): string {
   const date = toDate(value)
   if (!date) return ''
-  const timeZone = getSetTimeZone()
+  const timeZone = ticketTimeZone()
   return `${longDate(date, timeZone)}, ${timeOfDay(date, timeZone)}`
 }
 
@@ -119,6 +140,6 @@ export function formatLongDateTimeAU(value: string | Date): string {
 export function formatDateTimeAU(value: string | Date): string {
   const date = toDate(value)
   if (!date) return ''
-  const timeZone = getSetTimeZone()
+  const timeZone = ticketTimeZone()
   return `${shortDate(date, timeZone)}, ${timeOfDay(date, timeZone)}`
 }

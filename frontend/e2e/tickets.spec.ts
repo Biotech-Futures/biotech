@@ -321,9 +321,11 @@ test.describe('support tickets, both sides in the portal', () => {
     await expect(message.locator('.timeline__body')).toHaveText(body)
     await expect(message.getByRole('button', { name: 'screenshot.pdf' })).toBeVisible()
 
-    // C-06: the date AND the time, in the account's set zone: its Profile
-    // timezone, as on every other page of the platform. (The sign-in prompt
-    // that offers the computer's zone instead is dismissed by track().)
+    // C-06: the date AND the time, in the reader's own zone: the account's
+    // Profile timezone, or the computer's while the profile still says the
+    // platform's default of UTC (C-40, DEC-068; the seeded accounts do). (The
+    // sign-in prompt that offers the computer's zone instead is dismissed by
+    // track().)
     // Checked against the instant the element itself carries, so this fails
     // on a time that is present but wrong as well as on one that is missing.
     const stamp = message.locator('.timeline__meta time')
@@ -333,15 +335,16 @@ test.describe('support tickets, both sides in the portal', () => {
       headers: { Accept: 'application/json' }
     })
     const accountZone = String((await me.json()).timezone)
-    const expected = await stamp.evaluate(
-      (element, timeZone) =>
-        new Date(element.getAttribute('datetime')!).toLocaleTimeString('en-AU', {
-          hour: 'numeric',
-          minute: '2-digit',
-          timeZone
-        }),
-      accountZone
-    )
+    const expected = await stamp.evaluate((element, profileZone) => {
+      const timeZone = ['UTC', 'Etc/UTC'].includes(profileZone)
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone
+        : profileZone
+      return new Date(element.getAttribute('datetime')!).toLocaleTimeString('en-AU', {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone
+      })
+    }, accountZone)
     expect(
       shown.endsWith(expected),
       `"${shown}" should end with "${expected}" (${accountZone})`
@@ -516,7 +519,14 @@ test.describe('support tickets, both sides in the portal', () => {
     await expect(page.getByRole('button', { name: /^Open SUP-/ })).toHaveCount(1)
     await expect(page.getByRole('button', { name: `Open ${ticket.number}` })).toBeVisible()
 
-    const dayBefore = new Date().toISOString().slice(0, 10)
+    // The reader's own calendar day, as the browser keeps it.
+    const localDay = () =>
+      page.evaluate(() => {
+        const now = new Date()
+        const pad = (n: number) => String(n).padStart(2, '0')
+        return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+      })
+    const dayBefore = await localDay()
     // A POST: the export writes an audit row, so it carries the CSRF token.
     // The method test also keeps a CORS preflight (an OPTIONS to the same
     // URL) from being taken for the export.
@@ -536,12 +546,17 @@ test.describe('support tickets, both sides in the portal', () => {
     expect(body.status).toEqual(['open'])
     // The page on screen is not the export: no paging goes with it.
     expect('page' in body || 'limit' in body || 'asOf' in body || 'after' in body).toBe(false)
+    // The reader's zone goes with it, so the file reads like the table: the
+    // seeded agent's profile is UTC, so that is the computer's (C-37 to C-40,
+    // DEC-068).
+    expect(body.timeZone).toBe(
+      await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
+    )
     expect(await request.headerValue('x-csrftoken')).toBeTruthy()
 
     const download = await downloading
-    const dayAfter = new Date().toISOString().slice(0, 10)
-    // Named by the server for the exporter's day, in the exporter's zone
-    // (the seeded agent's is UTC).
+    const dayAfter = await localDay()
+    // Named by the server for the reader's day, in the zone the page sent.
     const name = download.suggestedFilename()
     expect(name).toMatch(/^tickets-\d{4}-\d{2}-\d{2}\.xlsx$/)
     expect([`tickets-${dayBefore}.xlsx`, `tickets-${dayAfter}.xlsx`]).toContain(name)

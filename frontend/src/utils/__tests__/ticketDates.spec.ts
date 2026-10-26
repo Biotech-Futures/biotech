@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerProfileTimeZone } from '@/utils/date'
-import { formatDateAU, formatDateTimeAU, formatLongDateTimeAU } from '@/utils/ticketDates'
+import { formatDateAU, formatDateTimeAU, formatLongDateTimeAU, ticketTimeZone } from '@/utils/ticketDates'
 
 /**
  * The stamp on every line of a ticket conversation.
  *
  * Client item C-06: a date on its own could not tell a student whether the
  * reply under their message came five minutes or eight hours later. The stamp
- * now carries the time as well, read in the reader's set zone: their Profile
- * timezone, or their computer's when the profile names none (the platform's
- * rule, utils/date.getSetTimeZone).
+ * now carries the time as well, read in the reader's own zone: their Profile
+ * timezone, or their computer's when the profile names none or still says
+ * UTC (ticketTimeZone).
  *
  * The computer's zone is pinned per test through TZ rather than left to the
  * machine, so the expected strings can be written out in full. Node picks a change to TZ
@@ -88,7 +88,8 @@ describe('formatDateTimeAU', () => {
 /**
  * The zone itself. A signed-in profile's timezone wins over the computer's,
  * the way every other page of the platform reads times since 12 October 2026;
- * the computer's is only the fallback for a profile that names none.
+ * the computer's is the fallback for a profile that names none, and, since
+ * 26 October 2026, for one still on the platform's default of UTC.
  */
 describe('the zone the ticket pages read times in', () => {
   it('is the Profile timezone, not the computer’s', () => {
@@ -116,6 +117,27 @@ describe('the zone the ticket pages read times in', () => {
       registerProfileTimeZone(() => zone)
       expect(formatLongDateTimeAU(REPLY_AT), String(zone)).toBe('24 September 2026, 2:37 am')
     }
+  })
+
+  it('reads a profile still on the default of UTC as no choice, and uses the computer’s zone', () => {
+    // C-37, C-38, C-40: an account is UTC until somebody picks a zone for it,
+    // and main only asks non-admins to pick. The client, an admin in Sydney,
+    // saw every ticket time in UTC.
+    vi.stubEnv('TZ', 'Australia/Sydney')
+
+    for (const zone of ['UTC', 'Etc/UTC']) {
+      registerProfileTimeZone(() => zone)
+      expect(ticketTimeZone(), zone).toBe('Australia/Sydney')
+      expect(formatLongDateTimeAU(REPLY_AT), zone).toBe('24 September 2026, 3:37 pm')
+      expect(formatDateTimeAU(REPLY_AT), zone).toBe('24 Sept 2026, 3:37 pm')
+    }
+  })
+
+  it('still reads UTC for a reader whose computer is on UTC as well', () => {
+    vi.stubEnv('TZ', 'UTC')
+    registerProfileTimeZone(() => 'UTC')
+
+    expect(formatLongDateTimeAU(REPLY_AT)).toBe('24 September 2026, 5:37 am')
   })
 })
 

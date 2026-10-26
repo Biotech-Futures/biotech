@@ -99,16 +99,18 @@ describe('segmentLabel', () => {
 describe('the window echo', () => {
   // "Sept" is what this machine's ICU prints for en-AU, the same dependency
   // the React test carried.
-  it('names both ends, inclusive, in UTC', () => {
+  it('names both ends, inclusive, in the reader’s own zone', () => {
+    // C-37 to C-40, DEC-068: the server reads the window in the zone the page
+    // sends, and the page's subtitle names it.
     expect(describeWindow('2026-08-26', '2026-09-03')).toBe(
-      'Covering 26 Aug 2026 to 3 Sept 2026 inclusive, in UTC.'
+      'Covering 26 Aug 2026 to 3 Sept 2026 inclusive, in your time zone.'
     )
   })
 
   it('has a sentence for each open end', () => {
-    expect(describeWindow('2026-08-26', '')).toBe('Covering 26 Aug 2026 onwards, in UTC.')
+    expect(describeWindow('2026-08-26', '')).toBe('Covering 26 Aug 2026 onwards, in your time zone.')
     expect(describeWindow('', '2026-09-03')).toBe(
-      'Covering everything up to and including 3 Sept 2026, in UTC.'
+      'Covering everything up to and including 3 Sept 2026, in your time zone.'
     )
   })
 
