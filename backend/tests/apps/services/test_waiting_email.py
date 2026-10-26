@@ -175,6 +175,41 @@ class SendWaitingTests(TestCase):
         entry = next(item for item in email_log() if item["key"] == "registration_student")
         self.assertEqual((entry["waiting"], entry["missed"]), ([], []))
 
+    def test_delayed_send_metric_uses_the_actual_retry_time(self):
+        started = self.kept.created_at + timedelta(hours=2)
+        completed = started + timedelta(seconds=3)
+        with mock.patch(
+            "apps.services.waiting_email.timezone.now",
+            # Retry start, retry completion, then the System Email Log time.
+            side_effect=[started, completed, completed],
+        ):
+            self.assertEqual(send_waiting("info", now=started), {"sent": 1, "failed": 0})
+
+        metric = EmailDeliveryMetric.objects.get(email_type="registration_student")
+        self.assertEqual((metric.started_at, metric.completed_at), (started, completed))
+
+    def test_partial_retry_is_one_partial_metric_not_success_and_failure_rows(self):
+        self.kept.recipients = ["amy@example.test", "bob@example.test"]
+        self.kept.save(update_fields=["recipients"])
+        refused = {"bob@example.test": (550, b"No such user")}
+
+        with mock.patch("apps.services.waiting_email.send_noting_refused", return_value=refused):
+            self.assertEqual(send_waiting("info"), {"sent": 1, "failed": 0})
+
+        [metric] = EmailDeliveryMetric.objects.filter(email_type="registration_student")
+        self.assertEqual(metric.status, EmailDeliveryMetric.Status.PARTIAL)
+        self.assertEqual(
+            (metric.attempted_count, metric.delivered_count, metric.failed_count),
+            (2, 1, 1),
+        )
+        self.assertEqual(
+            list(metric.recipients.order_by("email").values_list("email", "status")),
+            [
+                ("amy@example.test", "delivered"),
+                ("bob@example.test", "failed"),
+            ],
+        )
+
     def test_a_run_that_cant_reach_the_server_leaves_it_waiting(self):
         unreachable = mock.Mock()
         unreachable.open.side_effect = OSError("unreachable")

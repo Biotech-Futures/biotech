@@ -141,6 +141,52 @@ describe('buildGroupsAnalytics', () => {
   })
 })
 
+describe('buildRegistrationAnalytics', () => {
+  it('uses account creation time instead of invitation or activation time', () => {
+    const user = (overrides: Partial<api.AdminUser>) => ({
+      id: 1,
+      firstName: 'Sample',
+      lastName: 'Participant',
+      email: 'participant@example.test',
+      role: 'student',
+      isAdmin: false,
+      guardianEmail: 'guardian@example.test',
+      joinPermissionReceived: true,
+      createdAt: '2025-03-04T05:06:00Z',
+      invitedAt: '2026-02-01T00:00:00Z',
+      activatedAt: '2026-02-02T00:00:00Z',
+      ...overrides,
+    } as api.AdminUser)
+
+    const result = data.buildRegistrationAnalytics({
+      users: [
+        user({}),
+        user({
+          id: 2,
+          role: 'mentor',
+          createdAt: null,
+          invitedAt: '2024-01-01T00:00:00Z',
+          activatedAt: '2024-01-02T00:00:00Z',
+        }),
+        user({
+          id: 3,
+          createdAt: null,
+          guardianEmail: null,
+          invitedAt: '2024-02-01T00:00:00Z',
+          activatedAt: '2024-02-02T00:00:00Z',
+        }),
+      ],
+      groupActivity: fullActivity,
+    })
+
+    expect(result.trend).toEqual([
+      { date: '2025-03-04', students: 1, mentors: 0 },
+    ])
+    expect(result.followUps).toEqual([])
+    expect(data.registeredByYear(user({ createdAt: null }), 2026)).toBe(false)
+  })
+})
+
 describe('buildRecipientEmailLogs', () => {
   it('turns each recipient search result into that recipient\'s copy of the email', () => {
     const base = {
@@ -200,6 +246,52 @@ describe('buildEmailMonitoring', () => {
     }))
 
     expect(result.logs[0]).toMatchObject({ status: 'Delivered', senderEmail: '—' })
+  })
+
+  it('shows partial when a completed send has unaccounted or failed recipients', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_sends: [{
+        id: 2,
+        email_type: 'registration_student',
+        email_type_label: 'Student registration',
+        title: null,
+        announcement_id: null,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-20T00:00:00Z',
+        status: 'success',
+        attempted: 3,
+        delivered: 2,
+        failed: 0,
+        initiated_by_name: 'System',
+        initiated_by_email: '',
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Partial', attempted: 3, delivered: 2 })
+  })
+
+  it('shows failed when no recipient server accepted a completed send', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_sends: [{
+        id: 3,
+        email_type: 'registration_student',
+        email_type_label: 'Student registration',
+        title: null,
+        announcement_id: null,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-20T00:00:00Z',
+        status: 'success',
+        attempted: 1,
+        delivered: 0,
+        failed: 0,
+        initiated_by_name: 'System',
+        initiated_by_email: '',
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Failed', attempted: 1, delivered: 0 })
   })
 
   it('shows an announcement send still going as sending, with no recipients to export yet', () => {
