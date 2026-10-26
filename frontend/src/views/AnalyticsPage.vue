@@ -334,6 +334,7 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { AnalyticsYearData } from '@/types/analytics'
 import {
+  analyticsSourceAvailable,
   buildOverviewAnalytics,
   buildRegistrationAnalytics,
   analyticsYears,
@@ -606,18 +607,23 @@ function applySelectedYear(year: number) {
     ? previousLoginRow.total / comparison.previous.total * 100
     : 0
 
+  // A source that failed to load has no previous year to compare with, so
+  // leave its comparisons out instead of comparing against zero.
+  const participantsLoaded = analyticsSourceAvailable(bundle, 'users')
+  const loginsLoaded = participantsLoaded && analyticsSourceAvailable(bundle, 'loginActivity')
+
   comparisonPreviousYear.value = comparison.previousYear
   overviewComparisons.value = {
-    ...(comparison.previous.students > 0
+    ...(participantsLoaded && comparison.previous.students > 0
       ? { 'Total Students': { current: comparison.current.students, previous: comparison.previous.students } }
       : {}),
-    ...(comparison.previous.mentors > 0
+    ...(participantsLoaded && comparison.previous.mentors > 0
       ? { 'Total Mentors': { current: comparison.current.mentors, previous: comparison.previous.mentors } }
       : {}),
-    ...(comparison.previous.supervisors > 0
+    ...(participantsLoaded && comparison.previous.supervisors > 0
       ? { 'Total Supervisors': { current: comparison.current.supervisors, previous: comparison.previous.supervisors } }
       : {}),
-    ...(previousLoginRow && comparison.previous.total > 0 && previousLoginRate > 0
+    ...(loginsLoaded && previousLoginRow && comparison.previous.total > 0 && previousLoginRate > 0
       ? { 'Logged In': { current: currentLoginRate, previous: previousLoginRate } }
       : {}),
   }
@@ -1002,9 +1008,13 @@ const exportCsv = () => {
     const rows: SummaryRow[] = [
       ...overviewSummary.value.flatMap((item) => {
         const comparison = overviewComparisons.value[item.label]
+        // The login comparison is a rate: a whole percentage, like its headline.
+        const rate = item.label === 'Logged In'
         return [
           figure('Headline', item.label, item.value, '', item.helper),
-          ...(comparison ? [figure('Headline', `${item.label} (${year - 1})`, comparison.previous, '', 'Previous year')] : []),
+          ...(comparison
+            ? [figure('Headline', `${item.label} (${year - 1})`, rate ? Math.round(comparison.previous) : comparison.previous, rate ? '%' : '', 'Previous year')]
+            : []),
         ]
       }),
       ...attentionIssueDetails.value.map((item) => figure('Attention required', item.label, item.value, '', item.description)),
