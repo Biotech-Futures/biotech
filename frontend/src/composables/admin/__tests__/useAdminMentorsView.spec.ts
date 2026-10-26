@@ -16,6 +16,9 @@ const buildMentor = (overrides: Partial<AdminMentorDetail> = {}): AdminMentorDet
   remainingCapacity: 2,
   interests: [],
   lastMessageAt: null,
+  // No join date, so the grace never applies and these fixtures are judged on
+  // their messages alone.
+  dateJoined: null,
   hasLoggedIn: false,
   lastLogin: null,
   availability: [],
@@ -63,6 +66,7 @@ describe('useAdminMentorsView sorting', () => {
         name: `M${id}`,
         isActive: id !== 2,
         lastMessageAt: id === 3 ? '2020-01-01T00:00:00Z' : recent,
+        dateJoined: '2019-01-01T00:00:00Z',
         countryName: 'Australia',
         institution: null
       }

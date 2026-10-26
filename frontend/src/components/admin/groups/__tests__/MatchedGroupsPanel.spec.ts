@@ -578,8 +578,9 @@ describe('MatchedGroupsPanel', () => {
     wrapper = mount(MatchedGroupsPanel)
     await flushPromises()
 
+    const panel = wrapper!
     const statusOf = (groupName: string) => {
-      const row = wrapper.findAll('tbody tr').find((r) => r.text().includes(groupName))
+      const row = panel.findAll('tbody tr').find((r) => r.text().includes(groupName))
       return row?.find('.matched-groups__status').text()
     }
 
@@ -596,8 +597,9 @@ describe('MatchedGroupsPanel', () => {
     wrapper = mount(MatchedGroupsPanel)
     await flushPromises()
 
+    const panel = wrapper!
     const rowFor = (groupName: string) =>
-      wrapper.findAll('tbody tr').find((r) => r.text().includes(groupName))
+      panel.findAll('tbody tr').find((r) => r.text().includes(groupName))
 
     expect(rowFor('BTF4')?.find('.matched-groups__status').text()).toBe('Active')
     // The genuinely quiet mentor is still flagged, so the grace has not simply
