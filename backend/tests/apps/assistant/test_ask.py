@@ -65,6 +65,30 @@ class AssistantAskTests(APITestCase):
         self.assertTrue(response.data["matched"])
         self.assertEqual(response.data["links"], [{"label": "Groups", "to": "/groups"}])
 
+    def test_role_specific_topics(self):
+        cases = [
+            ("student", "Where can I download my certificate?", "/groups", "Results"),
+            ("student", "My guardian never got the consent email", "/profile", "Guardian Details"),
+            ("student", "Which steps does our submission have?", "/groups", "Poster"),
+            ("mentor", "How do I set my weekly availability?", "/profile", "Weekly Availability"),
+            ("mentor", "How do I schedule a meeting with my students?", "/groups", "join link"),
+            ("supervisor", "How do I register my students?", "/supervisor/registration", "Registration"),
+            ("admin", "Where do I set the certificate templates?", "/management", "Document Setup"),
+        ]
+        for role, question, link, phrase in cases:
+            with self.subTest(role=role, question=question):
+                user = User.objects.filter(email=f"{role}@example.com").first() or self.user_with_role(
+                    f"{role}@example.com", role,
+                )
+                data = self.ask(user, question).data
+                self.assertTrue(data["matched"])
+                self.assertIn(link, [item["to"] for item in data["links"]])
+                self.assertIn(phrase, data["answer"])
+
+    def test_sign_in_help_mentions_magic_link(self):
+        student = self.user_with_role("s@example.com", "student")
+        self.assertIn("Magic Link", self.ask(student, "I forgot my password").data["answer"])
+
     def test_lead_questions_are_answered_for_each_role(self):
         for role in ("admin", "student", "mentor", "supervisor"):
             user = self.user_with_role(f"{role}@example.com", role)

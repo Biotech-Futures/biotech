@@ -33,9 +33,9 @@ ENTRIES = [
         "roles": ADMIN,
         "keywords": ["user", "account", "import", "csv", "add student", "add mentor", "role"],
         "answer": (
-            "Admin > Users lists every account. You can search and filter it, open a "
-            "user to edit their details, and use Import Students CSV or Import "
-            "Mentors CSV to add people in bulk."
+            "Admin > Users has tabs for Users, Students, Mentors and Supervisors. "
+            "Search and filter the list, open someone to edit their details, and "
+            "use Import Students CSV or Import Mentors CSV to add people in bulk."
         ),
         "links": [{"label": "Users", "to": "/admin/users"}],
     },
@@ -53,8 +53,9 @@ ENTRIES = [
         "roles": ADMIN,
         "keywords": ["group", "match", "assign", "allocate"],
         "answer": (
-            "Admin > Groups is where groups are created, students and mentors "
-            "are assigned, and mentor matching is done."
+            "Admin > Groups: Add Group creates a group, and opening a group lets you "
+            "add students to it. The matching panels match mentors to groups, and "
+            "Matched Groups lists the groups that already have a mentor."
         ),
         "links": [{"label": "Groups", "to": "/admin/groups"}],
     },
@@ -132,11 +133,15 @@ ENTRIES = [
         "keywords": [
             "registration", "register", "deadline", "challenge start", "symposium",
             "result", "release", "new year", "management", "university",
+            "certificate", "certificate template", "signature", "document setup", "visibility",
         ],
         "answer": (
-            "Admin > Management runs the year: Registration and Late Registration, "
-            "Challenge Start, Submission Deadline, the Symposium (finalists), "
-            "Results and releasing them, and New Year."
+            "Admin > Management runs the year: Registration and Late Registration; "
+            "Challenge Start (when the challenge starts, and which pages students, "
+            "mentors and supervisors see); Submission Deadline; the Symposium "
+            "(notifying finalists, their presentations and submissions); Results, "
+            "Release Results and Document Setup (the directors' signatures and the "
+            "Mark Summary and certificate templates); and New Year."
         ),
         "links": [{"label": "Management", "to": "/management"}],
     },
@@ -152,8 +157,8 @@ ENTRIES = [
     {
         "roles": ADMIN,
         "keywords": ["ticket", "queue", "enquiry", "inquiry"],
-        "answer": "Support Tickets is the queue of users' support requests, with its audit log and analytics.",
-        "links": [{"label": "Support Tickets", "to": "/admin/tickets"}],
+        "answer": "Support queue in the menu holds users' support requests, with its audit log and analytics.",
+        "links": [{"label": "Support queue", "to": "/admin/tickets"}],
     },
     # --- Students, mentors, supervisors --------------------------------------
     {
@@ -171,29 +176,54 @@ ENTRIES = [
         "keywords": ["my student", "contact", "message", "chat", "talk", "meeting", "schedule"],
         "answer": (
             "Open Groups and go to your group. Write to your students on its "
-            "Discussion Board, and use Meetings to schedule a meeting with them. "
-            + _BEFORE_START
+            "Discussion Board. To schedule a meeting, switch from Tasks to Meetings "
+            "on the group page and give it a title, start time, duration, join link "
+            "and description. " + _BEFORE_START
         ),
         "links": [{"label": "Groups", "to": "/groups"}],
+    },
+    {
+        "roles": {ROLE_MENTOR},
+        "keywords": ["availability", "available", "weekly", "mentor details", "capacity"],
+        "answer": "In My Profile, keep your Mentor Details and your Weekly Availability up to date.",
+        "links": [{"label": "My Profile", "to": "/profile"}],
     },
     {
         "roles": PARTICIPANTS,
         "keywords": ["group", "task", "team", "meeting", "plan"],
         "answer": (
-            "Open Groups to reach your group's page: its Tasks and Meetings, the "
-            "Discussion Board, the group's Plan and its Submission. " + _BEFORE_START
+            "Open Groups to reach your group's page. Its tabs are Tasks and Chat "
+            "(tasks, meetings and the Discussion Board), Plan (when your group has "
+            "plan tasks), Submission, Finalist (finalist groups only) and Results "
+            "(once released). " + _BEFORE_START
         ),
         "links": [{"label": "Groups", "to": "/groups"}],
     },
     {
         "roles": PARTICIPANTS,
-        "keywords": ["submit", "submission", "upload", "deadline", "result"],
+        "keywords": ["submit", "submission", "upload", "deadline", "poster", "question", "report", "prototype"],
         "answer": (
-            "Your group submits its work from the Submission section of the group's "
-            "page, before the submission deadline. Results appear there once they "
-            "are released."
+            "Open your group's Submission tab. It has three steps: Questions, Poster "
+            "and Additional materials. Your team fills it in together and it saves "
+            "automatically. Submit before the submission deadline; after the "
+            "deadline it can no longer be edited."
         ),
         "links": [{"label": "Groups", "to": "/groups"}],
+    },
+    {
+        "roles": PARTICIPANTS,
+        "keywords": ["certificate", "mark summary", "result", "grade", "mark", "score", "feedback"],
+        "answer": (
+            "Once results are released, your group's page gets a Results tab with "
+            "the Mark Summary and your certificates."
+        ),
+        "links": [{"label": "Groups", "to": "/groups"}],
+    },
+    {
+        "roles": PARTICIPANTS,
+        "keywords": ["home", "dashboard", "today", "role task", "next event"],
+        "answer": "Home shows your Role Tasks, the next event and your group. " + _BEFORE_START,
+        "links": [{"label": "Home", "to": "/dashboard"}],
     },
     {
         "roles": MEMBERS,
@@ -218,10 +248,15 @@ ENTRIES = [
         "keywords": ["guardian", "parent", "consent", "can't post", "cannot post"],
         "answer": (
             "Students under 18 need a guardian's consent before they can post in "
-            "their group. Your guardian is sent an email with a consent link; if "
-            "it hasn't arrived, raise a ticket on the Support page."
+            "their group. Your guardian gets an email with a link to the consent "
+            "form. In My Profile > Guardian Details you can see where it stands and "
+            "send the email again. Changing your guardian clears the consent until "
+            "the new guardian signs."
         ),
-        "links": [{"label": "Support", "to": "/support"}],
+        "links": [
+            {"label": "My Profile", "to": "/profile"},
+            {"label": "Support", "to": "/support"},
+        ],
     },
     {
         "roles": {ROLE_SUPERVISOR},
@@ -231,6 +266,7 @@ ENTRIES = [
             "students), Students, Groups and, once released, Results."
         ),
         "links": [
+            {"label": "Registration", "to": "/supervisor/registration"},
             {"label": "Students", "to": "/my-students"},
             {"label": "Groups", "to": "/my-groups"},
         ],
@@ -238,19 +274,32 @@ ENTRIES = [
     # --- Everyone --------------------------------------------------------------
     {
         "roles": EVERYONE,
-        "keywords": ["profile", "photo", "avatar", "my details", "change my name"],
-        "answer": "Open My Profile to see and update your details and photo.",
+        "keywords": ["profile", "photo", "avatar", "my details", "change my name", "timezone", "time zone"],
+        "answer": (
+            "My Profile holds your personal information and timezone and, depending "
+            "on your role, your student, guardian, mentor or supervisor details."
+        ),
         "links": [{"label": "My Profile", "to": "/profile"}],
     },
     {
         "roles": EVERYONE,
-        "keywords": ["password", "log in", "login", "sign in"],
+        "keywords": ["password", "log in", "login", "sign in", "magic link", "forgot"],
         "answer": (
-            "To reset your password, sign out and choose Forgot password on the "
-            "sign-in page. If you still can't sign in, raise a ticket on the "
-            "Support page."
+            "On the sign-in page, choose Forgot password? to reset your password, or "
+            "use Magic Link to get a sign-in link by email instead. If you still "
+            "can't sign in, raise a ticket on the Support page or email {email}."
         ),
         "links": [{"label": "Support", "to": "/support"}],
+    },
+    {
+        "roles": EVERYONE,
+        "keywords": ["search", "find a page", "dark mode", "dark theme", "night mode", "light mode"],
+        "answer": (
+            "Search Program at the top of every page jumps to a page by name, such "
+            "as events or resources. The moon button next to it switches dark mode "
+            "on and off."
+        ),
+        "links": [],
     },
     # --- The three questions the assistant leads with --------------------------
     {
@@ -295,7 +344,7 @@ ENTRIES = [
         "answer": (
             "Admin covers Users, Guardians, Views, Groups, Tasks, Role Tasks, Group "
             "Plans, System Emails, Grading and Management. Analytics reports on the "
-            "programme, and Support Tickets holds users' requests. Ask me about any "
+            "programme, and Support queue holds users' requests. Ask me about any "
             "of them."
         ),
         "links": [
@@ -317,8 +366,10 @@ ENTRIES = [
         "roles": EVERYONE,
         "keywords": ["help", "support", "ticket", "contact", "admin", "stuck", "problem", "issue", "bug", "error"],
         "answer": (
-            "Raise a ticket on the Support page and the BIOTech Futures team will "
-            "reply there. You can also email {email}."
+            "Open Support to raise an enquiry with the BIOTech Futures team: pick a "
+            "category and how urgent it is, and attach files if they help. Replies "
+            "appear under My support tickets. Find help quickly links to help "
+            "articles in Resources. You can also email {email}."
         ),
         "links": [{"label": "Support", "to": "/support"}],
     },
@@ -342,11 +393,15 @@ def _score(entry, words):
     return sum(1 for keyword in entry["keywords"] if re.search(r"\b" + re.escape(keyword), words))
 
 
+def visible_entries(role):
+    """The entries a user whose role is ``role`` may be told."""
+    return [e for e in ENTRIES if e["roles"] is EVERYONE or role in e["roles"]]
+
+
 def answer(question, role):
     """The reply to ``question`` for a user whose role is ``role``."""
     words = _words(question)
-    visible = [e for e in ENTRIES if e["roles"] is EVERYONE or role in e["roles"]]
-    best = max(visible, key=lambda e: _score(e, words))
+    best = max(visible_entries(role), key=lambda e: _score(e, words))
     matched = _score(best, words) > 0
     reply = best if matched else FALLBACK
     return {

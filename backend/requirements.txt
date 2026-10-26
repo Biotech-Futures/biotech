@@ -1,3 +1,4 @@
+anthropic==2.3.0
 asgiref==3.9.1
 azure-storage-blob>=12.19.0
 attrs==25.3.0

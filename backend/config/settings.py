@@ -890,6 +890,9 @@ QEV_RESULT_MAX_AGE_DAYS = config("QEV_RESULT_MAX_AGE_DAYS", default=180, cast=in
 QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=0, cast=int)
 QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
 QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
+# The help assistant (apps.assistant). With a key set it answers with Claude;
+# with none, or when a call fails, it answers from its built-in FAQ.
+ANTHROPIC_API_KEY = config("ANTHROPIC_API_KEY", default="")
 # Email checks run on a background thread after commit; tests run them inline.
 EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)
 
