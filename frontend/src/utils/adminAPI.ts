@@ -1813,6 +1813,10 @@ export interface MentorListItem {
   maxGroupCount: number
   currentAssignedCount: number
   remainingCapacity: number
+  // The endpoint has always sent these; they are declared so the replacement
+  // dropdowns can tell an active mentor from an idle or deactivated one.
+  isActive: boolean
+  lastMessageAt: string | null
 }
 
 /** Flat mentor list (GET /mentor-match/mentors/) — the fallback pool for replacements. */

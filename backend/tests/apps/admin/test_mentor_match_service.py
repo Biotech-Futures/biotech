@@ -396,12 +396,21 @@ class IdleMentorsAreNotRecommendedTests(TestCase):
             membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
         )
 
-    def _mentor(self, email, *, joined_days_ago, last_message_days_ago=None):
+    def _mentor(self, email, *, joined_days_ago, last_message_days_ago=None,
+                in_a_group=True):
         user = User.objects.create_user(email=email, first_name=email[:4], password="pw")
         User.objects.filter(pk=user.pk).update(
             date_joined=timezone.now() - timedelta(days=joined_days_ago)
         )
         MentorProfile.objects.create(user=user, institution="Uni", mentor_reason="Help")
+        if in_a_group:
+            # Somewhere they could have posted. Mentoring a different group, so
+            # this says nothing about the group under test.
+            GroupMembership.objects.create(
+                user=user,
+                group=Groups.objects.create(group_name=f"Already mentoring {email}"),
+                membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+            )
         if last_message_days_ago is not None:
             message = Messages.objects.create(
                 group=self.group, sender_user=user, message_text="hello",
@@ -426,8 +435,7 @@ class IdleMentorsAreNotRecommendedTests(TestCase):
         self.assertNotIn(quiet.id, self._suggested_ids())
 
     def test_a_newly_registered_mentor_is_still_recommended(self):
-        # They have never posted, and never could: a mentor with no group has
-        # nowhere to. Excluding them would be a deadlock.
+        # They have not had the time to post yet.
         fresh = self._mentor("fresh@example.com", joined_days_ago=2)
 
         self.assertIn(fresh.id, self._suggested_ids())
@@ -436,6 +444,23 @@ class IdleMentorsAreNotRecommendedTests(TestCase):
         silent = self._mentor("silent@example.com", joined_days_ago=200)
 
         self.assertNotIn(silent.id, self._suggested_ids())
+
+    def test_a_mentor_with_no_group_is_recommended_however_long_they_are_quiet(self):
+        # The deadlock this avoids: they are passed over for never having
+        # posted, and cannot post without a group to post in. Silence only
+        # counts against a mentor who had somewhere to speak.
+        unassigned = self._mentor(
+            "unassigned@example.com", joined_days_ago=400, in_a_group=False
+        )
+
+        self.assertIn(unassigned.id, self._suggested_ids())
+
+    def test_a_mentor_who_left_their_only_group_is_recommended(self):
+        # Same reasoning once the membership ends: there is nowhere to post.
+        departed = self._mentor("departed@example.com", joined_days_ago=400)
+        GroupMembership.objects.filter(user=departed).update(left_at=timezone.now())
+
+        self.assertIn(departed.id, self._suggested_ids())
 
     def test_the_admins_own_threshold_decides(self):
         mentor = self._mentor("tuned@example.com", joined_days_ago=200, last_message_days_ago=45)

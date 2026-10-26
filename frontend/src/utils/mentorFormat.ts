@@ -24,14 +24,17 @@ export const DEFAULT_IDLE_DAYS = 30
 export type MentorConcern = 'inactive' | 'idle' | null
 
 export const mentorConcern = (
-  mentor: { isActive: boolean; lastMessageAt: string | null },
+  mentor: { isActive: boolean; lastMessageAt: string | null; currentAssignedCount?: number },
   idleDays: number = DEFAULT_IDLE_DAYS,
 ): MentorConcern => {
   if (!mentor.isActive) return 'inactive'
   const days = daysSince(mentor.lastMessageAt)
-  // Never posted counts as idle: there is nothing to suggest they are engaged.
-  if (days === null || days >= idleDays) return 'idle'
-  return null
+  if (days !== null) return days >= idleDays ? 'idle' : null
+  // Never posted. That only counts against a mentor who had somewhere to post:
+  // one with no group cannot message, so their silence says nothing about them
+  // and marking them idle would lock them out of ever being assigned one.
+  // A caller that does not know the count keeps the old reading.
+  return mentor.currentAssignedCount === 0 ? null : 'idle'
 }
 
 export const isEffectivelyInactive = (mentor: AdminMentorDetail, inactiveDaysValue: number): boolean =>

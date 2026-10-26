@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import MatchedGroupsPanel from '@/components/admin/groups/MatchedGroupsPanel.vue'
-import { pickAppSelect } from '@/__tests__/appSelect'
+import { appSelectLabels, pickAppSelect } from '@/__tests__/appSelect'
 import { setIdleDays } from '@/composables/admin/useIdleThreshold'
 import { DEFAULT_IDLE_DAYS } from '@/utils/mentorFormat'
 
@@ -43,10 +43,17 @@ const inactiveGroup = {
   }
 }
 
+// Replacements are only offered from mentors who are active and not idle, so
+// the pool carries a recent message. `quiet` and `deactivated` are the two
+// that must never be offered.
+const spokeToday = new Date().toISOString()
+
 const mentorPool = [
-  { mentorId: 20, name: 'Marie Curie', countryName: 'Australia', institution: 'USYD', interests: [], maxGroupCount: 4, currentAssignedCount: 1, remainingCapacity: 3 },
-  { mentorId: 22, name: 'Ada King', countryName: 'Australia', institution: 'UNSW', interests: [], maxGroupCount: 2, currentAssignedCount: 2, remainingCapacity: 0 },
-  { mentorId: 23, name: 'Rosalind Franklin', countryName: 'Australia', institution: 'ANU', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2 }
+  { mentorId: 20, name: 'Marie Curie', countryName: 'Australia', institution: 'USYD', interests: [], maxGroupCount: 4, currentAssignedCount: 1, remainingCapacity: 3, isActive: true, lastMessageAt: spokeToday },
+  { mentorId: 22, name: 'Ada King', countryName: 'Australia', institution: 'UNSW', interests: [], maxGroupCount: 2, currentAssignedCount: 2, remainingCapacity: 0, isActive: true, lastMessageAt: spokeToday },
+  { mentorId: 23, name: 'Rosalind Franklin', countryName: 'Australia', institution: 'ANU', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: spokeToday },
+  { mentorId: 24, name: 'Quiet Mentor', countryName: 'Australia', institution: 'UTS', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: '2020-01-01T00:00:00Z' },
+  { mentorId: 25, name: 'Deactivated Mentor', countryName: 'Australia', institution: 'UOW', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: false, lastMessageAt: spokeToday }
 ]
 
 const fetchMockFor = (
@@ -279,6 +286,38 @@ describe('MatchedGroupsPanel', () => {
       notifyDeparting: true
     })
   })
+
+  it('does not offer the mentor already on the group', async () => {
+    // Picking them would be a replacement that replaces nothing, and the
+    // bulk dialog leaves them out server-side for the same reason.
+    vi.stubGlobal('fetch', fetchMockFor([activeGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+
+    const labels = await appSelectLabels(wrapper, '.matched-groups__replace-select')
+    expect(labels).not.toContain('Marie Curie')
+    expect(labels).toContain('Rosalind Franklin')
+  })
+
+  it('does not offer an idle or deactivated mentor as a replacement', async () => {
+    // The whole point of the screen is replacing mentors who have gone quiet,
+    // so offering another one of those just moves the problem to a new group.
+    vi.stubGlobal('fetch', fetchMockFor([activeGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+
+    const labels = await appSelectLabels(wrapper, '.matched-groups__replace-select')
+    expect(labels).not.toContain('Quiet Mentor')
+    expect(labels).not.toContain('Deactivated Mentor')
+    expect(labels).toContain('Rosalind Franklin')
+  })
+
 
   it('replaces a mentor via the per-row replace control', async () => {
     const fetchMock = fetchMockFor([activeGroup])

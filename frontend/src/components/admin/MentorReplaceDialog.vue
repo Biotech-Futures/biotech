@@ -148,6 +148,9 @@ const optionsFor = (groupId: number): ReplaceOption[] => {
   for (const mentor of props.mentors) {
     if (scoredIds.has(mentor.mentorId)) continue
     if (mentor.remainingCapacity <= 0) continue
+    // The scored suggestions come from the backend already filtered. These do
+    // not, so without this the dialog offers the very mentors it is replacing.
+    if (mentorConcern(mentor, idleDays.value) !== null) continue
     options.push({
       value: String(mentor.mentorId),
       label: `${mentor.name}${mentor.remainingCapacity === 0 ? ' (full)' : ''}`

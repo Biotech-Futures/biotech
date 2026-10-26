@@ -87,11 +87,14 @@ DEFAULT_IDLE_DAYS = 30
 def _idle_mentor_ids(mentor_ids: List[int], idle_days: int) -> set:
     """Of ``mentor_ids``, those who should not be recommended.
 
-    Idle is "has not spoken lately": no message within ``idle_days``. Never
-    having messaged only counts against a mentor once they have been registered
-    longer than that - a mentor who joined this week has had no chance to, and
-    excluding them would be a deadlock, since a mentor with no group has
-    nowhere to post.
+    Idle is "has not spoken lately": no message within ``idle_days``. Silence
+    only counts against a mentor who had somewhere to speak, so two groups are
+    never idle however quiet they are:
+
+    - one with no group at all, who has nowhere to post. Calling them idle
+      would be a deadlock - they are excluded from matching for never having
+      messaged, and can never message without a group to message in;
+    - one who joined within ``idle_days``, who has not had the time yet.
     """
     if not mentor_ids:
         return set()
@@ -107,7 +110,13 @@ def _idle_mentor_ids(mentor_ids: List[int], idle_days: int) -> set:
         .filter(id__in=mentor_ids, date_joined__gte=cutoff)
         .values_list('id', flat=True)
     )
-    return set(mentor_ids) - spoke_recently - joined_recently
+    in_a_group = set(
+        GroupMembership.objects
+        .filter(user_id__in=mentor_ids, left_at__isnull=True)
+        .values_list('user_id', flat=True)
+    )
+    no_group = set(mentor_ids) - in_a_group
+    return set(mentor_ids) - spoke_recently - joined_recently - no_group
 
 
 def _build_mentor_sources(idle_days: int = DEFAULT_IDLE_DAYS) -> List[Dict[str, Any]]:

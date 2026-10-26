@@ -382,11 +382,14 @@ const cancelReplace = () => {
 
 // Scored suggestions aren't loaded per-row here (that's the bulk dialog's
 // job) — this is the plain mentor pool, filtered to those with a free seat,
-// plus whichever mentor already has this group (so the select doesn't lose
-// its value when reopened), plus everyone once "show mentors at capacity" is on.
+// or everyone once "show mentors at capacity" is on. The mentor already on
+// the group is left out: picking them is a replacement that replaces nothing.
 const optionsFor = (group: MatchedGroup): MentorListItem[] =>
   mentors.value.filter(
-    (m) => showFullMentors.value || m.remainingCapacity > 0 || m.mentorId === group.mentor.mentorId
+    (m) =>
+      m.mentorId !== group.mentor.mentorId &&
+      mentorConcern(m, idleDays.value) === null &&
+      (showFullMentors.value || m.remainingCapacity > 0)
   )
 
 const notifyDeparting = ref(true)
