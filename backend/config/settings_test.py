@@ -69,8 +69,8 @@ MAIL_SERVER_DOWN_SECONDS = 0
 # environment (its HTTP is mocked anyway), and its checks run inline.
 QEV_API_KEY = "test-dummy-key"
 QEV_PAID_API_KEY = "test-dummy-paid-key"
-# Never let a developer's real key from .env make tests call (and pay for) Claude.
-ANTHROPIC_API_KEY = ""
+# Never let a developer's real key from .env make tests call (and pay for) OpenAI.
+OPENAI_API_KEY = ""
 # Off whatever the environment says; the tests that need it turn it on.
 EMAIL_PRECHECK_ENABLED = False
 SCHEDULER_ENABLED = False

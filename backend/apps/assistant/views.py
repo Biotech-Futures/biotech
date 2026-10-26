@@ -1,6 +1,6 @@
 import logging
 
-import anthropic
+import requests
 from django.conf import settings
 from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
@@ -32,12 +32,12 @@ class AssistantAskView(APIView):
         # The role is read here, never taken from the request, so nobody is
         # shown another role's instructions by asking as them.
         role = ROLE_ADMIN if is_admin(request.user) else get_active_role_name(request.user)
-        if settings.ANTHROPIC_API_KEY:
+        if settings.OPENAI_API_KEY:
             try:
                 reply = llm.answer(question, role)
-            except (anthropic.AnthropicError, ValueError):
-                # ValueError: a reply that isn't the JSON asked for.
-                logger.exception("assistant: Claude call failed, answering from the FAQ")
+            except (requests.RequestException, ValueError, KeyError):
+                # ValueError/KeyError: a reply that isn't the JSON asked for.
+                logger.exception("assistant: OpenAI call failed, answering from the FAQ")
                 reply = None
             if reply is not None:
                 return Response(reply)

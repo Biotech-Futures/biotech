@@ -1,9 +1,8 @@
 import json
 from datetime import datetime, timezone as datetime_timezone
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import anthropic
+import requests
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import override_settings
@@ -16,24 +15,33 @@ User = get_user_model()
 URL = "/api/v1/assistant/ask/"
 
 
-def claude_reply(answer, answered=True, links=(), stop_reason="end_turn"):
-    text = json.dumps({"answer": answer, "answered": answered, "links": list(links)})
-    return SimpleNamespace(
-        stop_reason=stop_reason,
-        content=[SimpleNamespace(type="thinking", thinking=""), SimpleNamespace(type="text", text=text)],
-        usage=SimpleNamespace(
-            input_tokens=10, output_tokens=5, cache_read_input_tokens=0, cache_creation_input_tokens=0,
-        ),
-    )
+def openai_reply(answer="", answered=True, links=(), status="completed", refusal=None):
+    if refusal is not None:
+        content = [{"type": "refusal", "refusal": refusal}]
+    else:
+        text = json.dumps({"answer": answer, "answered": answered, "links": list(links)})
+        content = [{"type": "output_text", "text": text, "annotations": []}]
+    response = MagicMock(ok=True)
+    response.json.return_value = {
+        "status": status,
+        "output": [
+            {"type": "reasoning", "summary": []},
+            {"type": "message", "role": "assistant", "content": content},
+        ],
+        "usage": {
+            "input_tokens": 10, "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": 5, "output_tokens_details": {"reasoning_tokens": 2},
+        },
+    }
+    return response
 
 
-@override_settings(ANTHROPIC_API_KEY="test-key")
-class AssistantClaudeTests(APITestCase):
+@override_settings(OPENAI_API_KEY="test-key")
+class AssistantOpenAITests(APITestCase):
     def setUp(self):
         cache.clear()
-        self.client_mock = MagicMock()
-        patcher = patch("apps.assistant.llm._client", return_value=self.client_mock)
-        patcher.start()
+        patcher = patch("apps.assistant.llm.requests.post")
+        self.post = patcher.start()
         self.addCleanup(patcher.stop)
         self.student = User.objects.create_user(email="s@example.com", password="pass1234")
         RoleAssignmentHistory.objects.create(
@@ -47,12 +55,10 @@ class AssistantClaudeTests(APITestCase):
         return self.client.post(URL, {"question": question}, format="json")
 
     def sent(self):
-        return self.client_mock.messages.create.call_args.kwargs
+        return self.post.call_args.kwargs["json"]
 
-    def test_answers_with_claude(self):
-        self.client_mock.messages.create.return_value = claude_reply(
-            "Open Resources in the menu.", links=["/resources"],
-        )
+    def test_answers_with_openai(self):
+        self.post.return_value = openai_reply("Open Resources in the menu.", links=["/resources"])
         response = self.ask()
         self.assertEqual(response.data, {
             "answer": "Open Resources in the menu.",
@@ -61,43 +67,46 @@ class AssistantClaudeTests(APITestCase):
         })
 
     def test_sends_only_the_question_and_the_role_guide(self):
-        self.client_mock.messages.create.return_value = claude_reply("Open Resources.")
+        self.post.return_value = openai_reply("Open Resources.")
         self.ask("Where are the resources?")
-        self.assertEqual(self.sent()["messages"], [{"role": "user", "content": "Where are the resources?"}])
-        [system] = self.sent()["system"]
-        self.assertIn("Open Resources in the menu", system["text"])
-        self.assertNotIn("Import Students CSV", system["text"])
-        # Cached at the end of the shared prompt, before the question.
-        self.assertEqual(system["cache_control"], {"type": "ephemeral"})
+        developer, user = self.sent()["input"]
+        self.assertEqual(user, {"role": "user", "content": "Where are the resources?"})
+        self.assertEqual(developer["role"], "developer")
+        self.assertIn("Open Resources in the menu", developer["content"])
+        self.assertNotIn("Import Students CSV", developer["content"])
+        # Guide lines carry their topics, so "What should I do?" finds its entry.
+        self.assertIn("- (what should i do, ", developer["content"])
         self.assertNotIn("s@example.com", json.dumps(self.sent()))
+        self.assertIs(self.sent()["store"], False)
 
     def test_drops_links_outside_the_role(self):
-        self.client_mock.messages.create.return_value = claude_reply(
-            "See Users.", links=["/admin/users", "/resources"],
-        )
+        self.post.return_value = openai_reply("See Users.", links=["/admin/users", "/resources"])
         self.assertEqual(self.ask().data["links"], [{"label": "Resources", "to": "/resources"}])
 
     def test_unanswered_question_points_to_support(self):
-        self.client_mock.messages.create.return_value = claude_reply(
-            "I can only help with using the platform.", answered=False,
-        )
+        self.post.return_value = openai_reply("I can only help with using the platform.", answered=False)
         response = self.ask("What's the weather tomorrow?")
         self.assertFalse(response.data["matched"])
         self.assertEqual(response.data["links"], [{"label": "Support", "to": "/support"}])
 
-    def test_api_error_falls_back_to_faq(self):
-        self.client_mock.messages.create.side_effect = anthropic.AnthropicError("down")
+    def test_request_error_falls_back_to_faq(self):
+        self.post.side_effect = requests.ConnectionError("down")
         with self.assertLogs("apps.assistant.views", "ERROR"):
             response = self.ask("How do I contact my mentor?")
         self.assertTrue(response.data["matched"])
         self.assertEqual(response.data["links"], [{"label": "Groups", "to": "/groups"}])
 
     def test_refusal_falls_back_to_faq(self):
-        self.client_mock.messages.create.return_value = claude_reply("", stop_reason="refusal")
+        self.post.return_value = openai_reply(refusal="I can't help with that.")
         response = self.ask("How do I contact my mentor?")
         self.assertEqual(response.data["links"], [{"label": "Groups", "to": "/groups"}])
 
-    @override_settings(ANTHROPIC_API_KEY="")
-    def test_without_a_key_claude_is_not_called(self):
+    def test_cut_short_reply_falls_back_to_faq(self):
+        self.post.return_value = openai_reply("Open your gr", status="incomplete")
+        response = self.ask("How do I contact my mentor?")
+        self.assertEqual(response.data["links"], [{"label": "Groups", "to": "/groups"}])
+
+    @override_settings(OPENAI_API_KEY="")
+    def test_without_a_key_openai_is_not_called(self):
         self.assertTrue(self.ask("How do I contact my mentor?").data["matched"])
-        self.client_mock.messages.create.assert_not_called()
+        self.post.assert_not_called()
