@@ -264,11 +264,13 @@
         >
           <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
         </button>
-        <!-- The platform's own page heading; a supervisor's with the option's
-             description under it. -->
+        <!-- The platform's own page heading; a supervisor's, and a supervisor
+             registering themselves, with the option's description under it. -->
         <header class="page-header">
           <h1 class="page-title">{{ selectedJourney?.title }}</h1>
-          <p v-if="isSupervisorMode" class="page-subtitle">{{ selectedJourney?.description }}</p>
+          <p v-if="isSupervisorMode || journey === 'supervisor'" class="page-subtitle">
+            {{ selectedJourney?.description }}
+          </p>
           <!-- Register one student: who was just registered, the form empty
                again for the next. -->
           <p v-if="registeredNote" class="registered-note" role="status" data-test="registered-note">

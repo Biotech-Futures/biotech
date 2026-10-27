@@ -370,6 +370,20 @@ describe('canonical registration intake', () => {
     expect(wrapper.find('.page-header > p').exists()).toBe(false)
   })
 
+  it('tells supervisors they can be teachers or parents, on their card and under their heading', async () => {
+    const wrapper = mountPage()
+    const card = wrapper.findAll('.role-option').find((option) => option.get('strong').text() === 'Supervisor')!
+    expect(card.get('small').text()).toBe(
+      'Teachers and parents can sign up to register their students and follow their progress.',
+    )
+
+    await clickButton(wrapper, 'Supervisor')
+    expect(wrapper.get('.page-title').text()).toBe('Register as a supervisor')
+    expect(wrapper.get('.page-subtitle').text()).toBe(
+      'Supervisors can be teachers or parents. Share your contact details and school, and review information.',
+    )
+  })
+
   it('preserves conditional mentor affiliation fields and pending-review copy', async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
