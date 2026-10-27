@@ -312,7 +312,6 @@
         </div>
 
         <form novalidate :aria-busy="isSubmitting" @submit.prevent="handlePrimaryAction">
-          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
           <div v-if="serverError" class="server-error" role="alert" tabindex="-1">
             <strong>We couldn’t submit this registration.</strong>
             <span>{{ serverError }}</span>
@@ -1379,6 +1378,9 @@
               <li v-for="message in errorMessages" :key="message">{{ message }}</li>
             </ul>
           </div>
+
+          <!-- The email check Submit waits for, just above it. -->
+          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
 
           <!-- On the right; the steps above go back, and Back to the
                options. A group's students are added here. -->
