@@ -74,7 +74,14 @@
       </section>
 
       <section v-if="entry" class="student-chip-card__section">
-        <p v-if="moved" class="student-chip-card__stale">
+        <!-- A student the matcher never placed has no group to be scored
+             against, so every number below would be a placeholder. Say that
+             instead of pointing at a suggested group that does not exist. -->
+        <p v-if="unplaced" class="student-chip-card__stale">
+          <i class="fas fa-circle-info" aria-hidden="true"></i>
+          <span>The matcher did not place this student, so there is no match score.</span>
+        </p>
+        <p v-else-if="moved" class="student-chip-card__stale">
           <i class="fas fa-circle-info" aria-hidden="true"></i>
           <span>
             Score is for
@@ -83,12 +90,12 @@
           </span>
         </p>
 
-        <div class="student-chip-card__row student-chip-card__row--total">
+        <div v-if="!unplaced" class="student-chip-card__row student-chip-card__row--total">
           <span>Match score</span>
           <span>{{ displayScore.toFixed(2) }}</span>
         </div>
 
-        <template v-if="entry.scoreBreakdown">
+        <template v-if="entry.scoreBreakdown && !unplaced">
           <div class="student-chip-card__row">
             <span>Base</span>
             <span>{{ entry.scoreBreakdown.baseScore.toFixed(2) }}</span>
@@ -97,12 +104,6 @@
             <span>Year penalty</span>
             <span class="student-chip-card__negative">
               {{ signed(-entry.scoreBreakdown.yearPenalty) }}
-            </span>
-          </div>
-          <div class="student-chip-card__row">
-            <span>Location penalty</span>
-            <span class="student-chip-card__negative">
-              {{ signed(-entry.scoreBreakdown.countryPenalty) }}
             </span>
           </div>
           <div class="student-chip-card__row">
@@ -161,6 +162,10 @@ const props = withDefaults(
  * `objectiveScore` is what the matcher ranks by and what the breakdown totals
  * to, so showing `score` made the badge disagree with its own breakdown.
  */
+/** No suggested group means the matcher never placed them: the score and the
+ *  whole breakdown are placeholders, so the card shows the reason alone. */
+const unplaced = computed(() => props.moved && !props.recommendedGroupName)
+
 const displayScore = computed(
   () => props.entry?.scoreBreakdown?.objectiveScore ?? props.entry?.score ?? 0
 )

@@ -255,14 +255,24 @@ class RecommendReplacementTests(TestCase):
     def test_recommend_mentors_group_not_found(self):
         self.assertIsNone(recommend_mentors_for_group(999999)["data"])
 
-    def test_recommend_students_requires_shared_interest(self):
+    def test_recommend_students_refuses_formed_group(self):
+        # MA3: the group built in setUp already has members, so automatic
+        # matching must not offer to drop a standalone student into it.
         sharer = self._student("cand1@example.com")
         UserInterest.objects.create(user=sharer, interest=self.interest)
-        self._student("cand2@example.com")  # no shared interest → not eligible
         result = recommend_students_for_group(self.group.id)
-        ids = [s["studentUserId"] for s in result["data"]["suggestions"]]
-        self.assertIn(sharer.id, ids)
-        self.assertEqual(len(ids), 1)
+        self.assertIsNone(result["data"])
+        self.assertIn("already has members", result["msg"])
+
+    def test_recommend_students_empty_group_has_nothing_to_suggest(self):
+        # An empty group is not off-limits, but there are no members to score a
+        # candidate against, so there is nothing to suggest - standalone students
+        # are formed into brand new groups instead (MA3).
+        empty_group = Groups.objects.create(group_name="Group B")
+        sharer = self._student("cand2@example.com")
+        UserInterest.objects.create(user=sharer, interest=self.interest)
+        result = recommend_students_for_group(empty_group.id)
+        self.assertEqual(result["data"]["suggestions"], [])
 
     def test_recommend_students_group_not_found(self):
         self.assertIsNone(recommend_students_for_group(999999)["data"])
