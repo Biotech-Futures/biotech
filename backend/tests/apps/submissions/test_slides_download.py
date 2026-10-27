@@ -62,7 +62,10 @@ class SlidesDownloadNameTests(TestCase):
 
     def _get(self, user, route, query=""):
         response = self._client(user).get(reverse(route, kwargs={"group_id": self.group.id}) + query)
-        self.addCleanup(response.close)
+        # Read to the end, so the test client closes the file. Closing it here
+        # instead would end the test's database connection on Postgres.
+        if response.streaming:
+            self.addCleanup(lambda: b"".join(response.streaming_content))
         return response
 
     def test_admins_open_and_download_it_under_the_one_name(self):
