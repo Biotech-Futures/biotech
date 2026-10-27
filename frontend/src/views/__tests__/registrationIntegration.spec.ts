@@ -1,4 +1,4 @@
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -510,6 +510,78 @@ describe('registration gateway UI integration', () => {
     await submitForm(wrapper)
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete')
+    wrapper.unmount()
+  })
+
+  it("confirms a CSV's email warnings with one tick, leaving its school and name warnings one by one", async () => {
+    const warning = (row: number, override: string, field: string) => ({
+      code: 'check',
+      field: `supervisorCsv.rows.${row}.${field}`,
+      overrideField: `students.${row}.overrides.${override}`,
+      message: `Row ${row}: check ${field}.`,
+    })
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check these.',
+      warnings: [
+        warning(0, 'ConfirmEmailInvalidOverride', 'email'),
+        warning(0, 'ConfirmGuardianEmailInvalidOverride', 'guardian.email'),
+        warning(0, 'ConfirmSchoolOverride', 'school'),
+        warning(0, 'ConfirmNameEmailOverride', 'email'),
+      ],
+    })
+    const wrapper = mountSupervisorWithGateway({ submit: send })
+    const setup = setupOf(wrapper)
+    setup.journey = 'supervisor_csv'
+    setup.currentStep = 2
+    setup.maxReachedStep = 2
+    setup.forms.supervisorCsv.fileName = 'students.csv'
+    setup.forms.supervisorCsv.rows = parseRegistrationCsv(studentCsv()).rows
+    await wrapper.vm.$nextTick()
+    await submitForm(wrapper)
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    // Submit's last steps done, as they are long before anyone ticks.
+    await flushPromises()
+
+    const all = wrapper.get('[data-test="confirm-all-email-warnings"]')
+    expect(all.text()).toBe('Confirm all 2 email address warnings')
+    const ticks = () =>
+      wrapper.findAll('.registration-warnings label:not(.registration-warnings__all) input')
+    expect(ticks()).toHaveLength(4)
+    await all.get('input').setValue(true)
+    expect(ticks().map((tick) => (tick.element as HTMLInputElement).checked)).toEqual([true, true, false, false])
+
+    // Unticking one email warning unticks Confirm all; the others stay.
+    await ticks()[0]!.setValue(false)
+    expect((all.get('input').element as HTMLInputElement).checked).toBe(false)
+    expect((ticks()[1]!.element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('offers no Confirm all for a single email warning, or outside a CSV', async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check these.',
+      warnings: [
+        {
+          code: 'check',
+          field: 'studentIndividual.student.email',
+          overrideField: 'students.0.overrides.ConfirmEmailInvalidOverride',
+          message: 'Check this.',
+        },
+        {
+          code: 'check',
+          field: 'studentIndividual.student.guardian.email',
+          overrideField: 'students.0.overrides.ConfirmGuardianEmailInvalidOverride',
+          message: 'Check that.',
+        },
+      ],
+    })
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    expect(wrapper.find('[data-test="confirm-all-email-warnings"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

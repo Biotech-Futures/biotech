@@ -1353,6 +1353,23 @@
             <p>
               No registration has been saved. Correct the details, or confirm each item to continue.
             </p>
+            <!-- A CSV's email address warnings, all at once; its school and
+                 name warnings stay one by one. -->
+            <label
+              v-if="csvEmailWarnings.length > 1"
+              class="registration-warnings__all"
+              data-test="confirm-all-email-warnings"
+            >
+              <input
+                type="checkbox"
+                :checked="allCsvEmailWarningsTicked"
+                :disabled="isSubmitting"
+                @change="tickCsvEmailWarnings"
+              />
+              <span
+                ><strong>Confirm all {{ csvEmailWarnings.length }} email address warnings</strong></span
+              >
+            </label>
             <label v-for="warning in registrationWarnings" :key="warning.overrideField">
               <input
                 v-model="warningAcknowledgements[warning.overrideField]"
@@ -2480,6 +2497,23 @@ const includedCsvRows = computed(() =>
     (row) => !forms.supervisorCsv.excludedRowNumbers.includes(row.rowNumber),
   ),
 )
+// A CSV's warnings about a student's or guardian's mailbox (not found, or
+// can't be confirmed), which one tick can confirm together.
+const CSV_EMAIL_OVERRIDES = new Set(['ConfirmEmailInvalidOverride', 'ConfirmGuardianEmailInvalidOverride'])
+const csvEmailWarnings = computed(() =>
+  journey.value === 'supervisor_csv'
+    ? registrationWarnings.value.filter((warning) =>
+        CSV_EMAIL_OVERRIDES.has(warning.overrideField.split('.').pop() ?? ''),
+      )
+    : [],
+)
+const allCsvEmailWarningsTicked = computed(() =>
+  csvEmailWarnings.value.every((warning) => warningAcknowledgements[warning.overrideField]),
+)
+const tickCsvEmailWarnings = (event: Event) => {
+  const ticked = (event.target as HTMLInputElement).checked
+  for (const warning of csvEmailWarnings.value) warningAcknowledgements[warning.overrideField] = ticked
+}
 const warningSubject = (warning: RegistrationWarning) => {
   // A mentor's or self-registering supervisor's own email is theirs alone.
   if (warning.field === 'mentor.email' || warning.field === 'supervisor.email') return 'Your email'
@@ -3782,6 +3816,12 @@ watch(
 .registration-warnings input {
   flex: none;
   margin-block-start: 0.2rem;
+}
+
+/* Confirm all: set apart from the warnings it ticks. */
+.registration-warnings__all {
+  padding-block-end: 0.75rem;
+  border-block-end: 1px solid rgba(156, 121, 64, 0.35);
 }
 
 .registration-page {
