@@ -841,7 +841,8 @@ class AnnouncementSystemEmailTests(TestCase):
         self.assertEqual(message.subject, "New: Poster session")
         html_body, _ = message.alternatives[0]
         self.assertIn("<p>Friday in the Great Hall.</p>", html_body)
-        self.assertIn(f"/#/announcements/{self.announcement.id}", html_body)
+        self.assertIn("/api/v1/services/email/track/click/", html_body)
+        self.assertIn("/api/v1/services/email/track/open/", html_body)
 
     def test_edited_email_can_embed_the_full_body(self):
         # An admin who edits the wording opts into the whole announcement with

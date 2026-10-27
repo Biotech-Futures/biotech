@@ -184,6 +184,13 @@ export type EmailDeliveryAnalyticsResponse = {
   mailbox?: string
   quota_limit?: number
   totals: { attempted: number; delivered: number; failed: number; delivery_runs: number }
+  engagement?: {
+    tracked_messages: number
+    opened: number
+    clicked: number
+    open_events: number
+    click_events: number
+  }
   hourly: Array<{ hour: string; attempted: number; delivered: number; failed: number }>
   daily: Array<{ date: string; attempted: number; delivered: number; failed: number }>
   // Optional while older backend/frontend branches converge. The UI must

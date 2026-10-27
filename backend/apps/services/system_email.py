@@ -35,6 +35,7 @@ from django.utils.html import strip_tags
 from .email_branding import attach_inline_logo, brand_context
 from .email_log import note_send, reason_for
 from .email_registry import MERGE_TAG_RE, get_email_type, is_known_email_type
+from .email_tracking import instrument_html
 from .mailer import send_async
 from .models import SystemEmailSettings, SystemEmailTemplate
 from .retry import WAITING
@@ -424,6 +425,8 @@ def build_message(
     from_email: Optional[str] = None,
     connection=None,
     files=(),
+    tracking_key: Optional[str] = None,
+    tracking_recipients=None,
 ) -> EmailMultiAlternatives:
     """An ``EmailMultiAlternatives`` for one rendered email, with the logo
     attached, and ``files`` ((filename, content, mimetype) each) if given."""
@@ -435,7 +438,15 @@ def build_message(
         to=recipients,
         connection=connection,
     )
-    message.attach_alternative(rendered.html, "text/html")
+    html = rendered.html
+    if tracking_key:
+        html = instrument_html(
+            html,
+            email_type=tracking_key,
+            subject=rendered.subject,
+            recipients=(tracking_recipients if tracking_recipients is not None else recipients),
+        )
+    message.attach_alternative(html, "text/html")
     attach_inline_logo(message)
     for filename, content, mimetype in files:
         message.attach(filename, content, mimetype)
@@ -483,7 +494,14 @@ def send_system_email(
         # From the mailbox picked for it on System Emails, signed in as it.
         sender = sender_for(key)
         from_email, connection = sender.from_email, sender_connection(sender)
-    message = build_message(rendered, to, from_email=from_email, connection=connection, files=files)
+    message = build_message(
+        rendered,
+        to,
+        from_email=from_email,
+        connection=connection,
+        files=files,
+        tracking_key=key,
+    )
 
     if background:
         send_async(_NotedSend(message, key, sent_by), kind=key, on_failure=on_failure)

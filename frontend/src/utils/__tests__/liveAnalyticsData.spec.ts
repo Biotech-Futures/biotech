@@ -225,6 +225,27 @@ describe('buildEmailMonitoring', () => {
     emailAnalytics,
   })
 
+  it('maps unique first-party engagement totals and per-run averages', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      totals: { attempted: 20, delivered: 18, failed: 2, delivery_runs: 4 },
+      engagement: {
+        tracked_messages: 18,
+        opened: 10,
+        clicked: 6,
+        open_events: 24,
+        click_events: 9,
+      },
+    }))
+
+    expect(result.overallStats).toMatchObject({
+      opened: 10,
+      clicked: 6,
+      averageOpenedPerUser: 2.5,
+      averageClickedPerUser: 1.5,
+    })
+  })
+
   it('uses completed counts instead of a stale failed status', () => {
     const result = data.buildEmailMonitoring(bundle({
       ...baseEmailAnalytics,
