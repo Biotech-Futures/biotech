@@ -284,7 +284,7 @@ class MatchingConfigApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        config = MatchingConfig.objects.get(pk=1)
+        config.refresh_from_db()
         self.assertEqual(config.year_weight, Decimal("40.00"))
         self.assertEqual(config.total_weight, Decimal("130.00"))
 
@@ -299,8 +299,9 @@ class MatchingConfigApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("penalty_ceiling", response.json()["fields"])
+        config.refresh_from_db()
         self.assertEqual(
-            MatchingConfig.objects.get(pk=1).year_max_weight, Decimal("30.00")
+            config.year_max_weight, Decimal("30.00")
         )
 
     def test_delete_removes_the_config(self):
