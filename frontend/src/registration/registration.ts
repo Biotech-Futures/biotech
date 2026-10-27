@@ -41,6 +41,9 @@ export const CSV_HEADERS = [
 
 export const MAX_CSV_ROWS = 1000
 
+// As the server words it (GUARDIAN_TOGETHER in backend/apps/users/serializers.py).
+export const GUARDIAN_TOGETHER = "Enter the guardian's first name, surname and email together."
+
 export type CsvHeader = (typeof CSV_HEADERS)[number]
 export type CsvCategory = 'valid' | 'review-required' | 'invalid'
 
@@ -552,15 +555,18 @@ const csvRowCategory = (
     fieldErrors.interests = `Not an Area(s) of Interest option: ${unknownInterests.join(', ')}.`
   }
 
-  // A guardian is their name and email.
-  const guardianCore = [values.guardian_first_name, values.guardian_last_name, values.guardian_email]
-  if (guardianCore.every((entry) => !entry)) {
+  // A guardian is their name and email: all three, or none for now. Each one
+  // missing is refused, with the server's own message.
+  const guardianCore: CsvHeader[] = ['guardian_first_name', 'guardian_last_name', 'guardian_email']
+  if (guardianCore.every((key) => !values[key])) {
     reviewIssues.push('Guardian details are deferred; student follow-up will be required.')
-  } else if (guardianCore.some((entry) => !entry)) {
-    reviewIssues.push('Guardian details are incomplete.')
+  } else {
+    for (const key of guardianCore)
+      if (!values[key]) fieldErrors[key] = GUARDIAN_TOGETHER
   }
 
-  const blockingIssues = Object.values(fieldErrors)
+  // Once each: the guardian's fields can share a message.
+  const blockingIssues = [...new Set(Object.values(fieldErrors))]
   if (blockingIssues.length) return { category: 'invalid', issues: blockingIssues, fieldErrors }
   if (reviewIssues.length) return { category: 'review-required', issues: reviewIssues, fieldErrors }
   return { category: 'valid', issues: [], fieldErrors }
