@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CSV_HEADERS,
   CSV_HEADER_LABELS,
+  GUARDIAN_INCOMPLETE,
   GUARDIAN_TOGETHER,
   createPendingPeer,
   createRegistrationForms,
@@ -280,8 +281,8 @@ describe('parseRegistrationCsv', () => {
       guardian_first_name: GUARDIAN_TOGETHER,
       guardian_last_name: GUARDIAN_TOGETHER,
     })
-    // The shared message once in the row's list.
-    expect(halfFilled!.issues).toEqual([GUARDIAN_TOGETHER])
+    // Once, and short, in the table's Status column.
+    expect(halfFilled!.issues).toEqual([GUARDIAN_INCOMPLETE])
     expect(complete!.category).toBe('valid')
   })
 

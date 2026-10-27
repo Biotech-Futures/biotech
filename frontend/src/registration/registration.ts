@@ -43,6 +43,7 @@ export const MAX_CSV_ROWS = 1000
 
 // As the server words it (GUARDIAN_TOGETHER in backend/apps/users/serializers.py).
 export const GUARDIAN_TOGETHER = "Enter the guardian's first name, surname and email together."
+export const GUARDIAN_INCOMPLETE = 'Guardian details are incomplete.'
 
 export type CsvHeader = (typeof CSV_HEADERS)[number]
 export type CsvCategory = 'valid' | 'review-required' | 'invalid'
@@ -565,8 +566,15 @@ const csvRowCategory = (
       if (!values[key]) fieldErrors[key] = GUARDIAN_TOGETHER
   }
 
-  // Once each: the guardian's fields can share a message.
-  const blockingIssues = [...new Set(Object.values(fieldErrors))]
+  // Once each, and short in the table's Status column: the guardian's fields
+  // share one, given in full on the fields themselves.
+  const blockingIssues = [
+    ...new Set(
+      Object.values(fieldErrors).map((message) =>
+        message === GUARDIAN_TOGETHER ? GUARDIAN_INCOMPLETE : message,
+      ),
+    ),
+  ]
   if (blockingIssues.length) return { category: 'invalid', issues: blockingIssues, fieldErrors }
   if (reviewIssues.length) return { category: 'review-required', issues: reviewIssues, fieldErrors }
   return { category: 'valid', issues: [], fieldErrors }
