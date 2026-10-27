@@ -226,6 +226,14 @@ class EmailDeliveryTotalsSerializer(serializers.Serializer):
     delivery_runs = serializers.IntegerField(min_value=0)
 
 
+class EmailEngagementTotalsSerializer(serializers.Serializer):
+    tracked_messages = serializers.IntegerField(min_value=0)
+    opened = serializers.IntegerField(min_value=0)
+    clicked = serializers.IntegerField(min_value=0)
+    open_events = serializers.IntegerField(min_value=0)
+    click_events = serializers.IntegerField(min_value=0)
+
+
 class EmailDeliveryPeriodSerializer(serializers.Serializer):
     attempted = serializers.IntegerField(min_value=0)
     delivered = serializers.IntegerField(min_value=0)
@@ -358,6 +366,7 @@ class EmailDeliveryAnalyticsDataSerializer(serializers.Serializer):
     totals = EmailDeliveryTotalsSerializer()
     hourly = EmailDeliveryHourlySerializer(many=True)
     daily = EmailDeliveryDailySerializer(many=True)
+    engagement = EmailEngagementTotalsSerializer()
     status_by_role = EmailDeliveryStatusByRoleSerializer(many=True)
     role_attribution = EmailRoleAttributionSerializer()
     recent_deliveries = RecentEmailDeliverySerializer(many=True)

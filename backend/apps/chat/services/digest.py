@@ -266,6 +266,7 @@ def _render_and_send(connection, candidate, summary, sender, later=False):
         candidate["email"],
         from_email=sender.from_email,
         connection=connection,
+        tracking_key="unread_messages",
     )
     # A dropped connection is opened again and the email sent once more; when
     # the server can't be reached, it's kept to send later (``WAITING``).

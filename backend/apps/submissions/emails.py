@@ -139,14 +139,20 @@ def to_and_cc(group, addresses) -> tuple[list[str], list[str]]:
     )
 
 
-def group_message(rendered, group, addresses, *, sender):
+def group_message(rendered, group, addresses, *, sender, tracking_key):
     """The team's one email, as the Notify emails go: its students in To, its
     mentors and supervisors in CC (all in To when it has no student).
     From ``sender`` (see ``system_email.sender_for``); replies go back to it."""
     to, cc = to_and_cc(group, addresses)
     if not to:
         to, cc = cc, []
-    message = build_message(rendered, to, from_email=sender.from_email)
+    message = build_message(
+        rendered,
+        to,
+        from_email=sender.from_email,
+        tracking_key=tracking_key,
+        tracking_recipients=addresses,
+    )
     message.cc = cc
     return message
 
@@ -268,7 +274,13 @@ def send_submission_confirmation(submission: Submission) -> int:
         # One email for the team, as the Notify emails go, from the mailbox
         # picked on System Emails.
         sender = sender_for("submission_confirmation")
-        messages = [group_message(rendered, group, to, sender=sender)]
+        messages = [group_message(
+            rendered,
+            group,
+            to,
+            sender=sender,
+            tracking_key="submission_confirmation",
+        )]
 
         # Rendered here so the worker thread does no database work.
         send_async(_Batch(messages, "submission_confirmation", sender),
@@ -371,7 +383,13 @@ def send_finalist_confirmation(entry) -> int:
         text = render_to_string("emails/finalist_submission_confirmation.txt", context)
         rendered = render_system_email("finalist_submission_confirmation", context, default_text=text)
         sender = sender_for("finalist_submission_confirmation")
-        messages = [group_message(rendered, group, to, sender=sender)]
+        messages = [group_message(
+            rendered,
+            group,
+            to,
+            sender=sender,
+            tracking_key="finalist_submission_confirmation",
+        )]
 
         send_async(_Batch(messages, "finalist_submission_confirmation", sender), kind="finalist_submission_confirmation")
         return len(to)

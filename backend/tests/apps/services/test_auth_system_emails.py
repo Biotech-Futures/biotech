@@ -9,6 +9,7 @@ from django.test import TestCase, override_settings
 from apps.services import auth_service
 from apps.services.models import PasswordResetToken, SystemEmailSettings, SystemEmailTemplate
 from apps.users.models import User
+from tests.email_helpers import delivered_destinations
 
 STRONG_PWD_OLD = "OldStrongPass!42"
 STRONG_PWD_NEW = "NewStrongPass!7Q"
@@ -50,7 +51,9 @@ class UneditedAuthEmailsTests(TestCase):
         token = PasswordResetToken.objects.get(user=user).token
         self.assertEqual(message.subject, "BIOTech Futures: Update your password")
         self.assertIn(token, message.body)
-        self.assertIn(token, _html(message))
+        self.assertTrue(
+            any(token in destination for destination in delivered_destinations(_html(message)))
+        )
 
     def test_password_changed_keeps_its_subject_and_plain_text(self):
         user = _user()

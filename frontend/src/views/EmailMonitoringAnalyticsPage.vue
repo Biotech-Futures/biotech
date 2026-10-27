@@ -84,7 +84,7 @@
       <div class="section-heading-row">
         <div>
           <h2>Overall Email Stats</h2>
-          <p>Delivery totals from the rolling 24-hour backend window only. Provider engagement metrics are shown only when recorded.</p>
+          <p>Delivery and first-party engagement totals from the rolling 24-hour backend window.</p>
         </div>
       </div>
 
@@ -117,14 +117,10 @@
               <strong><AnalyticsNumber :value="data.overallStats.clicked ?? 'Unavailable'" /></strong>
             </div>
           </div>
-          <div class="overall-stat-meta two-col">
+          <div class="overall-stat-meta">
             <div>
               <span>Opened</span>
               <strong><AnalyticsNumber :value="data.overallStats.opened ?? 'Unavailable'" /></strong>
-            </div>
-            <div>
-              <span>Marked as Spam</span>
-              <strong>{{ optionalMetric(data.overallStats.spam) }}</strong>
             </div>
           </div>
         </article>
@@ -433,7 +429,7 @@
         <div class="status-role-legend" aria-label="Email role delivery legend">
           <span><i class="status-role-dot delivered"></i>Delivered</span>
           <span><i class="status-role-dot failed"></i>Failed</span>
-          <span class="unavailable-metric">Opened: Unavailable</span>
+          <span class="unavailable-metric">Opens are reported in the overall totals</span>
         </div>
 
         <div class="status-role-chart">
@@ -694,7 +690,7 @@ const data = ref<EmailMonitoringData>({
   categories: [],
   alerts: [],
   overallStats: {
-    delivered: 0, sent: 0, failed: 0, clicked: null, opened: null, spam: null,
+    delivered: 0, sent: 0, failed: 0, clicked: null, opened: null,
     averageSentPerUser: null, averageOpenedPerUser: null, averageClickedPerUser: null,
   },
   logs: [],

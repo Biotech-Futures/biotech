@@ -674,7 +674,13 @@ def _deliver_announcement_to_recipients(
     later = RetryLater(connection)
     try:
         for addr in emails:
-            message = build_message(render_for(addr), addr, from_email=sender.from_email, connection=connection)
+            message = build_message(
+                render_for(addr),
+                addr,
+                from_email=sender.from_email,
+                connection=connection,
+                tracking_key="announcement",
+            )
             # A dropped connection is opened again and the email sent once
             # more; when the server can't be reached, it's kept to send later.
             send = partial(send_or_wait, message, key="announcement", on_sent=on_sent)

@@ -22,6 +22,7 @@ from apps.services.models import SystemEmailTemplate
 from apps.services.system_email import FAILED, send_system_email
 from apps.users.models import GuardianConsentRequest, StudentProfile, User
 from apps.users.models.admin_scope import AdminScope
+from tests.email_helpers import delivered_destinations
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 FRONTEND = "https://connect.example.com"
@@ -57,7 +58,8 @@ class GuardianConsentRequestTests(TestCase):
         )
 
     def _link_token(self, message):
-        match = LINK_RE.search(message.alternatives[0][0])
+        destinations = delivered_destinations(message.alternatives[0][0])
+        match = next((LINK_RE.search(url) for url in destinations if LINK_RE.search(url)), None)
         self.assertIsNotNone(match, "no consent link in the email")
         return match.group(1)
 

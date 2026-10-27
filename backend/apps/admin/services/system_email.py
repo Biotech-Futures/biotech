@@ -513,7 +513,11 @@ def send_test_email(
     # From the sender picked for it, as the real email goes.
     sender = sender_for(key)
     message = build_message(
-        rendered, recipient, from_email=sender.from_email, connection=sender_connection(sender),
+        rendered,
+        recipient,
+        from_email=sender.from_email,
+        connection=sender_connection(sender),
+        tracking_key=f"test_{key}",
     )
 
     try:

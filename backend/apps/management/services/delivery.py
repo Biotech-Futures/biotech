@@ -170,7 +170,13 @@ def send_group(
         connection = _own_connection(email, log_as)
     try:
         message = build_message(
-            rendered, to, from_email=sender_for(email).from_email, connection=connection, files=files,
+            rendered,
+            to,
+            from_email=sender_for(email).from_email,
+            connection=connection,
+            files=files,
+            tracking_key=email,
+            tracking_recipients=due,
         )
         message.cc = cc
         reason, refused = deliver(message, email=email, on_sent=_hooks(email, group))
@@ -214,7 +220,12 @@ def send_each(
             if address.lower() in done:
                 continue
             message = build_message(
-                rendered, address, from_email=sender_for(email).from_email, connection=connection, files=files,
+                rendered,
+                address,
+                from_email=sender_for(email).from_email,
+                connection=connection,
+                files=files,
+                tracking_key=email,
             )
             # One address: a refusal fails the send.
             reason, _ = deliver(message, email=email, on_sent={**_hooks(email, group), **(on_sent or {})})

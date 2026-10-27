@@ -16,7 +16,11 @@ from apps.chat.models import Messages
 from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.resources.models import ResourceAccessEvent, RoleAssignmentHistory
 from apps.services.email_registry import get_email_type, is_known_email_type
-from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
+from apps.services.models import (
+    EmailDeliveryMetric,
+    EmailDeliveryRecipient,
+    EmailEngagementTracker,
+)
 from apps.services.system_email import sender_for
 from apps.users.models import User
 
@@ -909,6 +913,18 @@ def get_email_delivery_analytics() -> dict:
         }
 
     snapshot_at = timezone.now()
+    window_start = snapshot_at - timedelta(hours=24)
+    tracker_window = EmailEngagementTracker.objects.filter(
+        created_at__gt=window_start,
+        created_at__lte=snapshot_at,
+    )
+    engagement = tracker_window.aggregate(
+        tracked_messages=Count("id"),
+        opened=Count("id", filter=Q(first_opened_at__isnull=False)),
+        clicked=Count("id", filter=Q(first_clicked_at__isnull=False)),
+        open_events=Coalesce(Sum("open_count"), Value(0)),
+        click_events=Coalesce(Sum("click_count"), Value(0)),
+    )
 
     if not EmailDeliveryMetric.objects.exists():
         empty_mailboxes = [
@@ -936,6 +952,7 @@ def get_email_delivery_analytics() -> dict:
             "totals": dict(zero_totals),
             "hourly": [],
             "daily": [],
+            "engagement": engagement,
             "status_by_role": empty_role_status(),
             # The first announcement ever sent has no metric row until it ends.
             "recent_sends": _sending_announcements(snapshot_at),
@@ -952,7 +969,6 @@ def get_email_delivery_analytics() -> dict:
             "recent_deliveries": [],
         }
 
-    window_start = snapshot_at - timedelta(hours=24)
     metric_window = EmailDeliveryMetric.objects.filter(
         started_at__gt=window_start,
         started_at__lte=snapshot_at,
@@ -1203,6 +1219,7 @@ def get_email_delivery_analytics() -> dict:
         "totals": totals,
         "hourly": hourly,
         "daily": daily,
+        "engagement": engagement,
         "status_by_role": status_by_role,
         "role_attribution": attribution,
         "recent_deliveries": recent_deliveries,
