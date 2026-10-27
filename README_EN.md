@@ -66,10 +66,12 @@ Bounced emails are found by a check of the sending mailboxes through Hostinger's
 Mail API (read-only, nothing in a mailbox is changed). It opens only bounce
 notices and notes who each one says didn't get our email: on the Management page
 it came from (listed as missed, so Resend Email To Missed Individuals emails them
-again) and on the System Emails log under Bounced emails. GitHub's
-`.github/workflows/bounce-check.yml` starts it about every 10 minutes through
-`POST /api/v1/management/bounce-check/`, with the `EMAIL_JOBS_TOKEN` the other
-email jobs use. `python manage.py check_bounced_emails` runs it by hand.
+again) and on the System Emails log under Bounced emails. The backend's
+timer starts it every 10 minutes (`apps.management.scheduler`, on when
+`SCHEDULER_ENABLED` is set). `.github/workflows/bounce-check.yml` starts it by
+hand through `POST /api/v1/management/bounce-check/`, with the `EMAIL_JOBS_TOKEN`
+the other email jobs use, and `python manage.py check_bounced_emails` runs it
+from the command line.
 
 To switch it on, set `HOSTINGER_MAIL_API_KEY` on the backend (in production, the
 Azure app's Settings > Environment variables > App settings), made in hPanel >
@@ -105,7 +107,7 @@ npm run type-check
 
 - Work on feature branches; merge to `main` via Pull Request.
 - Pre-commit hooks type-check `frontend/` and `adminweb/` when files in those trees are staged.
-- Backend deploys are gated on the test suite in `.github/workflows/main_biotechbe.yml`.
+- Deploys are gated on the checks in `.github/workflows/main_biotechbe.yml`: a change deploys only the sides it touches, and only once every check for it passes, so a change to both the backend and the frontend ships both or neither.
 
 ## License
 

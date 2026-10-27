@@ -49,6 +49,7 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
             is_active=F('user__is_active'),
             account_status=F('user__account_status'),
             last_login=F('user__last_login'),
+            date_joined=F('user__date_joined'),
             max_grp_cnt=F('max_group_count'),
             country_name=F('user__country__country_name'),
             user_tz=F('user__timezone'),
@@ -62,13 +63,13 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
     
     mentor_ids = [m['user_id'] for m in mentor_rows]
     
-    # 3. Last message sent by each mentor (excluding deleted messages)
+    # 3. Last message sent by each mentor, deleted ones included: having
+    #    posted and then removed it is still evidence they turned up, and the
+    #    idle rule in apps.admin.services.mentor_match counts them the same
+    #    way, so this badge and the matcher cannot disagree.
     last_message_rows = (
         Messages.objects
-        .filter(
-            deleted_at__isnull=True,
-            sender_user_id__in=mentor_ids
-        )
+        .filter(sender_user_id__in=mentor_ids)
         .values('sender_user_id')
         .annotate(last_message_at=Max('sent_at'))
     )
@@ -146,6 +147,9 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
             'accountStatus': m['account_status'],
             'hasLoggedIn': m['last_login'] is not None,
             'lastLogin': m['last_login'].isoformat() if m['last_login'] else None,
+            # Needed to tell a mentor who has gone quiet from one who has not
+            # had the chance yet, the same grace the matcher applies.
+            'dateJoined': m['date_joined'].isoformat() if m['date_joined'] else None,
             'institution': m['institution'],
             'countryName': m['country_name'],
             'utcOffsetHours': utc_offset_hours(m['user_tz']),

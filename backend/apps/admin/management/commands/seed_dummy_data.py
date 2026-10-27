@@ -36,6 +36,9 @@ from apps.resources.models import (
 )
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.tasks.models import Task, TaskType, TaskStatus, CreatorRole
+from apps.plans.models import PlanStage, PlanTask, PlanTaskCompletion
+from apps.plans.visibility import active_audience_memberships, current_plan_groups
+from apps.submissions.services import current_cohort
 from apps.events.models import Events, EventRsvp, EventTargetRole, EventTargetGroup
 from apps.announcements.models import Announcement, AnnouncementAudience
 from apps.chat.models.messages import Messages, MessageType
@@ -163,6 +166,7 @@ class Command(BaseCommand):
         geography = self._ensure_geography()
         buckets = self._create_users(opts["users"], geography)
         groups = self._create_groups(buckets)
+        self._create_plan_tasks(groups, buckets)
         self._create_tasks(groups, buckets)
         self._create_resources_and_announcements(groups, buckets)
         self._create_events_and_rsvps(groups, buckets)
@@ -264,7 +268,7 @@ class Command(BaseCommand):
                 sync_user_interests(user.id, interests)
             elif role == "mentor":
                 upsert_mentor_profile(
-                    user.id, background="Seed mentor background.",
+                    user.id, background=random.choice(MentorProfile.BackgroundChoices.values),
                     institution=random.choice(INSTITUTIONS),
                     mentor_reason="Keen to support young researchers.",
                     max_group_count=random.randint(2, 4),
@@ -339,6 +343,79 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"  groups created: {len(groups)}"))
         return groups
+
+    # -------------------------------------------------------- shared plan
+    @transaction.atomic
+    def _create_plan_tasks(self, groups, buckets):
+        """A small staged plan, covering each audience and both tick modes."""
+        stages = [
+            PlanStage.objects.create(
+                name=f"{SEED_PREFIX} {name}", description=description, position=index
+            )
+            for index, (name, description) in enumerate([
+                ("Getting started", "Read the guidance and meet your group."),
+                ("Developing your project", "Discuss and review your research approach."),
+                ("Preparing your submission", "Review the final work before submission."),
+            ])
+        ]
+        today = timezone.localdate()
+        author = next(iter(buckets["admin"]), None)
+        definitions = [
+            (0, "Read the participant guidance", "student", "per_person", -7),
+            (0, "Meet your mentor", "student", "per_group", 7),
+            (1, "Review the research approach", "mentor", "per_person", 14),
+            (1, "Agree on the research approach", "mentor", "per_group", 21),
+            (2, "Review the submission", "supervisor", "per_person", None),
+            (2, "Confirm submission readiness", "supervisor", "per_group", 28),
+        ]
+        tasks = []
+        for index, (stage_index, name, audience, mode, days) in enumerate(definitions):
+            tasks.append(PlanTask.objects.create(
+                stage=stages[stage_index], position=index % 2,
+                name=f"{SEED_PREFIX} {name}",
+                description="Discuss this activity with your group and record completion.",
+                resource_url="https://biotechfutures.org/" if index == 0 else "",
+                resource_label="BIOTech Futures website" if index == 0 else "",
+                due_date=today + timedelta(days=days) if days is not None else None,
+                audience_role=audience, completion_mode=mode, created_by=author,
+            ))
+
+        group_ids = [group.pk for group, _members in groups]
+        eligible_ids = set(current_plan_groups(current_cohort()).filter(
+            pk__in=group_ids
+        ).values_list("pk", flat=True))
+        audiences = {}
+        for membership in active_audience_memberships(eligible_ids).order_by("id"):
+            audiences.setdefault((membership.group_id, membership.membership_role), []).append(
+                membership.user_id
+            )
+        completions = []
+        for group_index, (group, _members) in enumerate(groups):
+            if group.pk not in eligible_ids:
+                continue
+            for task_index, task in enumerate(tasks):
+                if task.completion_mode == PlanTask.CompletionMode.PER_GROUP:
+                    if (group_index + task_index) % 3 == 0:
+                        completions.append(PlanTaskCompletion(
+                            task=task, group=group, user=None, completed=True
+                        ))
+                else:
+                    for member_index, user_id in enumerate(
+                        audiences.get((group.pk, task.audience_role), [])
+                    ):
+                        if (group_index + task_index + member_index) % 3 == 0:
+                            completions.append(PlanTaskCompletion(
+                                task=task, group=group, user_id=user_id, completed=True
+                            ))
+        PlanTaskCompletion.objects.bulk_create(completions)
+        if len(eligible_ids) != len(group_ids):
+            self.stdout.write(self.style.WARNING(
+                "  Some seed groups are outside the active cohort; their plan is hidden."
+            ))
+        self.stdout.write(self.style.SUCCESS(
+            f"  plan created: {len(stages)} stages, {len(tasks)} tasks, "
+            f"{len(completions)} completions"
+        ))
 
     # ------------------------------------------------------------- tasks
     def _create_tasks(self, groups, buckets):
@@ -557,6 +634,15 @@ class Command(BaseCommand):
         seed_users = User.objects.filter(email__endswith=f"@{SEED_EMAIL_DOMAIN}")
         seed_groups = Groups.objects.filter(group_name__startswith=SEED_PREFIX)
         with transaction.atomic():
+            seed_stages = PlanStage.objects.filter(name__startswith=SEED_PREFIX)
+            if PlanTask.objects.filter(stage__in=seed_stages).exclude(
+                name__startswith=SEED_PREFIX
+            ).exists():
+                raise CommandError(
+                    "A non-seed plan task uses a seed stage; move it before wiping."
+                )
+            PlanTask.objects.filter(name__startswith=SEED_PREFIX).delete()
+            seed_stages.delete()
             Messages.objects.filter(group__in=seed_groups).delete()
             Messages.objects.filter(sender_user__in=seed_users).delete()
             Events.objects.filter(event_name__startswith=SEED_PREFIX).delete()  # cascades rsvps/targets

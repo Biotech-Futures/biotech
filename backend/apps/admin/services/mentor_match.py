@@ -1,18 +1,24 @@
+import logging
 from typing import List, Dict, Any, Optional, Set
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRef
 from django.db.models.functions import Concat
 from django.utils import timezone
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
+from apps.chat.models import Messages
 from apps.groups.models import Groups, GroupMembership
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
+from apps.services.system_email import send_system_email
 from apps.matching_runtime.models import MatchRun
 from apps.common.tz import utc_offset_hours
 from apps.admin.algorithms.mentor import match_mentors, score_mentor_for_group
 from apps.admin.services.mentor import get_mentor_list
+
+
+logger = logging.getLogger(__name__)
 
 
 def unmatched_groups_qs():
@@ -73,8 +79,156 @@ def _median(values: List[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2
 
 
-def _build_mentor_sources() -> List[Dict[str, Any]]:
-    """All active mentors as algorithm 'mentor sources', with their current load."""
+#: What the Mentors page starts from, for a caller that names no threshold.
+#: Mirrors DEFAULT_IDLE_DAYS in frontend/src/utils/mentorFormat.ts.
+DEFAULT_IDLE_DAYS = 30
+
+
+def _idle_mentor_ids(mentor_ids: List[int], idle_days: int) -> set:
+    """Of ``mentor_ids``, those who should not be recommended.
+
+    Idle is "has not spoken lately": no message within ``idle_days``. Silence
+    only counts against a mentor who had somewhere to speak, so two groups are
+    never idle however quiet they are:
+
+    - one with no group at all, who has nowhere to post. Calling them idle
+      would be a deadlock - they are excluded from matching for never having
+      messaged, and can never message without a group to message in;
+    - one who joined within ``idle_days``, who has not had the time yet.
+
+    A deleted message still counts as having spoken. Posting and then removing
+    something is still evidence the mentor turned up, and deleting a message
+    must not be a way to be marked idle. The "last message" both admin screens
+    show counts them for the same reason, so the two cannot disagree.
+    """
+    if not mentor_ids:
+        return set()
+
+    # Strictly after the cutoff, so an age of exactly ``idle_days`` is idle:
+    # "idle after 40 days" has to mean a mentor quiet for 40 days or more. With
+    # ``__gte`` a timestamp sitting precisely on the cutoff counted as recent,
+    # one day short of what the admin asked for, and the screens - which floor
+    # their day count and compare ``< idle_days`` - already read it the strict
+    # way, so the matcher and the badge disagreed on that edge.
+    cutoff = timezone.now() - timedelta(days=idle_days)
+    spoke_recently = set(
+        Messages.objects
+        .filter(sender_user_id__in=mentor_ids, sent_at__gt=cutoff)
+        .values_list('sender_user_id', flat=True)
+    )
+    joined_recently = set(
+        User.objects
+        .filter(id__in=mentor_ids, date_joined__gt=cutoff)
+        .values_list('id', flat=True)
+    )
+    in_a_group = set(
+        GroupMembership.objects
+        .filter(user_id__in=mentor_ids, left_at__isnull=True)
+        .values_list('user_id', flat=True)
+    )
+    no_group = set(mentor_ids) - in_a_group
+    return set(mentor_ids) - spoke_recently - joined_recently - no_group
+
+
+MAX_IDLE_DAYS = 365
+
+
+def _requested_idle_days(input_data: Dict[str, Any]) -> int:
+    """The admin's own "idle after" setting, as sent with the request.
+
+    It has to travel with the mutation rather than be assumed here: an admin
+    working to a 60-day threshold is shown mentors who are quiet at 30, and
+    enforcing 30 server-side would reject the very replacements the screen just
+    offered. Clamped so a stray or hostile value cannot switch the check off.
+    """
+    raw = input_data.get('idleDays', input_data.get('idle_days'))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_IDLE_DAYS
+    return max(1, min(MAX_IDLE_DAYS, value))
+
+
+def _assert_mentors_eligible(
+    mentor_ids: List[int],
+    idle_days: int,
+    *,
+    field: str,
+    exempt_ids: Optional[Set[int]] = None,
+    allow_idle: bool = False,
+) -> None:
+    """Refuse to assign a mentor the screens would not have offered.
+
+    The admin screens and ``recommend_mentors_for_group`` both filter these
+    out, but filtering is presentation: an older frontend, a scripted request
+    or a replayed one reaches the mutation directly. Both mutation paths call
+    this so the rule is enforced once, where it cannot be skipped.
+
+    Two reasons to refuse, and they are different facts. A deactivated account
+    is never assignable - that is not the admin's call to make here, it is made
+    on the Users page. Idle is measured against ``idle_days``, so an admin who
+    genuinely wants a quiet mentor can widen their own threshold rather than
+    needing a back door.
+
+    ``exempt_ids`` are mentors already sitting on the group they are being
+    assigned to. Re-picking them changes nothing, so there is nothing to
+    protect against, and refusing would block a harmless no-op.
+
+    ``field`` is the request field to report against, named by the caller. It
+    cannot be inferred from the number of mentors: a batch of one is still the
+    batch path, and reporting it under the single-replace field would have the
+    bulk dialog looking for an error where there is none.
+
+    ``allow_idle`` is for the flows where an admin names the mentor rather than
+    taking a suggestion - editing one mentor's own group list from their
+    profile. Being quiet is a reason not to *suggest* someone, not a reason to
+    stop an admin assigning them on purpose. It never waives the account check:
+    a deactivated account stays unassignable by every path.
+    """
+    candidates = [m for m in mentor_ids if m not in (exempt_ids or set())]
+    if not candidates:
+        return
+
+    deactivated = set(
+        User.objects
+        .filter(id__in=candidates, is_active=False)
+        .values_list('id', flat=True)
+    )
+    # Only ask about the rest: a deactivated account is reported for that, which
+    # is the more specific reason.
+    idle = set() if allow_idle else _idle_mentor_ids(
+        [m for m in candidates if m not in deactivated], idle_days
+    )
+    if not deactivated and not idle:
+        return
+
+    names = dict(
+        User.objects
+        .filter(id__in=deactivated | idle)
+        .values_list('id', 'email')
+    )
+    raise ValidationError({
+        field: {
+            'message': (
+                'One or more mentors cannot be assigned: a deactivated account '
+                'is never assignable, and an idle one is not offered at the '
+                'requested threshold.'
+            ),
+            'idleDays': idle_days,
+            'ineligible': [
+                {
+                    'mentorUserId': mentor_id,
+                    'email': names.get(mentor_id),
+                    'reason': 'inactive' if mentor_id in deactivated else 'idle',
+                }
+                for mentor_id in sorted(deactivated | idle)
+            ],
+        },
+    })
+
+
+def _build_mentor_sources(idle_days: int = DEFAULT_IDLE_DAYS) -> List[Dict[str, Any]]:
+    """Active, non-idle mentors as algorithm 'mentor sources', with their load."""
     accepted_count_rows = (
         GroupMembership.objects
         .filter(left_at__isnull=True, user__mentorprofile__isnull=False)
@@ -98,6 +252,13 @@ def _build_mentor_sources() -> List[Dict[str, Any]]:
         )
     )
     mentor_ids = [m['mentor_id'] for m in mentor_rows]
+
+    # Quiet mentors are not offered fresh groups: assigning to someone who has
+    # stopped answering is how a group ends up without support.
+    idle_ids = _idle_mentor_ids(mentor_ids, idle_days)
+    if idle_ids:
+        mentor_rows = [m for m in mentor_rows if m['mentor_id'] not in idle_ids]
+        mentor_ids = [m['mentor_id'] for m in mentor_rows]
 
     mentor_interest_rows = (
         UserInterest.objects
@@ -149,7 +310,7 @@ def _build_group_source(group) -> Dict[str, Any]:
     }
 
 
-def recommend_mentors_for_group(group_id: int) -> Dict[str, Any]:
+def recommend_mentors_for_group(group_id: int, idle_days: int = DEFAULT_IDLE_DAYS) -> Dict[str, Any]:
     """Rank replacement mentors for one group (even one that already has a mentor).
 
     Reuses the same scoring as auto-matching, but for a single group that the auto
@@ -169,7 +330,7 @@ def recommend_mentors_for_group(group_id: int) -> Dict[str, Any]:
 
     group_source = _build_group_source(group)
     suggestions = []
-    for mentor in _build_mentor_sources():
+    for mentor in _build_mentor_sources(idle_days):
         if mentor['mentorId'] in current_mentor_ids:
             continue
         score, breakdown, reason = score_mentor_for_group(mentor, group_source)
@@ -198,7 +359,8 @@ def recommend_mentors_for_group(group_id: int) -> Dict[str, Any]:
     }
 
 
-def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, Any]]:
+def match_mentor(admin_user_id: str, mode: str = 'balanced',
+                 idle_days: int = DEFAULT_IDLE_DAYS) -> List[Dict[str, Any]]:
     """
     Run mentor matching algorithm for groups without mentors.
     
@@ -294,7 +456,7 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         for g in groups_without_mentor
     ]
     
-    mentor_sources = _build_mentor_sources()
+    mentor_sources = _build_mentor_sources(idle_days)
 
     # Run matching algorithm using the same data shape as admin/apps/server/src/algorithm/mentor.ts.
     recommendations = match_mentors(group_sources, mentor_sources, mode)
@@ -445,6 +607,7 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             mentor_first_name=F('user__first_name'),
             mentor_last_name=F('user__last_name'),
             is_active=F('user__is_active'),
+            mentor_date_joined=F('user__date_joined'),
             institution=F('user__mentorprofile__institution'),
             mentor_country_name=F('user__country__country_name'),
         )
@@ -454,6 +617,21 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
         return []
 
     group_ids = [r['group_id'] for r in rows]
+
+    # Last message per mentor, so the caller can tell a mentor who has gone
+    # quiet (idle) from one whose account was deactivated. Same aggregation the
+    # Mentors page uses - see apps.admin.services.mentor.
+    last_message_by_mentor = {
+        row['sender_user_id']: row['last_message_at']
+        for row in (
+            Messages.objects
+            # Deleted messages included, matching _idle_mentor_ids: a mentor
+            # who posted and then removed it has still been heard from.
+            .filter(sender_user_id__in=[r['mentor_id'] for r in rows])
+            .values('sender_user_id')
+            .annotate(last_message_at=Max('sent_at'))
+        )
+    }
 
     # Student names per group
     student_name_rows = (
@@ -525,6 +703,15 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
                 'mentorId': r['mentor_id'],
                 'name': f"{r['mentor_first_name']} {r['mentor_last_name']}".strip(),
                 'isActive': r['is_active'],
+                'dateJoined': (
+                    r['mentor_date_joined'].isoformat()
+                    if r['mentor_date_joined'] else None
+                ),
+                'lastMessageAt': (
+                    last_message_by_mentor[r['mentor_id']].isoformat()
+                    if last_message_by_mentor.get(r['mentor_id'])
+                    else None
+                ),
                 'countryName': r['mentor_country_name'],
                 'institution': r['institution'],
             },
@@ -533,12 +720,38 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
     return result
 
 
-def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
+def _notify_mentor_change(email_key, user_id, group_name, initiated_by=None):
+    """Tell one mentor that a group moved to or away from them.
+
+    Best effort on purpose: a bounced notification must not undo a membership
+    change the admin already confirmed, so a failure is swallowed here and
+    surfaces through the system-email log like every other send.
+    """
+    user = User.objects.filter(id=user_id).only("email", "first_name").first()
+    if not user or not user.email:
+        return
+    try:
+        send_system_email(
+            email_key,
+            [user.email],
+            {
+                "MENTOR_FIRST_NAME": user.first_name or "",
+                "GROUP_NAME": group_name or "",
+            },
+            sent_by=initiated_by,
+        )
+    except Exception:
+        logger.exception("mentor_change_email.failed key=%s user=%s", email_key, user_id)
+
+
+def replace_mentor(input_data: Dict[str, Any], initiated_by=None) -> Dict[str, int]:
     """
     Replace a mentor in a group with a new one.
 
     Args:
-        input_data: Dictionary with membershipId, groupId, and newMentorUserId
+        input_data: Dictionary with membershipId, groupId, and newMentorUserId.
+            ``notifyDeparting`` / ``notifyIncoming`` control the two emails and
+            default to True - the admin opts out, not in.
 
     Returns:
         Dictionary with 'replaced' count
@@ -573,6 +786,34 @@ def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
             ),
         })
 
+    # A mentor the screens would not have offered must not be assignable by a
+    # request that skipped them. Re-picking the mentor already on the group is
+    # a no-op, so it stays allowed however quiet they are.
+    already_on_group = set(
+        GroupMembership.objects
+        .filter(
+            group_id=group_id,
+            user_id=new_mentor_id,
+            left_at__isnull=True,
+            user__mentorprofile__isnull=False,
+        )
+        .values_list('user_id', flat=True)
+    )
+    _assert_mentors_eligible(
+        [new_mentor_id],
+        _requested_idle_days(input_data),
+        field='newMentorUserId',
+        exempt_ids=already_on_group,
+    )
+
+    # Who is leaving, read before the row is closed.
+    departing_id = (
+        GroupMembership.objects
+        .filter(id=input_data['membershipId'], group_id=group_id, left_at__isnull=True)
+        .values_list('user_id', flat=True)
+        .first()
+    )
+
     # Mark old mentor as left
     GroupMembership.objects.filter(
         id=input_data['membershipId'],
@@ -588,15 +829,28 @@ def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
         joined_at=timezone.now(),
     )
 
+    group_name = (
+        Groups.objects.filter(id=group_id).values_list('group_name', flat=True).first()
+    )
+    # Re-picking the mentor already on the group is a no-op from their side, so
+    # telling them they have been removed and re-added would be nonsense.
+    unchanged = departing_id == new_mentor_id
+    if departing_id and not unchanged and input_data.get('notifyDeparting', True):
+        _notify_mentor_change('mentor_unassigned', departing_id, group_name, initiated_by)
+    if not unchanged and input_data.get('notifyIncoming', True):
+        _notify_mentor_change('mentor_assigned', new_mentor_id, group_name, initiated_by)
+
     return {'replaced': 1}
 
 
-def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
+def confirm_mentor_assignments(input_data: Dict[str, Any], initiated_by=None) -> Dict[str, int]:
     """
     Confirm and finalize mentor assignments to groups.
 
     Args:
-        input_data: Dictionary with 'assignments' list containing group-mentor mappings
+        input_data: Dictionary with 'assignments' list containing group-mentor
+            mappings. ``notifyDeparting`` / ``notifyIncoming`` cover the whole
+            batch and default to True.
 
     Returns:
         Dictionary with 'confirmedCount' of assignments
@@ -670,6 +924,41 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
             },
         })
 
+    # Same rule as the single replace, enforced on the batch path too.
+    sitting = {
+        (row['user_id'], row['group_id'])
+        for row in GroupMembership.objects
+        .filter(
+            group_id__in=group_ids,
+            left_at__isnull=True,
+            user__mentorprofile__isnull=False,
+        )
+        .values('user_id', 'group_id')
+    }
+    # Exempt only a mentor whose every assignment in this batch is a no-op. One
+    # who already sits on group A is still newly arriving at group B, and that
+    # arrival is what the check is for.
+    unchanged_mentors = {
+        mentor_id
+        for mentor_id in mentor_ids
+        if all(
+            (mentor_id, a['group_id']) in sitting
+            for a in assignments
+            if a['mentor_user_id'] == mentor_id
+        )
+    }
+    # Set by the flow that edits one mentor's own group list, where the admin
+    # picked the person deliberately. The matcher and the replacement dialogs
+    # leave it off, so a suggestion-driven path cannot assign a quiet mentor.
+    allow_idle = input_data.get('allowIdle', input_data.get('allow_idle')) is True
+    _assert_mentors_eligible(
+        mentor_ids,
+        _requested_idle_days(input_data),
+        field='assignments',
+        exempt_ids=unchanged_mentors,
+        allow_idle=allow_idle,
+    )
+
     # Remove existing mentor assignments
     existing_mentor_rows = (
         GroupMembership.objects
@@ -678,9 +967,10 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
             left_at__isnull=True,
             user__mentorprofile__isnull=False
         )
-        .values('id')
+        .values('id', 'user_id', 'group_id')
     )
-    
+    departing = [(r['user_id'], r['group_id']) for r in existing_mentor_rows]
+
     if existing_mentor_rows:
         GroupMembership.objects.filter(
             id__in=[r['id'] for r in existing_mentor_rows]
@@ -700,15 +990,47 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
     
     GroupMembership.objects.bulk_create(memberships)
 
+    names = dict(
+        Groups.objects.filter(id__in=group_ids).values_list('id', 'group_name')
+    )
+    # Groups whose mentor did not actually change: picking the sitting mentor
+    # again is a no-op, so neither side hears about it.
+    incoming_by_group = {a['group_id']: a['mentor_user_id'] for a in assignments}
+    unchanged_groups = {
+        group_id
+        for user_id, group_id in departing
+        if incoming_by_group.get(group_id) == user_id
+    }
+
+    if input_data.get('notifyDeparting', True):
+        for user_id, group_id in departing:
+            if group_id in unchanged_groups:
+                continue
+            _notify_mentor_change(
+                'mentor_unassigned', user_id, names.get(group_id), initiated_by,
+            )
+    if input_data.get('notifyIncoming', True):
+        for a in assignments:
+            if a['group_id'] in unchanged_groups:
+                continue
+            _notify_mentor_change(
+                'mentor_assigned', a['mentor_user_id'],
+                names.get(a['group_id']), initiated_by,
+            )
+
     return {'confirmedCount': len(assignments)}
 
 
-def unassign_mentors(group_ids: List[int]) -> Dict[str, int]:
+def unassign_mentors(
+    group_ids: List[int], notify_departing: bool = True, initiated_by=None,
+) -> Dict[str, int]:
     """
     Remove mentor assignments from groups.
 
     Args:
         group_ids: List of group IDs to unassign mentors from
+        notify_departing: Tell each removed mentor they are no longer on the
+            group. Nobody is arriving, so there is no incoming side here.
 
     Returns:
         Dictionary with 'unassignedCount' of removed assignments
@@ -720,7 +1042,7 @@ def unassign_mentors(group_ids: List[int]) -> Dict[str, int]:
             left_at__isnull=True,
             user__mentorprofile__isnull=False
         )
-        .values('id')
+        .values('id', 'user_id', 'group_id')
     )
 
     if not mentor_rows:
@@ -729,5 +1051,15 @@ def unassign_mentors(group_ids: List[int]) -> Dict[str, int]:
     count = GroupMembership.objects.filter(
         id__in=[r['id'] for r in mentor_rows]
     ).update(left_at=timezone.now())
+
+    if notify_departing:
+        names = dict(
+            Groups.objects.filter(id__in=group_ids).values_list('id', 'group_name')
+        )
+        for row in mentor_rows:
+            _notify_mentor_change(
+                'mentor_unassigned', row['user_id'],
+                names.get(row['group_id']), initiated_by,
+            )
 
     return {'unassignedCount': count}

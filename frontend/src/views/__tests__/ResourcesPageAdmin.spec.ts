@@ -6,11 +6,13 @@ import AdminResourceFormSheet from '@/components/admin/resources/AdminResourceFo
 import { useAuthStore } from '@/stores/auth'
 import * as resourcesApi from '@/utils/resourcesAPI'
 import * as adminApi from '@/utils/adminAPI'
+import * as managementApi from '@/utils/managementAPI'
+import { useRoute } from 'vue-router'
 import { pickAppSelect } from '@/__tests__/appSelect'
 
 const mockPush = vi.fn()
 vi.mock('vue-router', () => ({
-  useRoute: vi.fn(() => ({ params: {}, name: 'resources' })),
+  useRoute: vi.fn(() => ({ params: {}, query: {}, name: 'resources' })),
   useRouter: vi.fn(() => ({ push: mockPush }))
 }))
 
@@ -56,6 +58,21 @@ const adminUser = {
   current_role_name: 'admin'
 } as never
 
+// When each is released (what Release Resources had): the handbook hidden and
+// never released, the rules shown and released last February. By last year's
+// release, the rules come first, as by latest modified.
+const release = (
+  id: number,
+  name: string,
+  extra: Partial<managementApi.ResourceReleaseRow> = {},
+): managementApi.ResourceReleaseRow => ({
+  id, name, shown: true, release_on: null, released: true, last_released_at: null, ...extra,
+})
+const releases = () => [
+  release(101, 'Mentor Handbook 2026', { shown: false, released: false }),
+  release(102, 'Biotech Competition Rules', { last_released_at: '2025-02-12T12:00:00+11:00' }),
+]
+
 let wrapper: VueWrapper | null = null
 
 // The shared table's rows, and a row's own button by its text.
@@ -91,6 +108,8 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
     vi.spyOn(adminApi, 'updateAdminResource').mockResolvedValue({} as any)
     vi.spyOn(adminApi, 'deleteAdminResource').mockResolvedValue(null as any)
     vi.spyOn(adminApi, 'downloadAdminResourceFile').mockResolvedValue(undefined)
+    vi.spyOn(managementApi, 'fetchResourceReleases').mockResolvedValue(releases())
+    vi.spyOn(managementApi, 'saveResourceRelease').mockResolvedValue(release(102, 'Biotech Competition Rules'))
   })
 
   afterEach(() => {
@@ -117,10 +136,16 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
 
       // Header button
       expect(wrapper.text()).not.toContain('Add Resource')
+      expect(wrapper.text()).not.toContain("Show Others' View")
 
-      // No action columns or tick boxes
+      // No action columns or tick boxes, and no Kind: the name has the room.
       expect(wrapper.find('.data-table-actions-col').exists()).toBe(false)
       expect(wrapper.find('.data-table-check-col').exists()).toBe(false)
+      expect(wrapper.findAll('thead th').map((th) => th.text()).filter(Boolean)).toEqual([
+        'Icon', 'Name', 'Type', 'Labels', 'Modified',
+      ])
+      expect(wrapper.find('.resource-name-cell--wide').exists()).toBe(true)
+      expect(managementApi.fetchResourceReleases).not.toHaveBeenCalled()
 
       // Rows are still rendered for student
       const rows = tableRows()
@@ -152,12 +177,18 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
     })
 
-    it('renders elevated admin controls (Add Resource button, action buttons, Checkboxes)', () => {
-      expect(wrapper?.text()).toContain('Add Resource')
+    it('renders elevated admin controls (Add Resource on the table, Edit, release columns, Checkboxes)', () => {
+      // Add Resource beside the table's search; Show Others' View where it was.
+      expect(wrapper!.get('.data-table-search-side').text()).toContain('Add Resource')
+      expect(wrapper!.get('.resource-header__actions').text()).toBe("Show Others' View")
       expect(wrapper?.text()).not.toContain('Batch Mode')
-      expect(wrapper?.find('th.data-table-actions-col').exists()).toBe(true)
       expect(wrapper?.find('th.data-table-check-col').exists()).toBe(true)
       expect(wrapper?.findAll('td.data-table-check-col')).toHaveLength(2)
+      expect(wrapper!.findAll('thead th').map((th) => th.text()).filter(Boolean)).toEqual([
+        'Icon', 'Name', 'Type', 'Labels', 'Modified', 'Edit', 'Show/Hide', 'Release At', 'Last Released',
+      ])
+      // What Release Resources said, now here.
+      expect(wrapper!.text()).toContain('is released automatically at the start of its Release At date (Sydney time)')
 
       expect(rowButton(0, 'Edit')).toBeDefined()
       expect(rowButton(1, 'Edit')).toBeDefined()
@@ -176,16 +207,10 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(formSheet?.props('resource')).toBeNull()
     })
 
-    it('shows Edit and Delete on each row, and no View or Download', () => {
-      // Two button columns, one button each.
-      expect(wrapper!.findAll('th.data-table-actions-col')).toHaveLength(2)
+    it('shows Edit on each row, and no Delete, View or Download (Delete is in its panel, or for ticked rows)', () => {
       for (const row of [0, 1]) {
-        expect(tableRows()[row]!.findAll('td.data-table-actions-col button').map((b) => b.text())).toEqual([
-          'Edit',
-          'Delete'
-        ])
         expect(rowButton(row, 'Edit')).toBeDefined()
-        expect(rowButton(row, 'Delete')).toBeDefined()
+        expect(rowButton(row, 'Delete')).toBeUndefined()
         expect(rowButton(row, 'View')).toBeUndefined()
         expect(rowButton(row, 'Download')).toBeUndefined()
       }
@@ -205,7 +230,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       })
     })
 
-    it('lists the latest modified first, and sorts by Modified and Name', async () => {
+    it('lists each by when it was released last year, those never released last, and sorts by Modified and Name', async () => {
       const names = () => tableRows().map((row) => row.find('.resource-name-cell').text())
       const sortBy = async (label: string) => {
         await wrapper!.findAll('.data-table-sort-btn').find((button) => button.text() === label)?.trigger('click')
@@ -213,6 +238,8 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       }
 
       expect(names()).toEqual(['Biotech Competition Rules', 'Mentor Handbook 2026'])
+      // As the other admin tables write a date.
+      expect(tableRows()[0]!.text()).toContain('12/02/25')
 
       await sortBy('Modified')
       expect(names()).toEqual(['Mentor Handbook 2026', 'Biotech Competition Rules'])
@@ -220,8 +247,57 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await sortBy('Name')
       expect(names()).toEqual(['Biotech Competition Rules', 'Mentor Handbook 2026'])
 
-      // Only Name and Modified sort.
-      expect(wrapper!.findAll('.data-table-sort-btn').map((button) => button.text())).toEqual(['Name', 'Modified'])
+      expect(wrapper!.findAll('.data-table-sort-btn').map((button) => button.text())).toEqual([
+        'Name', 'Modified', 'Last Released',
+      ])
+    })
+
+    it('hides one and sets its release date, each saved as it changes', async () => {
+      const lastYear = { last_released_at: '2025-02-12T12:00:00+11:00' }
+      vi.mocked(managementApi.saveResourceRelease)
+        .mockResolvedValueOnce(release(102, 'Biotech Competition Rules', { ...lastYear, shown: false, released: false }))
+        .mockResolvedValueOnce(
+          release(102, 'Biotech Competition Rules', { ...lastYear, shown: false, released: false, release_on: '2026-11-30' }),
+        )
+        .mockResolvedValueOnce(release(102, 'Biotech Competition Rules', { ...lastYear, shown: false, released: false }))
+
+      // The rules' row is first.
+      wrapper!.findAllComponents({ name: 'HideShowSwitch' })[0]!.vm.$emit('change', false)
+      await flushPromises()
+      expect(managementApi.saveResourceRelease).toHaveBeenLastCalledWith(102, { shown: false })
+
+      // No × on the date.
+      const date = () => wrapper!.findAllComponents({ name: 'AppDatePicker' })[0]!
+      expect(date().props('clearable')).toBe(false)
+      date().vm.$emit('update:modelValue', '2026-11-30')
+      await flushPromises()
+      expect(managementApi.saveResourceRelease).toHaveBeenLastCalledWith(102, { release_on: '2026-11-30' })
+      expect(date().props('modelValue')).toBe('2026-11-30')
+
+      date().vm.$emit('update:modelValue', '')
+      await flushPromises()
+      expect(managementApi.saveResourceRelease).toHaveBeenLastCalledWith(102, { release_on: null })
+    })
+
+    it("shows others' view: their table, with the resources released to them, and back", async () => {
+      const names = () => tableRows().map((row) => row.find('.resource-name-cell').text())
+      await wrapper!.get('[data-test="others-view"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper!.findAll('thead th').map((th) => th.text()).filter(Boolean)).toEqual([
+        'Icon', 'Name', 'Type', 'Labels', 'Modified',
+      ])
+      // The hidden handbook isn't theirs to see; no ticks, Edit or Add Resource.
+      expect(names()).toEqual(['Biotech Competition Rules'])
+      expect(wrapper!.find('.data-table-check-col').exists()).toBe(false)
+      expect(wrapper!.text()).not.toContain('Add Resource')
+      expect(wrapper!.get('[data-test="others-view-note"]').text()).toContain('released to them now')
+      expect(wrapper!.get('[data-test="others-view"]').text()).toBe('Show Admin View')
+
+      await wrapper!.get('[data-test="others-view"]').trigger('click')
+      await flushPromises()
+      expect(names()).toEqual(['Biotech Competition Rules', 'Mentor Handbook 2026'])
+      expect(wrapper!.text()).toContain('Add Resource')
     })
 
     it('opens Edit Resource form sheet when clicking Edit', async () => {
@@ -236,11 +312,10 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(formSheet?.props('resource')).toEqual(mockResource1)
     })
 
-    it('opens ConfirmDialog when clicking Delete and executes delete', async () => {
-      const deleteBtn = rowButton(1, 'Delete')
-      expect(deleteBtn).toBeDefined()
-
-      await deleteBtn?.trigger('click')
+    it("opens ConfirmDialog from its Edit panel's Delete and executes delete", async () => {
+      await rowButton(1, 'Edit')?.trigger('click')
+      await flushPromises()
+      wrapper!.findComponent({ name: 'AdminResourceFormSheet' }).vm.$emit('delete')
       await flushPromises()
 
       const confirmDialog = wrapper?.findComponent({ name: 'ConfirmDialog' })
@@ -253,6 +328,29 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
 
       expect(adminApi.deleteAdminResource).toHaveBeenCalledWith(101)
       expect(resourcesApi.fetchResources).toHaveBeenCalled()
+    })
+  })
+
+  describe('Back from a resource', () => {
+    it('turns to the page with its row and brings it into view', async () => {
+      const scrollIntoView = vi.fn()
+      Element.prototype.scrollIntoView = scrollIntoView
+      const many = Array.from({ length: 20 }, (_, i) => ({
+        ...mockResource1, id: i + 1, name: `Resource ${String(i + 1).padStart(2, '0')}`,
+      }))
+      vi.mocked(resourcesApi.fetchResources).mockResolvedValue({ results: many, count: 20 })
+      vi.mocked(managementApi.fetchResourceReleases).mockResolvedValue(many.map((item) => release(item.id, item.name)))
+      vi.mocked(useRoute).mockReturnValueOnce({ params: {}, query: { resource: '16' }, name: 'resources' } as never)
+      const auth = useAuthStore()
+      auth.user = adminUser
+      auth.initialized = true
+
+      wrapper = mount(ResourcesPage, { global: { stubs: { AdminResourceFormSheet: true, ConfirmDialog: true } } })
+      await flushPromises()
+      await flushPromises()
+
+      expect(wrapper.get('tr.data-table-row--focused').attributes('data-row-key')).toBe('16')
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
     })
   })
 

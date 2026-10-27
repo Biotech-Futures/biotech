@@ -5,8 +5,13 @@
       <small v-if="optional">(Optional)</small>
       <span v-else-if="required" class="required-mark" aria-hidden="true">*</span>
     </span>
-    <span v-if="description" :id="`${id}-description`" class="registration-field__description">
-      {{ description }}
+    <!-- Its slot for a description with more than text in it (a link). -->
+    <span
+      v-if="description || $slots.description"
+      :id="`${id}-description`"
+      class="registration-field__description"
+    >
+      <slot name="description">{{ description }}</slot>
     </span>
     <textarea
       v-if="multiline"
@@ -65,7 +70,7 @@
         :step="digits ? 1 : undefined"
         @input="onInput"
         @focus="openList"
-        @blur="listOpen = false"
+        @blur="onBlur"
         @keydown="onKeydown"
         @paste="digits && refuseNonDigitPaste($event)"
       />
@@ -100,7 +105,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useSlots } from 'vue'
 
 import AppSelect from '@/components/AppSelect.vue'
 import { countWords } from '@/registration/registration'
@@ -162,11 +167,16 @@ const props = withDefaults(
   },
 )
 
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+// blur: focus left the box (a registration page checks an email box then).
+const emit = defineEmits<{ 'update:modelValue': [value: string]; blur: [] }>()
 
 // Suggestions: open while it has focus, those holding what's typed (but not
 // just what's typed), picked by a click or the arrows and Enter.
 const listOpen = ref(false)
+const onBlur = () => {
+  listOpen.value = false
+  emit('blur')
+}
 const active = ref(-1)
 const shownSuggestions = computed(() => {
   const typed = props.modelValue.trim().toLowerCase()
@@ -213,10 +223,11 @@ const onInput = (event: Event) => {
   emit('update:modelValue', props.digits ? keptDigits(field, props.maxLength) : field.value)
 }
 
+const slots = useSlots()
 const describedBy = computed(
   () =>
     [
-      props.description ? `${props.id}-description` : '',
+      props.description || slots.description ? `${props.id}-description` : '',
       props.hint ? `${props.id}-hint` : '',
       props.maxWords ? `${props.id}-count` : '',
       props.error ? `${props.id}-error` : '',

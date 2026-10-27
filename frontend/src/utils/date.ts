@@ -220,6 +220,55 @@ export function getSetTimeZone(): string {
   return isValidTimeZone(zone) ? zone : getBrowserTimeZone()
 }
 
+/** A zone's offset from UTC at an instant, in minutes: 660 for Sydney in
+ *  daylight saving, -240 for New York in summer, 0 for UTC. */
+function zoneOffsetMinutes(at: Date, timeZone: string): number {
+  const name =
+    getFormatter('en-US', { timeZone: normalizeTimeZone(timeZone), timeZoneName: 'longOffset' })
+      .formatToParts(at)
+      .find((part) => part.type === 'timeZoneName')?.value ?? 'GMT'
+  const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(name)
+  if (!match) return 0 // plain "GMT": UTC itself
+  const minutes = Number(match[2]) * 60 + Number(match[3] ?? 0)
+  return match[1] === '-' ? -minutes : minutes
+}
+
+const formatOffset = (minutes: number) => {
+  const sign = minutes < 0 ? '-' : '+'
+  const abs = Math.abs(minutes)
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+}
+
+/** The first ("start") or last ("end") millisecond of a calendar day
+ *  ("YYYY-MM-DD") in a zone, as an ISO datetime carrying that zone's offset
+ *  on that day: "2026-10-15T00:00:00.000+11:00" for the start of 15 October in
+ *  Sydney. Each moment gets its own offset, so on a day the clocks change the
+ *  start and end differ ("+10:00" and "+11:00" on 4 October 2026 in Sydney).
+ *  Null for anything that isn't a real calendar day. */
+export function zonedDayBoundary(
+  isoDate: string,
+  edge: 'start' | 'end',
+  timeZone = getSetTimeZone(),
+): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate)
+  if (!match) return null
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  const [hours, minutes, seconds, ms] = edge === 'start' ? [0, 0, 0, 0] : [23, 59, 59, 999]
+  // The wall-clock moment as if it were UTC. setUTCFullYear, as Date.UTC
+  // reads years 0-99 as 1900-1999.
+  const at = new Date(Date.UTC(2000, 0, 1, hours, minutes, seconds, ms))
+  at.setUTCFullYear(year, month - 1, day)
+  const wall = at.getTime()
+  if (at.getUTCFullYear() !== year || at.getUTCDate() !== day) return null // 31 February and the like
+  // The zone's offset there, checked again at the real instant it gives, in
+  // case a clock change falls between the two.
+  let offset = zoneOffsetMinutes(new Date(wall), timeZone)
+  const atInstant = zoneOffsetMinutes(new Date(wall - offset * 60_000), timeZone)
+  if (atInstant !== offset) offset = atInstant
+  const time = edge === 'start' ? '00:00:00.000' : '23:59:59.999'
+  return `${isoDate}T${time}${formatOffset(offset)}`
+}
+
 const LONG_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -340,18 +389,46 @@ export function formatSydneySlot(start: string, end: string, isoDate: string | n
   return isoDate ? `${range} ${sydneyClockOn(isoDate).name}` : range
 }
 
-const twoDigit = (value: number) => String(value).padStart(2, '0')
+/** Management's dates and times are Sydney's, whatever the computer's own
+ *  time zone: entered, saved and shown in it. */
+export const SYDNEY_TIME_ZONE = 'Australia/Sydney'
 
-/** "2026-11-30T23:59": an instant as a date-time picker (AppDateTimePicker)
- *  or datetime-local input shows it here; '' for none. */
-export function toLocalDateTimeInput(value: string | null | undefined): string {
-  if (!value) return ''
-  const date = new Date(value)
-  return `${date.getFullYear()}-${twoDigit(date.getMonth() + 1)}-${twoDigit(date.getDate())}T${twoDigit(date.getHours())}:${twoDigit(date.getMinutes())}`
+/** "2026-11-30T23:59": an instant as Sydney's clock shows it, as a
+ *  Management date and time (SydneyDateTimeFields) holds it; '' for none. */
+export function toSydneyDateTimeInput(value: string | null | undefined): string {
+  const p = zonedParts(value, SYDNEY_TIME_ZONE)
+  return p ? `${p.year}-${p.mm}-${p.dd}T${p.HH}:${p.MM}` : ''
 }
 
-/** The instant the server keeps for a picker's "2026-11-30T23:59": it has no
- *  time zone, so Date() reads it as local time; null for none. */
-export function fromLocalDateTimeInput(value: string): string | null {
-  return value ? new Date(value).toISOString() : null
+/** Minutes Sydney's clock is ahead of UTC at an instant: 600 or 660. */
+const sydneyOffsetMinutes = (at: number) => {
+  const p = zonedParts(new Date(at), SYDNEY_TIME_ZONE)!
+  return Math.round((Date.UTC(Number(p.year), p.month - 1, p.day, p.hour, Number(p.MM)) - at) / 60_000)
+}
+
+/** The instant Sydney's clock shows as "2026-11-30T23:59", for the server;
+ *  null for none. */
+export function fromSydneyDateTimeInput(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const [, year, month, day, hour, minute] = match.map(Number)
+  const wall = Date.UTC(year!, month! - 1, day!, hour!, minute!)
+  // Sydney's offset at that time: guessed from the wall time read as UTC,
+  // then checked at the instant it gives (it differs only near a clock change).
+  let at = wall - sydneyOffsetMinutes(wall) * 60_000
+  const offset = sydneyOffsetMinutes(at)
+  at = wall - offset * 60_000
+  return new Date(at).toISOString()
+}
+
+/** Today's date in Sydney, "2026-10-24". */
+export function sydneyToday(): string {
+  return toSydneyDateTimeInput(new Date().toISOString()).slice(0, 10)
+}
+
+/** Management's statements of a date and time, in Sydney with its clock:
+ *  "20/10/2026 at 23:59 AEDT". */
+export function formatSydneyStatement(value: string | Date | null | undefined): string {
+  const text = formatStatementTime(value, SYDNEY_TIME_ZONE)
+  return text ? `${text} ${sydneyClockOn(toSydneyDateTimeInput(new Date(value!).toISOString()).slice(0, 10)).name}` : ''
 }

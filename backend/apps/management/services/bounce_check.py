@@ -1,10 +1,11 @@
 """Checking the sending mailboxes for bounce notices (``check_bounced_emails``),
 so the pages show who our emails didn't reach after the mail server took them.
 
-GitHub runs it about every 10 minutes (``.github/workflows/bounce-check.yml``)
-through ``POST /api/v1/management/bounce-check/``, which starts it on a
-background thread (``start_check``); ``manage.py check_bounced_emails`` runs it
-by hand.
+The backend's timer starts it every 10 minutes (``apps.management.scheduler``)
+on a background thread (``start_check``), as does
+``POST /api/v1/management/bounce-check/`` from
+``.github/workflows/bounce-check.yml`` by hand; ``manage.py
+check_bounced_emails`` runs it in the foreground.
 
 Each run reads, through Hostinger's Mail API, each sending mailbox's inbox
 messages newer than the last run's (``BounceCheckpoint``), back at most

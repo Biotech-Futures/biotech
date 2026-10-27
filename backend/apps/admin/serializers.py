@@ -1,7 +1,7 @@
 """Request-shape validation for admin endpoints."""
 from rest_framework import serializers
 
-from apps.admin.services.user import ROLES
+from apps.admin.services.user import BULK_IMPORTABLE_ROLES
 from apps.services.email_registry import (
     get_email_type,
     is_known_email_type,
@@ -29,7 +29,13 @@ class BulkUserRowSerializer(serializers.Serializer):
     """
 
     email = serializers.EmailField()
-    role = serializers.ChoiceField(choices=ROLES, required=False)
+    # The four a spreadsheet may create. Not ROLES: that list gained
+    # "support" when the role shipped, and this endpoint must not start
+    # accepting it. The same rule is enforced in add_users_by_role, which
+    # is where the CSV endpoint next door meets this one — this row-level
+    # check stays because it is what turns a bad JSON batch into one 400
+    # naming the row, instead of a 201 with a skipped list.
+    role = serializers.ChoiceField(choices=BULK_IMPORTABLE_ROLES, required=False)
     groupNumber = serializers.CharField(
         required=False, allow_blank=True, allow_null=True
     )
@@ -46,14 +52,22 @@ class BulkUserRowSerializer(serializers.Serializer):
 
 
 def bulk_user_error_message(errors) -> str:
-    """Flatten DRF's per-row error map into one row-numbered message."""
-    if isinstance(errors, dict):
+    """Flatten DRF's per-row error map into one row-numbered message.
+
+    DRF keys each failing row's errors by its index; errors about the list
+    itself (such as an empty list) arrive under ``non_field_errors``.
+    """
+    if isinstance(errors, list):
+        return "; ".join(
+            f"Row {index + 1}: {_format_row(row_errors)}"
+            for index, row_errors in enumerate(errors)
+        ) or "Invalid user payload"
+    if not all(isinstance(index, int) for index in errors):
         return _format_row(errors) or "Invalid user payload"
 
     parts = [
         f"Row {index + 1}: {_format_row(row_errors)}"
-        for index, row_errors in enumerate(errors)
-        if row_errors
+        for index, row_errors in errors.items()
     ]
     return "; ".join(parts) or "Invalid user payload"
 

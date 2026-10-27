@@ -132,6 +132,38 @@ class SendWaitingTests(TestCase):
             send_system_email("registration_student", "amy@example.test", CONTEXT)
         self.kept = WaitingEmail.objects.get()
 
+    def test_old_queued_email_counts_in_the_window_when_it_is_sent(self):
+        from apps.admin.services.analytics import get_email_delivery_analytics
+
+        sent_at = timezone.now()
+        WaitingEmail.objects.filter(pk=self.kept.pk).update(
+            created_at=sent_at - timedelta(hours=25),
+        )
+        with mock.patch("django.utils.timezone.now", return_value=sent_at):
+            self.assertEqual(send_waiting("info"), {"sent": 1, "failed": 0})
+            metric = EmailDeliveryMetric.objects.get(email_type="registration_student")
+            self.assertEqual(metric.started_at, sent_at)
+            self.assertEqual(metric.completed_at, sent_at)
+            self.assertEqual(get_email_delivery_analytics()["totals"]["attempted"], 1)
+
+        with mock.patch("django.utils.timezone.now", return_value=sent_at + timedelta(hours=24)):
+            self.assertEqual(get_email_delivery_analytics()["totals"]["attempted"], 0)
+
+    def test_old_queued_email_failure_is_timestamped_when_resolved(self):
+        from apps.admin.services.analytics import get_email_delivery_analytics
+
+        resolved_at = timezone.now()
+        WaitingEmail.objects.filter(pk=self.kept.pk).update(
+            created_at=resolved_at - timedelta(hours=25),
+        )
+        self.kept.refresh_from_db()
+        with mock.patch("django.utils.timezone.now", return_value=resolved_at):
+            waiting_email._missed(self.kept, {"amy@example.test": "address refused"})
+            metric = EmailDeliveryMetric.objects.get(email_type="registration_student")
+            self.assertEqual(metric.started_at, resolved_at)
+            self.assertEqual((metric.attempted_count, metric.delivered_count, metric.failed_count), (1, 0, 1))
+            self.assertEqual(get_email_delivery_analytics()["totals"]["failed"], 1)
+
     def test_once_the_server_can_be_reached_it_goes_as_it_was_built(self):
         self.assertEqual(send_waiting("info"), {"sent": 1, "failed": 0})
         [sent] = mail.outbox
@@ -142,6 +174,41 @@ class SendWaitingTests(TestCase):
         self.assertEqual(EmailDeliveryMetric.objects.get(email_type="registration_student").delivered_count, 1)
         entry = next(item for item in email_log() if item["key"] == "registration_student")
         self.assertEqual((entry["waiting"], entry["missed"]), ([], []))
+
+    def test_delayed_send_metric_uses_the_actual_retry_time(self):
+        started = self.kept.created_at + timedelta(hours=2)
+        completed = started + timedelta(seconds=3)
+        with mock.patch(
+            "apps.services.waiting_email.timezone.now",
+            # Retry start, retry completion, then the System Email Log time.
+            side_effect=[started, completed, completed],
+        ):
+            self.assertEqual(send_waiting("info", now=started), {"sent": 1, "failed": 0})
+
+        metric = EmailDeliveryMetric.objects.get(email_type="registration_student")
+        self.assertEqual((metric.started_at, metric.completed_at), (started, completed))
+
+    def test_partial_retry_is_one_partial_metric_not_success_and_failure_rows(self):
+        self.kept.recipients = ["amy@example.test", "bob@example.test"]
+        self.kept.save(update_fields=["recipients"])
+        refused = {"bob@example.test": (550, b"No such user")}
+
+        with mock.patch("apps.services.waiting_email.send_noting_refused", return_value=refused):
+            self.assertEqual(send_waiting("info"), {"sent": 1, "failed": 0})
+
+        [metric] = EmailDeliveryMetric.objects.filter(email_type="registration_student")
+        self.assertEqual(metric.status, EmailDeliveryMetric.Status.PARTIAL)
+        self.assertEqual(
+            (metric.attempted_count, metric.delivered_count, metric.failed_count),
+            (2, 1, 1),
+        )
+        self.assertEqual(
+            list(metric.recipients.order_by("email").values_list("email", "status")),
+            [
+                ("amy@example.test", "delivered"),
+                ("bob@example.test", "failed"),
+            ],
+        )
 
     def test_a_run_that_cant_reach_the_server_leaves_it_waiting(self):
         unreachable = mock.Mock()

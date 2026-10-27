@@ -16,6 +16,9 @@ const buildMentor = (overrides: Partial<AdminMentorDetail> = {}): AdminMentorDet
   remainingCapacity: 2,
   interests: [],
   lastMessageAt: null,
+  // No join date, so the grace never applies and these fixtures are judged on
+  // their messages alone.
+  dateJoined: null,
   hasLoggedIn: false,
   lastLogin: null,
   availability: [],
@@ -26,26 +29,50 @@ const buildMentor = (overrides: Partial<AdminMentorDetail> = {}): AdminMentorDet
 const mentorIds = (mentors: AdminMentorDetail[]) => mentors.map((mentor) => mentor.mentorId)
 
 describe('useAdminMentorsView sorting', () => {
-  it('sorts Status by displayed account active status', () => {
+  it('lists only mentors whose accounts are active', () => {
+    // The Status column is gone: a deactivated mentor is managed from the Users
+    // page, so this list never shows one. Their group still needs a mentor,
+    // which is what inactiveGroups below is for.
     const view = useAdminMentorsView()
     view.mentors.value = [
-      buildMentor({
-        mentorId: 1,
-        name: 'Active Old Message',
-        isActive: true,
-        lastMessageAt: '2025-01-01T00:00:00Z'
-      }),
-      buildMentor({
-        mentorId: 2,
-        name: 'Inactive Recent Message',
-        isActive: false,
-        lastMessageAt: '2026-01-01T00:00:00Z'
-      })
+      buildMentor({ mentorId: 1, name: 'Active', isActive: true, lastMessageAt: '2026-01-01T00:00:00Z' }),
+      buildMentor({ mentorId: 2, name: 'Deactivated', isActive: false, lastMessageAt: '2026-01-01T00:00:00Z' })
     ]
 
-    view.setSort('status')
+    expect(mentorIds(view.sortedMentors.value)).toEqual([1])
+  })
 
-    expect(mentorIds(view.sortedMentors.value)).toEqual([2, 1])
+  it('offers both deactivated and idle mentors for replacement', () => {
+    // The two screens used to disagree because one counted deactivated
+    // accounts and the other counted silence. Both belong here.
+    const view = useAdminMentorsView()
+    const recent = new Date().toISOString()
+    view.mentors.value = [
+      buildMentor({ mentorId: 1, name: 'Fine', isActive: true, lastMessageAt: recent, currentAssignedCount: 1 }),
+      buildMentor({ mentorId: 2, name: 'Deactivated', isActive: false, lastMessageAt: recent, currentAssignedCount: 1 }),
+      // Mentors a group below, so the count has to say so: silence is only
+      // held against a mentor who has somewhere to break it.
+      buildMentor({ mentorId: 3, name: 'Idle', isActive: true, lastMessageAt: '2020-01-01T00:00:00Z', currentAssignedCount: 1 })
+    ]
+    view.matchedGroups.value = [1, 2, 3].map((id) => ({
+      membershipId: id * 10,
+      groupId: id,
+      groupName: `BTF${id}`,
+      countryName: 'Australia',
+      studentCount: 1,
+      students: [],
+      mentor: {
+        mentorId: id,
+        name: `M${id}`,
+        isActive: id !== 2,
+        lastMessageAt: id === 3 ? '2020-01-01T00:00:00Z' : recent,
+        dateJoined: '2019-01-01T00:00:00Z',
+        countryName: 'Australia',
+        institution: null
+      }
+    }))
+
+    expect(view.inactiveGroups.value.map((g) => g.groupId).sort()).toEqual([2, 3])
   })
 
   it('sorts Logged In by No before Yes, then by last login date', () => {

@@ -155,6 +155,36 @@ export async function saveSupervisedGroupOrder(groupIds: number[]): Promise<void
   if (!response.ok) throw await apiErrorFromResponse(response)
 }
 
+/** How the supervisor's students without a group are matched, asked at the
+ *  top of My Groups; "" until they answer. */
+export type GroupingPreference = '' | 'school_only' | 'cross_school'
+
+export type GroupingAnswer = {
+  grouping_preference: GroupingPreference
+  school_name: string
+}
+
+export async function fetchGroupingPreference(): Promise<GroupingAnswer> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-groups/grouping-preference/`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: await headers(),
+  })
+  return read(response)
+}
+
+export async function saveGroupingPreference(
+  preference: Exclude<GroupingPreference, ''>,
+): Promise<GroupingAnswer> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-groups/grouping-preference/`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: await headers(true),
+    body: JSON.stringify({ grouping_preference: preference }),
+  })
+  return read(response)
+}
+
 // My Groups' Waiting Area: Create all groups. Every group of that kind
 // waiting there becomes a BIOTech group; answers with them.
 export async function createAllWaitingGroups(

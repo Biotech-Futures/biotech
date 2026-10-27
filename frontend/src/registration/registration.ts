@@ -5,6 +5,7 @@ export const REGISTRATION_JOURNEYS = [
   'supervisor_group',
   'supervisor_csv',
   'mentor',
+  'supervisor',
 ] as const
 
 export type RegistrationJourney = (typeof REGISTRATION_JOURNEYS)[number]
@@ -20,13 +21,6 @@ export const INTEREST_CATEGORIES = [
   'Neuroscience & Mental Health Tech',
   'Water & Energy Tech',
   'Ethical & Societal Impacts of Emerging Tech',
-] as const
-
-export const PRONOUN_OPTIONS = [
-  'She/her',
-  'He/him',
-  'They/them',
-  'Other',
 ] as const
 
 // Upload student details's columns, in this order (see parseRegistrationCsv).
@@ -67,12 +61,6 @@ export const CSV_HEADER_LABELS: Record<CsvHeader, string> = {
   guardian_email: 'Guardian Email',
 }
 
-export interface PhotoMetadata {
-  name: string
-  type: string
-  size: number
-}
-
 export interface GuardianDetails {
   firstName: string
   lastName: string
@@ -92,9 +80,6 @@ export interface StudentDetails {
   country: string
   state: string
   interests: string[]
-  pronouns: string
-  pronounsOther: string
-  profilePhoto: PhotoMetadata | null
   guardianDeferred: boolean
   guardian: GuardianDetails
 }
@@ -149,6 +134,8 @@ export interface CsvRow {
 export interface CsvParseResult {
   rows: CsvRow[]
   errors: string[]
+  /** The template's example rows, left out (their row numbers). */
+  examples: number[]
 }
 
 export interface SupervisorCsvForm {
@@ -171,6 +158,139 @@ export interface MentorForm {
   interests: string[]
   capacity: '' | '1' | '2' | '3' | '4' | '5'
   motivation: string
+  /** Asked of a University of Sydney student (see isUsyd) on Affiliation:
+   *  whether they study Engineering there, and if so their student ID. */
+  usydEngineering: '' | 'yes' | 'no'
+  studentId: string
+  /** Asked in Australia alone, on their own step before Review: date of
+   *  birth (YYYY-MM-DD), their state's Working with Children Check (see
+   *  wwccFor), whether they identify as Aboriginal or Torres Strait Islander,
+   *  and the languages they speak (with Other's typed in). */
+  dateOfBirth: string
+  wwccNumber: string
+  indigenous: '' | 'yes' | 'no' | 'prefer_not'
+  languages: string[]
+  languagesOther: string
+  /** Drawn on Review, as a PNG data URL: signed again whenever they come back to it. */
+  signature: string
+}
+
+/** Those asked whether they study Engineering at USYD: its students. */
+export const UNIVERSITY_STUDENTS: MentorForm['affiliation'][] = ['undergraduate', 'postgraduate', 'hdr']
+
+// The University of Sydney as it may be typed: lower case, without "the" or
+// punctuation. Not Western Sydney University, nor UTS. As the backend's
+// (apps.users.mentor_registration.is_usyd).
+const USYD_NAMES = ['university of sydney', 'sydney university', 'sydney uni', 'uni of sydney', 'usyd']
+
+export const isUsyd = (institution: string) => {
+  const name = institution
+    .toLowerCase()
+    .replace(/[^a-z ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
+    .replace(/^the /, '')
+  return USYD_NAMES.includes(name) || name.startsWith('university of sydney ')
+}
+
+/** Languages Spoken's choices, as the backend takes them; Other's is typed in. */
+export const LANGUAGE_OTHER = 'Other (please specify)'
+export const LANGUAGE_OPTIONS = [
+  'Arabic',
+  'Bengali',
+  'English',
+  'French',
+  'German',
+  'Hindi/Urdu',
+  'Italian',
+  'Japanese',
+  'Mandarin',
+  'Portuguese',
+  'Punjabi',
+  'Russian',
+  'Spanish',
+  LANGUAGE_OTHER,
+] as const
+
+export type WorkingWithChildrenCheck = { label: string; check: string; url: string }
+
+// Each state's check, by its code or full name, as the state dropdown may list it.
+const WWCC_BY_STATE: Record<string, WorkingWithChildrenCheck> = {
+  nsw: {
+    label: 'Working with Children Check Number (NSW)',
+    check: 'A valid volunteer level WWCC',
+    url: 'https://www.service.nsw.gov.au/transaction/apply-for-a-working-with-children-check',
+  },
+  vic: {
+    label: 'Working with Children Check Number (VIC)',
+    check: 'A valid volunteer level WWCC',
+    url: 'https://www.vic.gov.au/working-with-children-check',
+  },
+  qld: {
+    label: 'Blue Card (QLD)',
+    check: 'A valid volunteer Blue Card',
+    url: 'https://www.qld.gov.au/bluecard',
+  },
+  wa: {
+    label: 'Working with Children Check Number (WA)',
+    check: 'A valid volunteer level WWCC',
+    url: 'https://www.wa.gov.au/organisation/department-of-communities/working-children-check',
+  },
+  sa: {
+    label: 'Working with Children Check Number (SA)',
+    check: 'A valid volunteer Working with Children Check (WWCC)',
+    url: 'https://www.sa.gov.au/topics/rights-and-law/rights-and-responsibilities/screening-checks',
+  },
+  tas: {
+    label: 'Working with Vulnerable People Number (TAS)',
+    check: 'A valid volunteer Registration to Work with Vulnerable People (RWVP)',
+    url: 'https://www.cbos.tas.gov.au/topics/licensing-and-registration/work-with-vulnerable-people/applications/apply',
+  },
+  act: {
+    label: 'Working with Vulnerable People Number (ACT)',
+    check: 'A valid volunteer Working with Vulnerable People (WWVP) registration',
+    url: 'https://www.accesscanberra.act.gov.au/business-and-work/working-with-vulnerable-people/apply-for-or-renew-a-wwvp-registration',
+  },
+  nt: {
+    label: 'Ochre Card Number (NT)',
+    check: 'A valid volunteer Ochre Card',
+    url: 'https://nt.gov.au/emergency/child-safety/apply-for-a-working-with-children-clearance',
+  },
+}
+const STATE_CODES: Record<string, string> = {
+  'new south wales': 'nsw',
+  victoria: 'vic',
+  queensland: 'qld',
+  'western australia': 'wa',
+  'south australia': 'sa',
+  tasmania: 'tas',
+  'australian capital territory': 'act',
+  'northern territory': 'nt',
+}
+
+/** The Working with Children Check an Australian state asks for: its
+ *  question, what's required and where to apply. A general one with no state. */
+export const wwccFor = (state: string): WorkingWithChildrenCheck => {
+  const key = state.trim().toLowerCase()
+  return (
+    WWCC_BY_STATE[STATE_CODES[key] ?? key] ?? {
+      label: 'Working with Children Check Number',
+      check: 'A valid volunteer Working with Children Check',
+      url: '',
+    }
+  )
+}
+
+/** A supervisor registering themselves: who they are and their school. */
+export interface SupervisorForm {
+  firstName: string
+  lastName: string
+  email: string
+  school: string
+  relationship: '' | 'teacher' | 'parent'
+  country: string
+  state: string
 }
 
 /** The most words a mentor's written answer may have. */
@@ -185,6 +305,7 @@ export interface RegistrationForms {
   supervisorGroup: SupervisorGroupForm
   supervisorCsv: SupervisorCsvForm
   mentor: MentorForm
+  supervisor: SupervisorForm
   /** An admin's students' supervisor (Management > Registration): an existing
    *  supervisor's email, if they choose one, on every supervisor journey. */
   adminSupervisorEmail: string
@@ -221,9 +342,6 @@ export const createStudent = (options: { deferGuardian?: boolean } = {}): Studen
   country: '',
   state: '',
   interests: [],
-  pronouns: '',
-  pronounsOther: '',
-  profilePhoto: null,
   guardianDeferred: Boolean(options.deferGuardian),
   guardian: createGuardian(),
 })
@@ -238,15 +356,13 @@ export const isBlankStudent = (student: StudentDetails) =>
     student.school,
     student.yearLevel,
     student.state,
-    student.pronouns,
     student.guardian.firstName,
     student.guardian.lastName,
     student.guardian.email,
   ].some((value) => value.trim()) &&
-  !student.interests.length &&
-  !student.profilePhoto
+  !student.interests.length
 
-/** Whether any of a (optional) nominated supervisor's details were given. */
+/** Whether any of a nominated supervisor's details were given. */
 export const hasSupervisor = (supervisor: SupervisorDetails) =>
   Boolean(supervisor.firstName.trim() || supervisor.lastName.trim() || supervisor.email.trim())
 
@@ -320,6 +436,23 @@ export const createRegistrationForms = (): RegistrationForms => ({
     interests: [],
     capacity: '',
     motivation: '',
+    usydEngineering: '',
+    studentId: '',
+    dateOfBirth: '',
+    wwccNumber: '',
+    indigenous: '',
+    languages: [],
+    languagesOther: '',
+    signature: '',
+  },
+  supervisor: {
+    firstName: '',
+    lastName: '',
+    email: '',
+    school: '',
+    relationship: '',
+    country: '',
+    state: '',
   },
 })
 
@@ -466,12 +599,13 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
     return {
       rows: [],
       errors: [error instanceof Error ? error.message : 'The CSV could not be read.'],
+      examples: [],
     }
   }
 
-  if (!matrix.length) return { rows: [], errors: ['The CSV is empty.'] }
+  if (!matrix.length) return { rows: [], errors: ['The CSV is empty.'], examples: [] }
   if (matrix.length - 1 > MAX_CSV_ROWS) {
-    return { rows: [], errors: [`Upload no more than ${MAX_CSV_ROWS} students per CSV.`] }
+    return { rows: [], errors: [`Upload no more than ${MAX_CSV_ROWS} students per CSV.`], examples: [] }
   }
 
   // The template's headers, in its order: its name for each (or the old one),
@@ -484,7 +618,7 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
           `Column ${index + 1} must be ${CSV_HEADER_LABELS[header]}${headers[index] ? `, not ${headers[index]}` : ''}.`,
         ],
   )
-  if (errors.length) return { rows: [], errors }
+  if (errors.length) return { rows: [], errors, examples: [] }
 
   const rows: CsvRow[] = matrix
     .slice(1)
@@ -499,9 +633,19 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
     // A row with something only in the ignored columns is ignored too.
     .filter(({ values }) => Object.values(values).some(Boolean))
 
+  // The template's example row, if it's still there: never registered.
+  const examples = rows.filter(isTemplateExample).map(({ rowNumber }) => rowNumber)
+  const students = rows.filter((row) => !isTemplateExample(row))
   return {
-    rows: revalidateRegistrationCsvRows(rows),
-    errors: rows.length ? [] : ['The CSV has a header row but no student rows.'],
+    rows: revalidateRegistrationCsvRows(students),
+    errors: students.length
+      ? []
+      : [
+          examples.length
+            ? "The file only has the template's example row. Add a row for each student."
+            : 'The CSV has a header row but no student rows.',
+        ],
+    examples,
   }
 }
 
@@ -513,6 +657,37 @@ const headerMatches = (typed: string, header: CsvHeader) =>
 
 export const registrationCsvTemplate = (): string =>
   `${CSV_HEADERS.map((header) => CSV_HEADER_LABELS[header]).join(',')}\r\n`
+
+/** The template's example row, to show how each column is filled in. Its
+ *  addresses are on the reserved .invalid domain, so it's nobody's: uploaded
+ *  back, it's left out (isTemplateExample), never registered. */
+export const CSV_EXAMPLE_ROW: Record<CsvHeader, string> = {
+  first_name: 'Alex',
+  last_name: 'Example',
+  email: 'alex.example@school.invalid',
+  school: 'Example High School',
+  year_level: '10',
+  country: 'Australia',
+  state: 'NSW',
+  interests: 'Biomedical Innovations, AI & Robotics and Smart Systems',
+  guardian_first_name: 'Pat',
+  guardian_last_name: 'Example',
+  guardian_email: 'pat.example@family.invalid',
+}
+
+/** Beside the example row in the template (a column uploads ignore). */
+export const CSV_EXAMPLE_NOTE =
+  "Example only: this row won't be registered. Add your students below it, or type over it."
+
+/** The template: its header row, and its example row. */
+export const registrationTemplateRows = () => ({
+  header: CSV_HEADERS.map((header) => CSV_HEADER_LABELS[header]),
+  example: CSV_HEADERS.map((header) => CSV_EXAMPLE_ROW[header]),
+})
+
+/** The template's own example row, uploaded back (its student's address). */
+export const isTemplateExample = (row: Pick<CsvRow, 'values'>) =>
+  row.values.email.trim().toLowerCase() === CSV_EXAMPLE_ROW.email
 
 const normalizedEmail = (value: string) => value.trim().toLowerCase()
 
@@ -648,6 +823,8 @@ export const payloadForRegistrationJourney = (
       }
     case 'mentor':
       return { mentor: forms.mentor }
+    case 'supervisor':
+      return { supervisor: forms.supervisor }
   }
 }
 

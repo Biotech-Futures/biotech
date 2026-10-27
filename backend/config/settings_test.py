@@ -1,6 +1,11 @@
 """
 Canonical Django settings for automated tests (`manage.py test`).
 
+These run the tests on SQLite in memory, for quick local runs with no
+database to start. CI runs them on Postgres instead, the database production
+runs on (``config.settings_test_postgres``), which refuses things SQLite lets
+through.
+
 Import base from ``settings_local`` so tests use SQLite media, lax cookies,
 in-memory Channels — not production Azure/session defaults from ``settings``.
 
@@ -84,3 +89,10 @@ STORAGES = {
 }
 # Pinned on, so turning it off in a local .env cannot stop the suite testing it.
 SUBMISSION_POSTER_CHECKS_ENABLED = True
+
+# System Logs keeps nothing unless a test turns it on (tests/apps/system_logs
+# do), and then writes inline, so a test can read the row at once inside its
+# own transaction. Inline rows roll back with the view's transaction, unlike
+# the background writer's; tests of that case switch the writer back on.
+SYSTEM_LOG_DB_ENABLED = False
+SYSTEM_LOG_DISPATCH_SYNC = True

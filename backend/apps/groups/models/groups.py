@@ -52,8 +52,11 @@ def generate_group_name(number: int) -> str:
 
 
 def default_group_year() -> int:
-    """Default ``year`` for a new group: the year it is created in."""
-    return timezone.now().year
+    """Default ``year`` for a new group: the challenge year it's made in,
+    which Start new year moves on, maybe months before the calendar does."""
+    from apps.submissions.services import current_cohort  # its models import this module
+
+    return current_cohort()
 
 
 def _highest_active_plus_one() -> int:
@@ -182,6 +185,10 @@ class Groups(models.Model):
     year = models.PositiveSmallIntegerField(default=default_group_year)
     created_at = models.DateTimeField(default=timezone.now)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    # When Start new year archived it (Management > New Year). ``deleted_at``
+    # is set with it, so it's out of sight wherever a deleted group is, while
+    # this tells it apart from one deleted by hand. It's never restored.
+    archived_at = models.DateTimeField(null=True, blank=True)
     # A student group's code to share with its teammates: numbers only, apart
     # from its name, held while registering (GroupCodeReservation). None for
     # other groups.
@@ -362,11 +369,13 @@ class GroupCodeReservation(models.Model):
     """A group code (numbers only, see ``new_group_code``) held for a student
     creating a group: shown while they register, so they can save it and
     share it with their teammates, and taken by the group once it's
-    registered (``Groups.create_with_code``). Held until registration ends
-    (``hold_new``'s ``until``); an expired hold counts for nothing."""
+    registered (``Groups.create_with_code``). Held for 4 months, as a
+    registered group's is said to be, or until registration ends if that's
+    later (``hold_new``'s ``until``); an expired hold counts for nothing."""
 
-    # The least a code is held for, even when registration ends sooner.
-    HOLD = timedelta(hours=24)
+    # The least a code is held for (about 4 months), even when registration
+    # ends sooner.
+    HOLD = timedelta(days=122)
 
     code = models.CharField(max_length=12, unique=True)
     # The holder's secret: whoever has it can register the group with the code.
@@ -392,7 +401,7 @@ class GroupCodeReservation(models.Model):
                 with transaction.atomic():
                     cls.objects.filter(code=code, expires_at__lte=now).delete()
                     return cls.objects.create(
-                        code=code, token=secrets.token_urlsafe(32), expires_at=expires_at,
+                        code=code, token=secrets.token_urlsafe(32), created_at=now, expires_at=expires_at,
                     )
             except IntegrityError:
                 continue

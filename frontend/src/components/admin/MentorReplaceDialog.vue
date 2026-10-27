@@ -1,7 +1,7 @@
 <template>
   <FormSheet
     :model-value="open"
-    title="Replace Inactive Mentors"
+    title="Replace Idle Mentors"
     :description="description"
     width="min(100vw, 600px)"
     @update:model-value="onDismiss"
@@ -19,7 +19,11 @@
         <div class="replace-dialog__group">
           <p class="replace-dialog__name">{{ group.groupName }}</p>
           <p class="replace-dialog__current">
-            Current: <span class="replace-dialog__danger">{{ group.mentor.name }} (inactive)</span>
+            Current:
+            <span class="replace-dialog__danger">
+              {{ group.mentor.name }}
+              ({{ mentorConcern(group.mentor, idleDays) === 'idle' ? 'idle' : 'inactive' }})
+            </span>
           </p>
           <p v-if="topSuggestionFor(group.groupId)" class="replace-dialog__suggested">
             ★ Suggested: {{ topName(group.groupId) }} (score {{ topScore(group.groupId) }})
@@ -38,6 +42,19 @@
           :aria-label="`Replacement mentor for ${group.groupName}`"
         />
       </div>
+    </div>
+
+    <!-- One pair for the batch: the admin is confirming a single action over
+         several groups, so per-row toggles would be noise. -->
+    <div class="replace-dialog__notify">
+      <label>
+        <input v-model="notifyDeparting" type="checkbox" :disabled="busy" />
+        Notify departing mentors
+      </label>
+      <label>
+        <input v-model="notifyIncoming" type="checkbox" :disabled="busy" />
+        Notify incoming mentors
+      </label>
     </div>
 
     <template #footer>
@@ -68,7 +85,13 @@ import {
   fetchMentorReplaceSuggestions,
   unassignMentors
 } from '@/utils/adminAPI'
+import { mentorConcern } from '@/utils/mentorFormat'
+import { useIdleThreshold } from '@/composables/admin/useIdleThreshold'
 import { logApiError } from '@/utils/apiError'
+
+// The reason shown per row follows the threshold the admin set, like the
+// counts on the screens behind this dialog.
+const { idleDays } = useIdleThreshold()
 
 const UNASSIGN_VALUE = '__unassign__'
 
@@ -91,11 +114,39 @@ const selections = reactive<Record<number, string>>({})
 
 const description = computed(() => {
   const count = props.inactiveGroups.length
-  return `${count} group${count === 1 ? '' : 's'} ${count === 1 ? 'has' : 'have'} an inactive mentor. The best match from the matcher is pre-selected - adjust any, or choose "Unassign" to leave a group unmatched.`
+  // "needs a new mentor" covers both reasons without claiming either; each row
+  // says which one applies.
+  return `${count} group${count === 1 ? '' : 's'} ${count === 1 ? 'needs' : 'need'} a new mentor. The best match from the matcher is pre-selected - adjust any, or choose "Unassign" to leave a group unmatched.`
 })
 
+/** The whole roster by id, so a scored suggestion can be held to the same
+ *  check as the badge on the row above it. */
+const mentorById = computed(
+  () => new Map(props.mentors.map((mentor) => [mentor.mentorId, mentor]))
+)
+
+/**
+ * Replacing an idle mentor with another idle one just moves the problem to a
+ * new group, so nothing on this screen offers one.
+ *
+ * This has to be applied to the backend's scored suggestions as much as to the
+ * raw pool. Matching is deliberately more forgiving - it forgives a recent
+ * join date, which this screen does not - so it will score a mentor the row
+ * beside it is flagging. Holding both to `mentorConcern`, against the same
+ * threshold that paints the badge, is what stops the two disagreeing.
+ */
+const isOfferable = (mentorId: number): boolean => {
+  const mentor = mentorById.value.get(mentorId)
+  // The roster is every mentor, so a miss means a stale list rather than a
+  // concern we failed to spot. Nothing to hold against them.
+  return !mentor || mentorConcern(mentor, idleDays.value) === null
+}
+
+/** Filtered at the source: the "Suggested" line, the pre-selection and the
+ *  dropdown all read from here, and they must not differ on who is eligible.
+ *  Pre-selecting someone the dropdown refuses to list leaves a row stuck. */
 const suggestionsFor = (groupId: number): MentorReplaceSuggestion[] =>
-  suggestionsByGroup.value.get(groupId) ?? []
+  (suggestionsByGroup.value.get(groupId) ?? []).filter((s) => isOfferable(s.mentorUserId))
 
 const topSuggestionFor = (groupId: number): MentorReplaceSuggestion | undefined =>
   suggestionsFor(groupId).find((s) => !s.atCapacity) || suggestionsFor(groupId)[0]
@@ -123,6 +174,7 @@ const optionsFor = (groupId: number): ReplaceOption[] => {
   for (const mentor of props.mentors) {
     if (scoredIds.has(mentor.mentorId)) continue
     if (mentor.remainingCapacity <= 0) continue
+    if (!isOfferable(mentor.mentorId)) continue
     options.push({
       value: String(mentor.mentorId),
       label: `${mentor.name}${mentor.remainingCapacity === 0 ? ' (full)' : ''}`
@@ -142,12 +194,17 @@ const actionCount = computed(
   () => props.inactiveGroups.filter((group) => selections[group.groupId]).length
 )
 
+const notifyDeparting = ref(true)
+const notifyIncoming = ref(true)
+
 const applyDefaults = () => {
   for (const group of props.inactiveGroups) {
     if (selections[group.groupId] !== undefined) continue
-    const top = (suggestionsByGroup.value.get(group.groupId) ?? []).find(
-      (s) => !s.atCapacity
-    )
+    // Through `suggestionsFor`, so an ineligible mentor is never pre-selected.
+    // Reading the raw map here meant a mentor the dropdown refused to list
+    // could still be selected, invisibly - the row looked untouched and
+    // Confirm sent them anyway. Still never someone already at capacity.
+    const top = suggestionsFor(group.groupId).find((s) => !s.atCapacity)
     if (top) selections[group.groupId] = String(top.mentorUserId)
   }
 }
@@ -157,7 +214,11 @@ const loadSuggestions = async () => {
   error.value = ''
   try {
     const results = await Promise.all(
-      props.inactiveGroups.map((group) => fetchMentorReplaceSuggestions(group.groupId))
+      // The admin's own threshold decides who counts as idle, so it travels
+      // with the request: a quiet mentor is not offered as a replacement.
+      props.inactiveGroups.map((group) =>
+        fetchMentorReplaceSuggestions(group.groupId, idleDays.value)
+      )
     )
     const next = new Map<number, MentorReplaceSuggestion[]>()
     results.forEach((data) => next.set(data.groupId, data.suggestions))
@@ -219,9 +280,18 @@ const confirm = async () => {
   try {
     await Promise.all([
       assignments.length
-        ? confirmMentorAssignments(assignments).then((result) => result.confirmedCount)
+        ? confirmMentorAssignments(assignments, {
+            idleDays: idleDays.value,
+            notifyDeparting: notifyDeparting.value,
+            notifyIncoming: notifyIncoming.value
+          }).then((result) => result.confirmedCount)
         : Promise.resolve(0),
-      unassigns.length ? unassignMentors(unassigns).then((result) => result.unassignedCount) : Promise.resolve(0)
+      // An unassigned group gains no mentor, so only the departing flag applies.
+      unassigns.length
+        ? unassignMentors(unassigns, { notifyDeparting: notifyDeparting.value }).then(
+            (result) => result.unassignedCount
+          )
+        : Promise.resolve(0)
     ])
     reset()
     emit('update:open', false)
@@ -327,5 +397,22 @@ const confirm = async () => {
   .replace-dialog__spinner {
     animation: none;
   }
+}
+
+.replace-dialog__notify {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.replace-dialog__notify label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 </style>

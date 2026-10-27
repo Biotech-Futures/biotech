@@ -8,6 +8,7 @@ from .guardian_details_views import (
 )
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
+    SupervisedGroupingPreferenceView,
     SupervisedGroupMembersView,
     SupervisedGroupOrderView,
     SupervisedGroupsPlaceView,
@@ -39,7 +40,9 @@ from .views import (
     SupervisedStudentsView,
 )
 from .email_precheck import EmailCheckStartView, EmailCheckStatusView
-from .registration_sheet import RegistrationSheetView
+from .email_field_check import EmailFieldCheckView
+from .registration_password import RegistrationPasswordView
+from .registration_sheet import RegistrationSheetView, RegistrationTemplateView
 from .registration_intake import (
     RegistrationCountriesView,
     RegistrationGroupCodeView,
@@ -88,6 +91,11 @@ urlpatterns = [
     path("users/supervised-groups/interests/", SupervisedInterestCatalogView.as_view(), name="supervised-group-interests"),
     path("users/supervised-groups/", SupervisedGroupsView.as_view(), name="supervised-groups"),
     path("users/supervised-groups/order/", SupervisedGroupOrderView.as_view(), name="supervised-group-order"),
+    path(
+        "users/supervised-groups/grouping-preference/",
+        SupervisedGroupingPreferenceView.as_view(),
+        name="supervised-grouping-preference",
+    ),
     # My Groups' Waiting Area: Create all groups.
     path("users/supervised-groups/place/", SupervisedGroupsPlaceView.as_view(), name="supervised-groups-place"),
     path("users/supervised-groups/<int:pk>/members/", SupervisedGroupMembersView.as_view(), name="supervised-group-members"),
@@ -103,10 +111,15 @@ urlpatterns = [
     path("registration/group-code/<str:code>/", RegistrationGroupJoinView.as_view(), name="registration-group-join"),
     path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
     path("registration/universities/", RegistrationUniversitiesView.as_view(), name="registration-universities"),
+    # A new registration's first password, set straight after registering.
+    path("registration/password/", RegistrationPasswordView.as_view(), name="registration-password"),
     # Upload student details, from an .xlsx: its first sheet as CSV text.
     path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
+    path("registration/sheet/template/", RegistrationTemplateView.as_view(), name="registration-sheet-template"),
     # Check a registration's addresses before it's submitted (EMAIL_PRECHECK_ENABLED).
     path("registration/email-check/", EmailCheckStartView.as_view(), name="registration-email-check"),
+    # Always on: unlike the pre-check, no switch, window gate or rate limit.
+    path("registration/email-check/field/", EmailFieldCheckView.as_view(), name="registration-email-field-check"),
     path(
         "registration/email-check/<uuid:job_id>/", EmailCheckStatusView.as_view(),
         name="registration-email-check-status",

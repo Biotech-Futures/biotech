@@ -2,6 +2,7 @@
 TypeScript User Module Conversion to Python
 Literal translation from admin/apps/server/src/module/user/
 """
+import logging
 import re
 from datetime import datetime
 
@@ -16,10 +17,15 @@ from apps.users.models import (
     User, StudentProfile, SupervisorProfile, MentorProfile,
     AreasOfInterest, UserInterest, StudentSupervisor, GuardianConsent
 )
+from apps.tickets.models import SupportScope
 from apps.users.models.admin_scope import AdminScope
+from apps.users.models.mentor_profile import normalize_mentor_background
 from apps.users.models.mentor_availability import MentorAvailability
 from apps.users.profile_images import delete_profile_image_file, profile_image_url
+from apps.submissions.services import current_cohort
+from apps.users.returning import bring_back_for_this_year, earlier_challenge_year
 from apps.users.email_verification import check_one_address, invalid_address_message
+from apps.users.serializers import PLACEHOLDER_ADDRESS, is_placeholder_email, new_guardian_email_problem
 from apps.users.mentor_registration import (
     MAX_WORDS as MENTOR_MAX_WORDS, STUDY_YEARS as MENTOR_STUDY_YEARS,
 )
@@ -35,11 +41,71 @@ from apps.services.models import LoginToken, PasswordResetToken
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 
+logger = logging.getLogger(__name__)
+
+# What an admin is shown when something failed for a reason nobody wrote a
+# sentence for.
+#
+# These paths used to interpolate str(exc) straight into `msg`, which is the
+# field the admin app renders in a toast. On its own that looked harmless —
+# nothing displayed it, because the frontend swallowed 4xx into a generic
+# string. Then the frontend was fixed to show the server's own words (so that
+# "Country cannot be cleared" and "Email already exists" would reach the
+# person editing), and the two reasonable halves added up to Python exception
+# text in a toast: table names, column names, whatever psycopg says.
+#
+# The deliberate refusals stay verbatim, because they are written for the
+# reader. Only the "something blew up" cases are replaced, and the detail goes
+# to the log where it is useful to us and invisible to them.
+UNEXPECTED_FAILURE = (
+    "Something went wrong saving that. Nothing was changed. "
+    "If it keeps happening, tell the team what you were doing."
+)
+
 
 # ============================================================================
 # CONSTANTS
 # ============================================================================
-ROLES = ["student", "mentor", "supervisor", "admin"]
+# Every role the platform knows. "support" was missing from this list for two
+# months after the role shipped: it was written in July, the client asked for a
+# fifth role on 2026-09-04, and nothing brought the two together.
+ROLES = ["student", "mentor", "supervisor", "admin", "support"]
+
+# The subset a spreadsheet may create. Support and admin are left out on
+# purpose: both hand out access to every ticket on a platform whose users are
+# minors, and a bulk upload is the one path where nobody looks at the rows one
+# at a time. Making an agent stays a deliberate act on the People page, which
+# is also where the client asked for it ("similar to how they can currently
+# create a new admin user").
+BULK_IMPORTABLE_ROLES = ["student", "mentor", "supervisor"]
+
+
+def role_rejection_message(role, allowed):
+    """Why this role may not be used here, or None if it may.
+
+    Two different refusals, because they need two different answers: a role
+    that exists but is not allowed on this path tells the admin where to go
+    instead, and a role that does not exist at all is a typo or a tampered
+    payload.
+    """
+    if role in allowed:
+        return None
+    shown = role if isinstance(role, str) and role.strip() else "(blank)"
+    if role in ROLES:
+        return (f'"{shown}" accounts are created one at a time from the People '
+                f'page, not by import.')
+    return f'"{shown}" is not a role. Use one of: {", ".join(allowed)}.'
+
+# The roles that carry no geography. One list, because the create path and the
+# update path each had their own copy of this rule and they drifted the first
+# time "support" was added: accounts could be created and then not saved.
+#
+# Nothing reads a support agent's or an admin's country. Ticket.region is a
+# snapshot of the *requester's* country taken at submission
+# (apps/tickets/services/lifecycle._region_snapshot), never the agent's.
+# adminweb has its own copy of this list in src/type/user.ts, which is what
+# decides whether the editor even shows the field.
+ROLES_WITHOUT_GEOGRAPHY = ("admin", "support")
 
 # Co-registration: friends who register together (same group number in the bulk
 # upload) are placed in one group. Beyond this size we keep them together but warn.
@@ -375,7 +441,7 @@ def ensure_admin_email_available(email: str) -> Optional[str]:
     Check if email is already in use by any user.
     Returns error message if email exists, None otherwise.
     """
-    if User.objects.filter(email=email).exists():
+    if User.objects.filter(email__iexact=email).exists():
         return "Account email already exists"
     return None
 
@@ -477,7 +543,7 @@ def with_consent_request_sent_at(queryset):
     """Student profiles with when a consent request was last sent, and their
     standing signed form's media answer and its times, in the same query, for
     the admin payload."""
-    form = GuardianConsent.objects.filter(student=OuterRef("pk"), withdrawn_at__isnull=True).order_by("-signed_at")
+    form = GuardianConsent.objects.standing().filter(student=OuterRef("pk")).order_by("-signed_at")
     return queryset.annotate(
         last_consent_request_at=Max("consent_requests__created_at"),
         form_signed_at=Subquery(form.values("signed_at")[:1]),
@@ -720,6 +786,9 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         # Every group a supervisor is in: their students' groups.
         "supervisorGroups": member_extras([user.id])[user.id]["groups"] if supervisor_profile else [],
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
+        # The challenge year a student is from, when it's an earlier one: set
+        # back to Active, they're this year's (apps.users.returning).
+        "earlierChallengeYear": earlier_challenge_year(student_profile, current_cohort()),
         **_guardian_dict(student_profile),
         "interests": interests,
         "isAdmin": is_admin,
@@ -727,11 +796,14 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "hasLoggedIn": user.last_login is not None,
         "lastLogin": user.last_login.isoformat() if user.last_login else None,
         "accountStatus": "active" if user.is_active else "deactivated",
+        # When the account was created; registration analytics count from it.
+        "createdAt": user.date_joined.isoformat(),
         "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
         "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
         "supervisorName": supervisor_name,
         "supervisorEmail": supervisor_email_val,
         "supervisees": supervisees or [],
+        "adminNotes": user.admin_notes or "",
         **last_edits([user.id]).get(user.id, _NO_EDIT),
     }
 
@@ -818,22 +890,26 @@ def get_admin_user_ids(user_ids: List[int]) -> set:
 
 def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str] = None,
                                 state: Optional[str] = None, active: Optional[bool] = None,
-                                in_group: Optional[str] = None, country: Optional[str] = None):
+                                in_group: Optional[str] = None, country: Optional[str] = None,
+                                include_admin_notes: bool = False):
     """Filtered (unpaginated) user queryset shared by the list view and
-    filter-based bulk actions, so 'select all matching' hits exactly the rows
-    the list would show for the same filters."""
+    filter-based bulk actions. Admin notes are included only for the list view;
+    filter-based bulk actions must not select users based on private notes."""
     now = timezone.now()
     filters = Q()
 
     if search:
         normalized_search = search.strip()
-        filters &= (
+        search_filters = (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
             Q(search_full_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
             Q(groupmembership__group__group_name__icontains=normalized_search)
         )
+        if include_admin_notes:
+            search_filters |= Q(admin_notes__icontains=normalized_search)
+        filters &= search_filters
 
     if role:
         filters &= Q(roleassignmenthistory__role__role_name=role) & (
@@ -869,7 +945,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     queryset = _build_user_filter_queryset(
         search=search, role=role, state=state, active=active, in_group=in_group,
-        country=country,
+        country=country, include_admin_notes=True,
     )
 
     # Get total count
@@ -996,6 +1072,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     # Build response in original user_ids order
     users_list = []
+    this_year = current_cohort()
     for uid in user_ids:
         user = users_by_id.get(uid)
         if not user:
@@ -1039,6 +1116,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             **_mentor_dict(mp, members_extra.get(uid)),
             "supervisorGroups": members_extra[uid]["groups"] if supervisor else [],
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
+            "earlierChallengeYear": earlier_challenge_year(sp, this_year),
             **_guardian_dict(sp),
             "interests": interests_map.get(uid, []),
             "isAdmin": uid in admin_user_ids,
@@ -1046,11 +1124,13 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "hasLoggedIn": user.last_login is not None,
             "lastLogin": user.last_login.isoformat() if user.last_login else None,
             "accountStatus": "active" if user.is_active else "deactivated",
+            "createdAt": user.date_joined.isoformat(),
             "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
             "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
             "supervisorName": supervisor_name,
             "supervisorEmail": supervisor_email_val,
             "supervisees": supervisees_for_user,
+            "adminNotes": user.admin_notes or "",
             **last_edit_map.get(uid, _NO_EDIT),
         })
 
@@ -1134,10 +1214,21 @@ def _filter_by_active_group_membership(queryset, in_group: Optional[str]):
 # MUTATION FUNCTIONS (mutation.ts logic)
 # ============================================================================
 
-def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def add_users_by_role(
+    inputs: List[Dict[str, Any]], initiated_by=None, allowed_roles=None
+) -> List[Dict[str, Any]]:
+    """Bulk create users with validation and role-specific setup.
+
+    ``allowed_roles`` is the set of roles this caller may create, and it is
+    checked here rather than at each view because here is where every path
+    meets. The role was previously only ever checked by BulkUserRowSerializer,
+    which one of the two bulk endpoints uses: the JSON one refused
+    ``role: support`` and the CSV one beside it created the account, granted
+    queue access and left the audit row with no actor. ``resolve_role_id`` is a
+    get_or_create, so an unknown role did not fail either — it added a row to
+    the roles table and carried on.
     """
-    Bulk create users with validation and role-specific setup.
-    """
+    allowed = list(ROLES if allowed_roles is None else allowed_roles)
     results = []
     now = timezone.now()
     
@@ -1148,15 +1239,47 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         role = input_data.get("role", "student")
         country_name = (input_data.get("country") or "").strip()
         state_name = (input_data.get("state") or "").strip()
+        mentor_background = None
 
-        # Check if user exists
-        if User.objects.filter(email=email).exists():
+        refusal = role_rejection_message(role, allowed)
+        if refusal is not None:
+            results.append({"input": input_data, "msg": refusal, "data": None})
+            continue
+
+        # What Add user's own check refuses as each box is left
+        # (user_email_check): not an address, or the template's placeholder.
+        from apps.admin.user_email_check import (
+            TAKEN, account_email_problem, guardian_email_problem, supervisor_email_problem,
+        )
+
+        problem = account_email_problem(email)
+        if problem and problem != TAKEN:
+            results.append({"input": input_data, "msg": problem, "data": None})
+            continue
+
+        # Check if user exists (in any case)
+        if problem == TAKEN:
             results.append({
                 "input": input_data,
                 "msg": "Email already exists",
                 "data": None
             })
             continue
+
+        # A student's guardian: an address, not the student's own, nor a student's.
+        guardian_email = str(input_data.get("guardianEmail") or "").strip().lower()
+        if role == "student" and guardian_email:
+            problem = guardian_email_problem(guardian_email, email)
+            if problem:
+                results.append({"input": input_data, "msg": problem, "data": None})
+                continue
+        # And their supervisor: never a student, mentor or admin made one.
+        supervisor_email = str(input_data.get("supervisorEmail") or "").strip().lower()
+        if role == "student" and supervisor_email:
+            problem = supervisor_email_problem(supervisor_email, email)
+            if problem:
+                results.append({"input": input_data, "msg": problem, "data": None})
+                continue
         
         # Only an email and a role are needed: an admin may add someone before
         # their country, school or year are known. A year given is 9 to 12.
@@ -1209,6 +1332,16 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 results.append({
                     "input": input_data,
                     "msg": "Max group count is required for mentor users",
+                    "data": None
+                })
+                continue
+            # Single create and CSV bulk import both arrive here.
+            try:
+                mentor_background = normalize_mentor_background(input_data.get("mentorBackground"))
+            except ValueError as exc:
+                results.append({
+                    "input": input_data,
+                    "msg": str(exc),
                     "data": None
                 })
                 continue
@@ -1265,9 +1398,10 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         try:
             role_id = resolve_role_id(role)
         except Exception as e:
+            logger.exception("admin.user.resolve_role_failed role=%s", role)
             results.append({
                 "input": input_data,
-                "msg": f"Error resolving role: {str(e)}",
+                "msg": UNEXPECTED_FAILURE,
                 "data": None
             })
             continue
@@ -1290,6 +1424,10 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 is_active = input_data.get("active", True)
                 account_status = STATUS_ACTIVE if is_active else STATUS_INVITED
                 
+                admin_notes = (
+                    (input_data.get("adminNotes") if "adminNotes" in input_data else input_data.get("admin_notes")) or ""
+                ).strip()
+
                 # Create user
                 user = User.objects.create_user(
                     email=email,
@@ -1305,6 +1443,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     is_superuser=role == "admin",
                     invited_at=now,
                     activated_at=now if is_active else None,
+                    admin_notes=admin_notes,
                 )
                 
                 new_user_id = user.id
@@ -1351,7 +1490,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 elif role == "mentor":
                     upsert_mentor_profile(
                         new_user_id,
-                        background=input_data.get("mentorBackground"),
+                        background=mentor_background,
                         institution=input_data.get("mentorInstitution"),
                         mentor_reason=input_data.get("mentorReason"),
                         max_group_count=input_data.get("mentorMaxGroupCount")
@@ -1362,9 +1501,10 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     sync_user_interests(new_user_id, input_data.get("interests"))
         
         except Exception as e:
+            logger.exception("admin.user.create_failed role=%s", role)
             results.append({
                 "input": input_data,
-                "msg": f"Failed to create user: {str(e)}",
+                "msg": UNEXPECTED_FAILURE,
                 "data": None
             })
             continue
@@ -1374,10 +1514,61 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             try:
                 AdminScope.objects.get_or_create(user_id=new_user_id)
             except Exception as e:
+                logger.exception("admin.user.admin_scope_failed user=%s", new_user_id)
                 rollback_created_user(new_user_id)
                 results.append({
                     "input": input_data,
-                    "msg": f"Unable to create admin scope: {str(e)}",
+                    "msg": UNEXPECTED_FAILURE,
+                    "data": None
+                })
+                continue
+
+        # Mark support agents.
+        #
+        # Asked on 2026-09-04 where support agents come from, the client
+        # answered: "The admin would create a new account for the support
+        # agent, similar to how they can currently create a new admin user, but
+        # rather assign the support role to them." So this mirrors the block
+        # above, one table across.
+        #
+        # A SupportScope row and NOT an AdminScope row, and the user is not
+        # is_staff either. That is the whole point of the role: the client's
+        # own note on p47 is "all admins have support access, but not all
+        # support are admins", and an agent created here can work the ticket
+        # queue and nothing else in the admin app.
+        #
+        # Placed outside the transaction that created the user, matching the
+        # admin block rather than the tidier alternative, so that a failure
+        # here rolls the account back the same way and leaves the same kind of
+        # message behind.
+        if role == "support":
+            try:
+                # The grant and the row that says who made it go in together.
+                # The roster grant at apps/tickets/views_admin.SupportScopeView
+                # writes both of these in one transaction for the same reason:
+                # half the ways of giving somebody queue access recorded and
+                # half not would leave "who let this person into the queue"
+                # with no answer, on a platform whose users are minors. Split
+                # in two, a failure on the audit write left the account made,
+                # the access live, nothing in the log, a 500 on the admin's
+                # screen, and no way to finish the job from the interface,
+                # because the retry met "Email already exists".
+                with transaction.atomic():
+                    SupportScope.objects.get_or_create(user_id=new_user_id)
+                    log_audit_event(
+                        actor=initiated_by,
+                        entity_type="support_scope",
+                        entity_id=new_user_id,
+                        action="create",
+                        before_state=None,
+                        after_state={"user_id": new_user_id, "via": "user_creation"},
+                    )
+            except Exception as e:
+                logger.exception("admin.user.support_scope_failed user=%s", new_user_id)
+                rollback_created_user(new_user_id)
+                results.append({
+                    "input": input_data,
+                    "msg": UNEXPECTED_FAILURE,
                     "data": None
                 })
                 continue
@@ -1393,11 +1584,16 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return results
 
 
-def create_user(input_data: Dict[str, Any]) -> Dict[str, Any]:
+def create_user(input_data: Dict[str, Any], initiated_by=None) -> Dict[str, Any]:
     """
     Create a single user.
+
+    ``initiated_by`` is only used to attribute the support-access audit row —
+    creating a user is not itself audited today, for any role, and this change
+    does not start doing that. It records the *privilege grant*, which the
+    roster page already records when it hands out the same access.
     """
-    results = add_users_by_role([input_data])
+    results = add_users_by_role([input_data], initiated_by=initiated_by)
     result = results[0]
     return {"msg": result["msg"], "data": result["data"]}
 
@@ -1473,16 +1669,25 @@ def _apply_co_registration(
 
 
 def bulk_create_users(
-    users_input: List[Dict[str, Any]], admin_user_id: str, created_by=None
+    users_input: List[Dict[str, Any]], admin_user_id: str, initiated_by=None, created_by=None
 ) -> Dict[str, Any]:
-    """
-    Bulk create users from list.
+    """Bulk create users from list.
+
+    Restricted to BULK_IMPORTABLE_ROLES: an import is the one path where no
+    one reads the rows individually. ``initiated_by`` is passed on so that a
+    privilege granted through here has a name against it — without it the
+    audit row said only that access had been given, not by whom.
+    ``created_by`` is who the co-registration groups are made by.
     """
     created = []
     skipped = []
     created_student_emails = set()
 
-    results = add_users_by_role(users_input)
+    results = add_users_by_role(
+        users_input,
+        initiated_by=initiated_by,
+        allowed_roles=BULK_IMPORTABLE_ROLES,
+    )
 
     for result in results:
         if result["data"]:
@@ -1635,6 +1840,9 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "Email is not a valid email address", "data": None}
         if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
             return {"msg": "Account email already exists", "data": None}
+        # A new address only, so an older one can still be edited around.
+        if new_email != (user.email or "").strip().lower() and is_placeholder_email(new_email):
+            return {"msg": PLACEHOLDER_ADDRESS, "data": None}
         if invalid := check_one_address(new_email, current=user.email):
             return {"msg": invalid_address_message(invalid), "data": None}
     email_changed = new_email != user.email.strip().lower()
@@ -1694,6 +1902,11 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 if guardian_email == new_email.strip().lower():
                     return {"msg": "Guardian email cannot be the student's own email", "data": None}
                 current_guardian = StudentProfile.objects.filter(user_id=user_id).values_list("pg_email", flat=True).first()
+                # A new guardian only: not a placeholder, nor a student's account.
+                if guardian_email != (current_guardian or "").strip().lower() and (
+                    problem := new_guardian_email_problem(guardian_email)
+                ):
+                    return {"msg": problem, "data": None}
                 if invalid := check_one_address(guardian_email, current=current_guardian):
                     return {"msg": invalid_address_message(invalid, "The guardian's email address"), "data": None}
     
@@ -1708,6 +1921,25 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             if slots_error:
                 return {"msg": slots_error, "data": None}
 
+        # Omitted keeps the stored background. A value outside the five
+        # categories is rejected unless it is the one already stored: older
+        # free-text backgrounds are preserved until an admin picks a category.
+        next_background = MentorProfile.objects.filter(user_id=user_id).values_list(
+            'background', flat=True
+        ).first()
+        if "mentorBackground" in input_data:
+            sent_background = input_data["mentorBackground"]
+            try:
+                next_background = normalize_mentor_background(sent_background)
+            except ValueError as exc:
+                unchanged = (
+                    isinstance(sent_background, str)
+                    and next_background is not None
+                    and sent_background.strip() == next_background.strip()
+                )
+                if not unchanged:
+                    return {"msg": str(exc), "data": None}
+
     role_changed = "role" in input_data and input_data["role"] != current_role
     before_user = fetch_user_by_id(user_id)
     before_guardian = _guardian_audit_state(user_id) if next_role == "student" else None
@@ -1720,7 +1952,13 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
     # is sub-national and may always be cleared (most non-AU users have none).
     if "countryId" in input_data:
         if input_data["countryId"] is None:
-            if next_role != "admin":
+            # Admin and support may go without a country: neither has to give
+            # one when the account is made (no role has since main's 20
+            # October 2026 Add user rework). Without "support" here an admin
+            # could make a support agent but could not save one afterwards, or
+            # convert an existing account, because a form that sends
+            # countryId: null for the role got "Country cannot be cleared".
+            if next_role not in ROLES_WITHOUT_GEOGRAPHY:
                 return {"msg": "Country cannot be cleared", "data": None}
             user.country_id = None
             user.state_id = None  # a state without its country is meaningless
@@ -1779,14 +2017,17 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
 
     try:
         with transaction.atomic():
-            # Update basic user fields
             if "email" in input_data:
                 user.email = new_email
             if "firstName" in input_data:
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "pronouns", "email"]):
+            if "adminNotes" in input_data:
+                user.admin_notes = (input_data["adminNotes"] or "").strip()
+            elif "admin_notes" in input_data:
+                user.admin_notes = (input_data["admin_notes"] or "").strip()
+            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "pronouns", "email", "adminNotes", "admin_notes"]):
                 user.save()
 
             if email_changed:
@@ -1868,6 +2109,10 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 SupervisorProfile.objects.filter(user_id=user_id).delete()
             
             if next_role == "mentor":
+                # AM2 stores the canonical key. ``_next_mentor_values`` keeps
+                # the background as it was sent, which may differ in case or
+                # spacing, so the normalised value wins here.
+                mentor_values["background"] = next_background
                 MentorProfile.objects.update_or_create(user_id=user_id, defaults=mentor_values)
                 if mentor_slots is not None:
                     MentorAvailability.objects.filter(mentor_user_id=user_id).delete()
@@ -1890,17 +2135,87 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "Account email already exists", "data": None}
         return {"msg": "Unable to update user: conflicting account details", "data": None}
     except Exception as e:
+        logger.exception("admin.user.update_failed user=%s", user_id)
         return {
-            "msg": f"Unable to update user: {str(e)}",
+            "msg": UNEXPECTED_FAILURE,
             "data": None
         }
     
+    # Both permission markers below are decided from case-folded role names.
+    # `resolve_role_id` reuses an existing row with `role_name__iexact`, so the
+    # spelling stored in `roles` may be "Admin" or "Support" while adminweb
+    # always sends lower case. A bare `==` then takes the wrong branch: with
+    # "Admin" stored, saving an administrator's surname fell into the `else`
+    # below and deleted their AdminScope row, dropping them out of the console.
+    #
+    # Only these two comparisons are folded. The rest of update_user still
+    # compares role names case-sensitively, which is a separate, older defect
+    # (a plain save can drop a SupervisorProfile) deliberately left for its own
+    # change — it needs a data migration on the shared `roles` table.
+    next_role_key = (next_role or "").strip().lower()
+    current_role_key = (current_role or "").strip().lower()
+
+    # Whether this save moved the account from one role to another, as opposed
+    # to re-saving the role it already had. `role_changed` above compares the
+    # raw strings, so it reads "Support" -> "support" as a change; this must
+    # not, or a case mismatch alone would re-grant queue access.
+    role_moved = "role" in input_data and next_role_key != current_role_key
+
     # Sync admin marker to the (possibly changed) role.
-    if next_role == "admin":
+    if next_role_key == "admin":
         AdminScope.objects.get_or_create(user_id=user_id)
     else:
         AdminScope.objects.filter(user_id=user_id).delete()
-    
+
+    # Support access follows the role only when the role actually moved.
+    #
+    # Neither half may run on an ordinary save. This function runs on every
+    # successful update, `next_role` falls back to the current role when the
+    # caller sends none, and adminweb sends `role` on every save. Granting
+    # unconditionally undid a deliberate revocation: an admin revoked queue
+    # access on the roster page, someone corrected the person's surname, and
+    # the row came back with no audit trail — the last support_scope event on
+    # record stayed "delete" while the person still held access. Revoking
+    # unconditionally is the mirror landmine: a mentor granted access from the
+    # roster page would silently lose it on that same surname edit.
+    #
+    # `role_moved` is what separates the two. The roster page stays the place
+    # to grant and revoke access for people whose role is something else; it is
+    # also the only screen that first says how many unresolved tickets a
+    # revocation would leave with nobody:
+    # apps/tickets/views_admin.SupportScopeRevokeView.
+    #
+    # Both branches are audited, and the write and its audit row share one
+    # transaction. Split across two, a crash between them leaves either queue
+    # access nobody can account for or a record of a revocation that did not
+    # happen; on a platform whose users are minors the first is the worse of
+    # the two. tests/apps/tickets/test_api_admin.RosterAuditAtomicityTests
+    # holds the roster page to the same rule.
+    if role_moved and next_role_key == "support":
+        with transaction.atomic():
+            _, support_granted = SupportScope.objects.get_or_create(user_id=user_id)
+            if support_granted:
+                log_audit_event(
+                    actor=initiated_by,
+                    entity_type="support_scope",
+                    entity_id=user_id,
+                    action="create",
+                    before_state=None,
+                    after_state={"user_id": user_id, "via": "role_change"},
+                )
+    elif role_moved and current_role_key == "support":
+        with transaction.atomic():
+            removed, _ = SupportScope.objects.filter(user_id=user_id).delete()
+            if removed:
+                log_audit_event(
+                    actor=initiated_by,
+                    entity_type="support_scope",
+                    entity_id=user_id,
+                    action="delete",
+                    before_state={"user_id": user_id},
+                    after_state=None,
+                )
+
     # Fetch updated user
     updated_user = fetch_user_by_id(user_id)
     if role_changed:
@@ -1953,6 +2268,8 @@ def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str,
     before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
     if is_active:
         user.activate()
+        # A student from an earlier year is this year's once set back to Active.
+        bring_back_for_this_year(user)
     else:
         user.deactivate()
     log_audit_event(
@@ -2005,6 +2322,7 @@ def bulk_update_status(user_ids: List[int], is_active: bool, initiated_by=None) 
             before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
             if is_active:
                 user.activate()
+                bring_back_for_this_year(user)
             else:
                 user.deactivate()
             log_audit_event(
@@ -2079,33 +2397,58 @@ def bulk_update_status_by_filter(filters: Dict[str, Any], is_active: bool,
 
 
 def _purge_protecting_records(user_id: int) -> None:
-    """Delete the four record types that reference a user with on_delete=PROTECT,
+    """Delete the record types that reference a user with on_delete=PROTECT,
     so a subsequent User delete succeeds instead of raising ProtectedError.
 
     Their children (message reactions/attachments, resource audiences, workshop
-    attendance, match recommendations) all cascade, so no ordering is needed. The
-    external blob store is intentionally left untouched — the app's normal
-    resource/message deletion is a soft delete that never purges blobs either.
+    attendance, match recommendations, ticket messages and attachments) all
+    cascade, so no ordering is needed. The external blob store is intentionally
+    left untouched — the app's normal resource/message deletion is a soft
+    delete that never purges blobs either.
     """
     from apps.chat.models import Messages
     from apps.resources.models import Resources
     from apps.workshops.models import Workshops
     from apps.admin.models import MatchRun
+    from apps.tickets.models import Ticket
 
     Messages.objects.filter(sender_user_id=user_id).delete()
     Resources.objects.filter(uploaded_by_id=user_id).delete()
     Workshops.objects.filter(host_user_id=user_id).delete()
     MatchRun.objects.filter(admin_user_id=user_id).delete()
+    # Tickets the person raised, and with them every message and attachment on
+    # those tickets. This is the same content chat.Messages is protected for:
+    # free text a minor wrote about a problem, often carrying an address, a
+    # phone number or a parent's email address. Their tickets used to survive
+    # the account under no name, which made "delete this user" untrue for the
+    # one store holding the most sensitive thing they ever typed.
+    #
+    # Only tickets they RAISED. Tickets merely assigned to them keep their
+    # SET_NULL and stay in the queue: those belong to whoever asked for help,
+    # and deleting an agent's account must not take a student's enquiry with
+    # it. Support replies they wrote lose their author the same way and render
+    # as "Support (account removed)".
+    Ticket.objects.filter(created_by_id=user_id).delete()
 
 
 def delete_user(user_id: int, initiated_by=None, force: bool = False) -> Dict[str, Any]:
     """
-    Delete a user and all related data.
+    Delete a user, and with force=True the content that protects them.
 
-    force=True first purges the records that reference the user with
-    on_delete=PROTECT (chat messages, uploaded resources, hosted workshops, match
-    runs). This permanently destroys that content — callers must gate it behind an
-    explicit, confirmed admin action.
+    Without force this refuses rather than cascading: anything referencing the
+    user with on_delete=PROTECT stops the delete and the caller gets a message
+    saying so.
+
+    force=True purges those records first — see _purge_protecting_records for
+    exactly which, and do not restate the list here. Two docstrings and three
+    screens each kept their own copy of it, all five went stale together when
+    tickets were added to the purge, and an admin was told four kinds of
+    content would be destroyed while five were. The list the admin reads now
+    lives in adminweb/src/components/people/ForceDeleteNotice.tsx, and this
+    points at the code instead of paraphrasing it.
+
+    Either way this permanently destroys content, so callers must gate force
+    behind an explicit, confirmed admin action.
     """
     try:
         user = User.objects.get(id=user_id)
@@ -2155,8 +2498,9 @@ def bulk_delete_users(user_ids: List[int], initiated_by=None,
 
     Dedupes ids and never deletes the initiator's own account. Each row is
     removed via delete_user, so every deletion is individually audit-logged.
-    force=True also purges the records that PROTECT each user (chat messages,
-    resources, workshops, match runs) — see delete_user.
+    force=True also purges the records that PROTECT each user — see
+    _purge_protecting_records for which, and delete_user for why this
+    docstring no longer lists them.
     """
     try:
         ids = list(dict.fromkeys(int(uid) for uid in user_ids))

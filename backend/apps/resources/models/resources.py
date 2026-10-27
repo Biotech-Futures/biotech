@@ -42,7 +42,7 @@ class Resources(models.Model):
     uploaded_at = models.DateTimeField(default=timezone.now)
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     deleted_at = models.DateTimeField(null=True, blank=True)
-    # Management > Challenge Start > Release Resources: shown to those it's
+    # Release, set on the Resources page by admins: shown to those it's
     # for while ``shown``; hidden, it appears from ``release_on`` (the start of
     # that day, Sydney time), or not at all without one. Admins see it either
     # way (apps.resources.release).

@@ -50,15 +50,30 @@ from apps.admin.services.known_university import (
     list_known_universities,
     rename_known_university,
 )
+from apps.admin.services.plan_progress import get_plan_progress
+from apps.admin.services.plan_stage import (
+    create_plan_stage,
+    delete_plan_stage,
+    list_plan_stages,
+    update_plan_stage,
+)
+from apps.admin.services.plan_task import (
+    create_plan_task,
+    delete_plan_task,
+    get_plan_task,
+    list_plan_tasks,
+    update_plan_task,
+)
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
-    create_group, update_group, remove_group_member, remove_group_message,
+    create_group, update_group, remove_group_member, remove_group_message, send_group_message,
     delete_group, bulk_delete_groups, bulk_delete_groups_by_filter,
 )
 from apps.admin.services.match import (
     match_student, get_individual_students, confirm_student_assignments,
     recommend_students_for_group,
 )
+from apps.common.matching_modes import resolve_match_mode
 from apps.admin.services.event import (
     query_events, query_event_by_id, create_event, update_event, delete_event,
     query_event_rsvps, create_event_rsvp, update_event_rsvp,
@@ -88,7 +103,7 @@ from apps.admin.services.role_task import (
 )
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
-    confirm_mentor_assignments, replace_mentor,
+    confirm_mentor_assignments, replace_mentor, DEFAULT_IDLE_DAYS,
     unassign_mentors, recommend_mentors_for_group,
 )
 from apps.admin.services.system_email import (
@@ -135,7 +150,7 @@ class UserListCreateView(APIView):
         return Response(result)
 
     def post(self, request):
-        result = create_user(request.data)
+        result = create_user(request.data, initiated_by=request.user)
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -353,9 +368,11 @@ class UserBulkDeleteView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        # force=True also purges records that PROTECT the user (chat messages,
-        # uploaded resources, workshops, match runs) — permanently. The admin
-        # portal gates this behind an explicit opt-in + typed confirmation.
+        # force=True also purges the records that PROTECT the user, permanently.
+        # Which records is written in services/user._purge_protecting_records and
+        # nowhere else — the copy that used to sit here went stale when tickets
+        # joined the purge. The admin portal gates this behind an explicit
+        # opt-in + typed confirmation.
         force = bool(request.data.get("force"))
         # "Select all matching" resolves the target set server-side from the
         # same filters the list uses, instead of shipping every id from the browser.
@@ -402,7 +419,7 @@ class UserBulkCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
-        result = bulk_create_users(users, "", created_by=request.user)
+        result = bulk_create_users(users, "", initiated_by=request.user, created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -420,7 +437,11 @@ class UserBulkCsvView(APIView):
         import io
         reader = csv.DictReader(io.StringIO(csv_text))
         users = list(reader)
-        result = bulk_create_users(users, "", created_by=request.user)
+        # No serializer on this path, unlike the JSON twin above. The role
+        # whitelist lives in add_users_by_role instead, which both endpoints
+        # reach; putting a second copy here is what let the two drift far
+        # enough for one to refuse "support" and the other to grant it.
+        result = bulk_create_users(users, "", initiated_by=request.user, created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -445,6 +466,7 @@ class GroupListView(APIView):
             limit=int(request.query_params.get("limit", 10)),
             search_name=request.query_params.get("searchName"),
             search_group=request.query_params.get("searchGroup"),
+            search=request.query_params.get("search"),
             mentor_status=request.query_params.get("mentorStatus"),
             requesting_user=request.user,
             sort_by=request.query_params.get("sortBy", "createdAt"),
@@ -543,7 +565,8 @@ class GroupBulkDeleteView(APIView):
 
 
 class GroupMessagesListView(APIView):
-    """GET /api/v1/group/{id}/messages - View group message history"""
+    """GET /api/v1/group/{id}/messages - View group message history
+    POST /api/v1/group/{id}/messages - Send a text message as Administrator"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, group_id):
@@ -553,6 +576,17 @@ class GroupMessagesListView(APIView):
             limit=int(request.query_params.get("limit", 50)),
         )
         return Response(result)
+
+    def post(self, request, group_id):
+        text = request.data.get("text") if isinstance(request.data, dict) else None
+        result = send_group_message(group_id, text, initiated_by=request.user)
+        if result.get("data"):
+            code = status.HTTP_201_CREATED
+        elif result.get("msg") == "Group not found":
+            code = status.HTTP_404_NOT_FOUND
+        else:
+            code = status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
 
 
 class GroupMessageDetailView(APIView):
@@ -588,7 +622,8 @@ class MatchStudentView(APIView):
         uid = str(request.user.id) if request.user.is_authenticated else None
         if not uid:
             return Response({"msg": "Authentication required"}, status=401)
-        result = match_student(uid)
+        mode = resolve_match_mode(request.query_params.get("mode"))
+        result = match_student(uid, mode=mode)
         return Response({
             "msg": "Match retrieved successfully",
             "data": {
@@ -1246,6 +1281,20 @@ class MentorActiveStatusUpdateView(APIView):
 # ============================================================================
 # MENTOR MATCH ENDPOINTS
 # ============================================================================
+def _idle_days_param(request) -> int:
+    """The admin's own "idle after" setting, as their browser reports it.
+
+    It lives in their session rather than the database, so it arrives with the
+    request; anything missing or unusable falls back to what the page starts
+    from. Clamped to at least a day: zero would make every mentor idle.
+    """
+    raw = request.query_params.get("idleDays")
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_IDLE_DAYS
+
+
 class MentorMatchRecommendView(APIView):
     """GET /api/v1/mentor-match/recommend - Get mentor recommendations"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
@@ -1255,9 +1304,8 @@ class MentorMatchRecommendView(APIView):
             request.user.id) if request.user.is_authenticated else None
         if not admin_user_id:
             return Response({"msg": "Authentication required"}, status=401)
-        raw_mode = request.query_params.get("mode")
-        mode = raw_mode if raw_mode in ("strict", "coverage") else "balanced"
-        result = match_mentor(admin_user_id, mode)
+        mode = resolve_match_mode(request.query_params.get("mode"))
+        result = match_mentor(admin_user_id, mode, _idle_days_param(request))
         return Response({"msg": "Mentor recommendations retrieved successfully", "data": result})
 
 
@@ -1293,7 +1341,7 @@ class MentorMatchConfirmView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = confirm_mentor_assignments(request.data)
+        result = confirm_mentor_assignments(request.data, initiated_by=request.user)
         return Response({"msg": "Mentor assignments confirmed successfully", "data": result})
 
 
@@ -1302,7 +1350,7 @@ class MentorMatchReplaceView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = replace_mentor(request.data)
+        result = replace_mentor(request.data, initiated_by=request.user)
         return Response({"msg": "Mentor replaced successfully", "data": result})
 
 
@@ -1324,7 +1372,7 @@ class MentorMatchReplaceSuggestionsView(APIView):
                 {"msg": "groupId must be an integer", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = recommend_mentors_for_group(gid)
+        result = recommend_mentors_for_group(gid, _idle_days_param(request))
         code = status.HTTP_200_OK if result.get(
             "data") is not None else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -1336,7 +1384,11 @@ class MentorMatchUnassignView(APIView):
 
     def post(self, request):
         group_ids = request.data.get("groupIds", [])
-        result = unassign_mentors(group_ids)
+        result = unassign_mentors(
+            group_ids,
+            notify_departing=request.data.get('notifyDeparting', True),
+            initiated_by=request.user,
+        )
         return Response({"msg": "Mentors unassigned successfully", "data": result})
 
 
@@ -2020,6 +2072,87 @@ class KnownUniversityDetailView(APIView):
 
     def delete(self, request, university_id):
         result, code = delete_known_university(university_id, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanStageListCreateView(APIView):
+    """GET/POST /api/v1/admin/plan-stage/ — ordered stage list / create stage."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_plan_stages())
+
+    def post(self, request):
+        result, code = create_plan_stage(request.data, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanStageDetailView(APIView):
+    """PATCH/DELETE /api/v1/admin/plan-stage/<id>/ — edit / soft-delete an empty stage."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def patch(self, request, stage_id):
+        result, code = update_plan_stage(stage_id, request.data, actor=request.user)
+        return Response(result, status=code)
+
+    def delete(self, request, stage_id):
+        result, code = delete_plan_stage(stage_id, actor=request.user)
+        if code == status.HTTP_204_NO_CONTENT:
+            return Response(status=code)
+        return Response(result, status=code)
+
+
+class AdminPlanTaskListCreateView(APIView):
+    """GET/POST /api/v1/admin/plan-task/ — paginated task list / create task.
+    GET accepts ``?page=&limit=&sortBy=position|name|due|createdAt&sortOrder=asc|desc``
+    and rejects invalid query values with 400."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result, code = list_plan_tasks(
+            page=request.query_params.get("page"),
+            limit=request.query_params.get("limit"),
+            sort_by=request.query_params.get("sortBy"),
+            sort_order=request.query_params.get("sortOrder"),
+            stage_id=request.query_params.get("stage_id"),
+        )
+        return Response(result, status=code)
+
+    def post(self, request):
+        result, code = create_plan_task(request.data, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanProgressView(APIView):
+    """GET /api/v1/admin/plan-task/progress/ - current-cohort progress matrix."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_plan_progress())
+
+
+class AdminPlanTaskDetailView(APIView):
+    """GET/PATCH/DELETE /api/v1/admin/plan-task/<id>/ — read / edit / soft-delete.
+    The literal ``plan-task/progress/`` route precedes this pattern."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, task_id):
+        result, code = get_plan_task(task_id)
+        return Response(result, status=code)
+
+    def patch(self, request, task_id):
+        result, code = update_plan_task(task_id, request.data, actor=request.user)
+        return Response(result, status=code)
+
+    def delete(self, request, task_id):
+        result, code = delete_plan_task(task_id, actor=request.user)
+        if code == status.HTTP_204_NO_CONTENT:
+            return Response(status=code)
         return Response(result, status=code)
 
 

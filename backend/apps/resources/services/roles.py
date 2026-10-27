@@ -176,36 +176,6 @@ def revoke_role(user, role: Roles, end=None):
     group = Group.objects.get(name=role.role_name)
     user.groups.remove(group)
   except Group.DoesNotExist:
-    pass
-  
-  # Check if user has any other active roles
-  has_other_roles = RoleAssignmentHistory.objects.filter(
-      user=user,
-      valid_from__lte=end,
-      valid_to__isnull=True
-  ).exclude(role=role).exists()
-  
-  if not has_other_roles:
-      # Assign default role
-      try:
-          default_role = Roles.objects.get(role_name='basic_user')
-          grant_role(user, default_role, start=end)
-      except Roles.DoesNotExist:
-          # Log this situation as it indicates a configuration issue
-          logger.error(f"Default role 'basic_user' not found when revoking role for user {user.id}")
-
-def ensure_user_has_role(user): ##JUST FOR DEFAULT ROLES =====> JUST AN ADDITIONAL FUNCTION 
-    """
-    Ensures user always has some role assigned
-    """
-    now = timezone.now()
-    has_active_role = RoleAssignmentHistory.objects.filter(
-        user=user,
-        valid_from__lte=now,
-        valid_to__isnull=True
-    ).exists()
-    
-    if not has_active_role:
-        default_role = Roles.objects.get(role_name='basic_user')  # Setting to default role 
+    pass 
 
 

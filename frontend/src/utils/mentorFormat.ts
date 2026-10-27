@@ -9,12 +9,64 @@ export const daysSince = (dateStr: string | null): number | null => {
   return Math.floor(diff / (1000 * 60 * 60 * 24))
 }
 
-export const isEffectivelyInactive = (mentor: AdminMentorDetail, inactiveDaysValue: number): boolean => {
-  if (!mentor.isActive) return true
-  const days = daysSince(mentor.lastMessageAt)
-  if (days === null) return true // never sent a message
-  return days >= inactiveDaysValue
+/** Default threshold for "has gone quiet", in days. */
+export const DEFAULT_IDLE_DAYS = 30
+
+/**
+ * Why a mentor needs replacing, or null when they are fine.
+ *
+ * Two different situations used to share the word "inactive", which is why
+ * the Mentors page and Matched Groups disagreed on how many there were:
+ *
+ *  - `inactive` - the account itself is deactivated; they cannot take part.
+ *  - `idle`     - the account is fine, but they have not messaged recently.
+ */
+export type MentorConcern = 'inactive' | 'idle' | null
+
+/**
+ * Why a mentor needs attention, or null if they do not.
+ *
+ * "inactive" and "idle" are different facts, not degrees of one. Inactive is
+ * an account an admin disabled. Idle is an enabled account that has gone
+ * quiet, so a mentor with a working login is never reported inactive.
+ *
+ * The quiet test mirrors `_idle_mentor_ids` on the backend exactly, down to
+ * the threshold, because the two are read side by side: the matcher scores a
+ * mentor while this badges the row next to that score. Three things excuse
+ * silence, and any one is enough:
+ *
+ * - they spoke inside the window;
+ * - they joined inside it, so there has not been time to judge them;
+ * - they have no group, so there is nowhere to speak. Holding that against
+ *   them would be a deadlock - passed over for never posting, and unable to
+ *   post without a group.
+ *
+ * `dateJoined` and `currentAssignedCount` are optional: a caller that cannot
+ * supply one simply does not get that excuse, which is the stricter reading.
+ */
+export const mentorConcern = (
+  mentor: {
+    isActive: boolean
+    lastMessageAt: string | null
+    dateJoined?: string | null
+    currentAssignedCount?: number
+  },
+  idleDays: number = DEFAULT_IDLE_DAYS,
+): MentorConcern => {
+  if (!mentor.isActive) return 'inactive'
+
+  const sinceMessage = daysSince(mentor.lastMessageAt)
+  const sinceJoining = daysSince(mentor.dateJoined ?? null)
+
+  const spokeRecently = sinceMessage !== null && sinceMessage < idleDays
+  const joinedRecently = sinceJoining !== null && sinceJoining < idleDays
+  const hasNoGroup = mentor.currentAssignedCount === 0
+
+  return spokeRecently || joinedRecently || hasNoGroup ? null : 'idle'
 }
+
+export const isEffectivelyInactive = (mentor: AdminMentorDetail, inactiveDaysValue: number): boolean =>
+  mentorConcern(mentor, inactiveDaysValue) !== null
 
 export const lastMessageDays = (dateStr: string): number => daysSince(dateStr) ?? 0
 

@@ -19,6 +19,7 @@ from .presentation import (
     PresentationResponsesView,
     PresentationSlidesFileView,
     PresentationSlidesView,
+    FinalistSubmissionsCloseView,
     PresentationSlidesZipFileView,
     PresentationSlidesZipView,
     PresentationSlotDetailView,
@@ -29,6 +30,7 @@ from .release import CertificatesReleaseView, MarksReleaseView
 from .bounce_check import BounceCheckTriggerView
 from .waiting_emails import SendWaitingEmailsView
 from .challenge_start import ChallengeStartView
+from .new_year import NewYearView
 from .resource_releases import ResourceReleasesView, ResourceReleaseView
 from .registration_open import RegistrationOpenView
 from .registration_supervisors import RegistrationSupervisorsView, RegistrationSupervisorView
@@ -70,6 +72,7 @@ __all__ = [
     "BounceCheckTriggerView",
     "SendWaitingEmailsView",
     "ChallengeStartView",
+    "NewYearView",
     "ResourceReleasesView",
     "ResourceReleaseView",
     "RegistrationOpenView",
@@ -103,6 +106,7 @@ __all__ = [
     "PresentationResponsesView",
     "PresentationSlidesFileView",
     "PresentationSlidesView",
+    "FinalistSubmissionsCloseView",
     "PresentationSlidesZipFileView",
     "PresentationSlidesZipView",
     "PresentationSlotDetailView",

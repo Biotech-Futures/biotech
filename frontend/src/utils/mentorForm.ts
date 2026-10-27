@@ -3,14 +3,14 @@
 // parts and Add user's mentor form.
 import type { Directive } from 'vue'
 import type { AppSelectOption } from '@/components/AppSelect.vue'
+import { MENTOR_BACKGROUND_OPTIONS } from '@/utils/userOptions'
 
-export const MENTOR_BACKGROUNDS: AppSelectOption[] = [
-  { value: 'academic', label: 'Academic' },
-  { value: 'industry', label: 'Industry' },
-  { value: 'undergraduate', label: 'University Student – Undergraduate' },
-  { value: 'postgraduate', label: 'University Student – Postgraduate' },
-  { value: 'hdr', label: 'University Student – HDR' }
-]
+// The five categories live in one place (AM2). Re-exported in the shape the
+// pickers want, so this module and userOptions can never name them
+// differently.
+export const MENTOR_BACKGROUNDS: AppSelectOption[] = MENTOR_BACKGROUND_OPTIONS.map(
+  ({ value, label }) => ({ value, label })
+)
 export const STUDY_YEAR_OPTIONS: AppSelectOption[] = [
   { value: '1', label: 'Year 1' },
   { value: '2', label: 'Year 2' },

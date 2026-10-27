@@ -1,4 +1,4 @@
-"""The Finalist Presentation tab: this year's times, on the Symposium date
+"""The Finalist Presentation tab: the times, carried on from year to year, on the Symposium date
 set on Notify Finalists, which admins add, change and remove; and each
 finalist student's answer, the times they can make; and the slides each
 finalist team hands in."""
@@ -24,6 +24,7 @@ from apps.submissions.models import Deadline, GroupExtension
 from apps.submissions.services import current_cohort
 from apps.users.models import User
 
+from tests.apps._helpers import close_response
 from tests.apps.grading.fixtures import _GradingFixture
 
 LIST = "management:presentation-slots"
@@ -51,7 +52,7 @@ class PresentationSlotTests(_GradingFixture):
             [("09:30", "10:00"), ("11:00", "11:30")],
         )
         self.assertEqual(r.json()["year"], self.year)
-        self.assertTrue(PresentationSlot.objects.filter(year=self.year).count() == 2)
+        self.assertEqual(PresentationSlot.objects.count(), 2)
 
     def test_the_list_carries_the_symposium_date_once_it_is_set(self):
         self.assertIsNone(self.client.get(reverse(LIST)).json()["symposium_date"])
@@ -130,13 +131,14 @@ class PresentationSlotTests(_GradingFixture):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.json()["slots"], [])
 
-    def test_each_year_has_its_own_times(self):
-        old = PresentationSlot.objects.create(year=self.year - 1, starts_at=time(9), ends_at=time(10))
-        # Last year's aren't listed, and can't be changed from this year's tab.
-        self.assertEqual(self.client.get(reverse(LIST)).json()["slots"], [])
-        self.assertEqual(self.client.delete(self._detail(old.id)).status_code, status.HTTP_404_NOT_FOUND)
-        # Last year's times don't block the same ones this year.
-        self.assertEqual(self._add("09:00", "10:00").status_code, status.HTTP_201_CREATED)
+    def test_the_times_carry_on_into_a_new_year(self):
+        from apps.management.models import ChallengeYear
+
+        self._add("09:00", "10:00")
+        ChallengeYear.objects.create(year=self.year + 1)
+        body = self.client.get(reverse(LIST)).json()
+        self.assertEqual(body["year"], self.year + 1)
+        self.assertEqual([(s["starts_at"], s["ends_at"]) for s in body["slots"]], [("09:00", "10:00")])
 
     def test_graders_only(self):
         self.client.force_authenticate(self.non_staff)
@@ -155,9 +157,8 @@ class PresentationResponseTests(_GradingFixture):
     def setUp(self):
         self.client = APIClient()
         self.client.force_authenticate(self.staff)
-        year = current_cohort()
-        self.morning = PresentationSlot.objects.create(year=year, starts_at=time(9), ends_at=time(9, 30))
-        self.noon = PresentationSlot.objects.create(year=year, starts_at=time(12), ends_at=time(12, 30))
+        self.morning = PresentationSlot.objects.create(starts_at=time(9), ends_at=time(9, 30))
+        self.noon = PresentationSlot.objects.create(starts_at=time(12), ends_at=time(12, 30))
         # Two finalist teams, listed by number; a mentor, and a team that isn't one.
         self.btf10 = Groups.objects.create(group_name="BTF10")
         self.btf2 = Groups.objects.create(group_name="BTF2")
@@ -210,13 +211,12 @@ class PresentationResponseTests(_GradingFixture):
         self._allocate(self.btf2, None)
         self.assertIsNone(self._teams()[0]["allocated_slot_id"])
 
-    def test_only_this_years_times_and_finalist_teams(self):
-        old = PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))
-        for bad in (old.id, 99999, True, "x"):
+    def test_only_the_listed_times_and_finalist_teams(self):
+        for bad in (99999, True, "x"):
             with self.subTest(slot_id=bad):
                 r = self._allocate(self.btf2, bad)
                 self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertEqual(r.json()["detail"], "That time isn't one of this year's.")
+                self.assertEqual(r.json()["detail"], "That time isn't one of the presentation times.")
         # The fixture's team isn't a finalist.
         self.assertEqual(self._allocate(self.group, self.noon.id).status_code, status.HTTP_404_NOT_FOUND)
 
@@ -346,7 +346,7 @@ class FinalistSlidesOpenTests(_GradingFixture):
     def _open(self, group_id, query=""):
         response = self.client.get(reverse("management:presentation-slides-file", args=[group_id]) + query)
         # Lets go of the file, so the temporary folder can be removed.
-        self.addCleanup(response.close)
+        self.addCleanup(close_response, response)
         return response
 
     def test_a_teams_pdf_opens_in_the_browser(self):

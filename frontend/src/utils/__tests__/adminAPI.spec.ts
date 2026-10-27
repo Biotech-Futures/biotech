@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildAdminQuery,
   fetchAdminSummary,
+  fetchAdminPlanProgress,
   fetchAdminUsers,
   importAdminMentors,
   importAdminStudents,
@@ -34,6 +35,7 @@ import {
   bulkDeleteAdminViews,
   runAdminView,
   getAdminViewExportUrl,
+  fetchStudentMatch,
   fetchSystemEmailTemplates,
   updateSystemEmailTemplate,
   restoreSystemEmailTemplate,
@@ -41,7 +43,10 @@ import {
   testSendSystemEmailTemplate,
   fetchSystemEmailTestRecipients,
   fetchSystemEmailSettings,
-  updateSystemEmailSettings
+  updateSystemEmailSettings,
+  deleteAdminPlanStage,
+  deleteAdminPlanTask,
+  fetchAdminPlanTasks
 } from '@/utils/adminAPI'
 
 describe('buildAdminQuery', () => {
@@ -244,6 +249,7 @@ describe('bulk user actions', () => {
   it('importAdminStudents posts parsed student rows and unwraps the result envelope', async () => {
     const rows = [
       {
+        rowNumber: 2,
         firstName: 'Ada',
         lastName: 'Lovelace',
         email: 'ada.lovelace@example.edu',
@@ -293,7 +299,10 @@ describe('bulk user actions', () => {
 
     const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/user/bulk/')) as [string, RequestInit]
     expect(init!.method).toBe('POST')
-    expect(JSON.parse(String(init.body))).toEqual(rows)
+    // Each row as parsed, but for its place in the file.
+    const { rowNumber, ...sent } = rows[0]!
+    void rowNumber
+    expect(JSON.parse(String(init.body))).toEqual([sent])
     expect(result).toEqual(payload)
     expect(result.data.created).toHaveLength(1)
     expect(result.data.skipped[0]).toEqual({
@@ -309,6 +318,7 @@ describe('bulk user actions', () => {
   it('importAdminMentors posts parsed mentor rows as mentor users and unwraps the result envelope', async () => {
     const rows = [
       {
+        rowNumber: 2,
         firstName: 'Mary',
         lastName: 'Somerville',
         email: 'mary@example.edu',
@@ -317,7 +327,7 @@ describe('bulk user actions', () => {
         interests: ['Genetics', 'Bioinformatics'],
         mentorReason: 'I want to support students exploring biotech careers.',
         mentorInstitution: 'University of Sydney',
-        mentorBackground: 'postgraduate',
+        mentorBackground: 'postgraduate' as const,
         mentorMaxGroupCount: 2
       }
     ]
@@ -510,6 +520,49 @@ describe('admin task actions', () => {
     expect(result).toBeUndefined()
   })
 
+  it('deleteAdminPlanStage sends DELETE and resolves void on a 204 with an empty body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await deleteAdminPlanStage(5)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(String(url)).toContain('/api/v1/admin/plan-stage/5/')
+    expect(init.method).toBe('DELETE')
+    expect(result).toBeUndefined()
+  })
+
+  it('deleteAdminPlanTask sends DELETE and resolves void on a 204 with an empty body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await deleteAdminPlanTask(10)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(String(url)).toContain('/api/v1/admin/plan-task/10/')
+    expect(init.method).toBe('DELETE')
+    expect(result).toBeUndefined()
+  })
+
+  it('fetchAdminPlanTasks forwards stage_id and returns the list data', async () => {
+    const payload = {
+      msg: 'Tasks retrieved successfully',
+      data: {
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 100,
+        has_more: false
+      }
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchAdminPlanTasks({ page: 1, limit: 100, stage_id: 3 })
+
+    const calledUrl = String(fetchMock.mock.calls[0][0])
+    expect(calledUrl).toContain('/api/v1/admin/plan-task/')
+    expect(calledUrl).toContain('stage_id=3')
+    expect(result.total).toBe(0)
+  })
 })
 
 describe('admin role task actions (TK4)', () => {
@@ -836,6 +889,36 @@ describe('removeGroupMember', () => {
     ]
     expect(init!.method).toBe('DELETE')
     expect(result).toBe('Member removed successfully')
+  })
+})
+
+describe('fetchStudentMatch', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const stubFetch = () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ msg: 'ok', data: { recommendations: [] } }), { status: 200 })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('runs in balanced mode by default and unwraps the envelope', async () => {
+    const fetchMock = stubFetch()
+
+    await expect(fetchStudentMatch()).resolves.toEqual({ recommendations: [] })
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/match/student/?mode=balanced')
+  })
+
+  it.each(['strict', 'coverage'] as const)('sends ?mode=%s', async (mode) => {
+    const fetchMock = stubFetch()
+
+    await fetchStudentMatch(mode)
+    expect(String(fetchMock.mock.calls[0][0])).toContain(`/match/student/?mode=${mode}`)
   })
 })
 
@@ -1223,5 +1306,29 @@ describe('system email API', () => {
     await expect(
       updateSystemEmailTemplate('password_reset', { subject: 'x' })
     ).rejects.toThrow()
+  })
+})
+
+
+describe('fetchAdminPlanProgress', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('uses the canonical admin endpoint and unwraps the progress matrix', async () => {
+    const data = { year: 2026, stages: [], tasks: [], groups: [] }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ msg: 'OK', data }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await fetchAdminPlanProgress()).toEqual(data)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/admin/plan-task/progress/'),
+      expect.objectContaining({ credentials: 'include', method: 'GET' }),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('propagates denied access rather than presenting an empty matrix', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ msg: 'You do not have admin privileges.', data: null }), { status: 403 },
+    )))
+    await expect(fetchAdminPlanProgress()).rejects.toMatchObject({ status: 403 })
   })
 })

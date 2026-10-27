@@ -193,6 +193,24 @@
       </dl>
     </section>
 
+    <section v-if="user" class="admin-users-detail__section" data-test="admin-notes-section">
+      <h3>Internal Admin Notes</h3>
+      <div
+        v-if="hasAdminNotes"
+        class="admin-users-detail__notes-box"
+        data-test="admin-notes-display"
+      >
+        <div
+          class="admin-users-detail__notes-text"
+          data-test="admin-notes-content"
+          v-html="adminNotesHtml"
+        ></div>
+      </div>
+      <p v-else class="admin-users-detail__notes-empty" data-test="admin-notes-empty">
+        No private notes recorded.
+      </p>
+    </section>
+
     <section v-if="user?.role === 'student'" class="admin-users-detail__section" data-test="admin-supervisor-group">
       <div class="admin-users-detail__heading">
         <h3>Supervisor and Group</h3>
@@ -969,7 +987,7 @@
 
     <section v-if="user?.role === 'supervisor'" class="admin-users-detail__section" data-test="admin-supervisees">
       <div class="admin-users-detail__heading">
-        <h3>Supervisees</h3>
+        <h3>Students ({{ user.supervisees?.length || 0 }})</h3>
         <button
           v-if="editable && editing !== 'supervisees'"
           type="button"
@@ -977,7 +995,7 @@
           data-test="admin-edit-supervisees"
           @click="startEdit('supervisees')"
         >
-          Edit
+          Add
         </button>
       </div>
       <!-- Their students, each with its ×, and any student to add. -->
@@ -1024,16 +1042,15 @@
           <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
         </div>
       </form>
-      <dl v-else class="admin-users-detail__list">
-        <div v-for="supervisee in user.supervisees || []" :key="supervisee.email" class="admin-users-detail__item">
-          <dt>{{ supervisee.name || '—' }}</dt>
-          <dd>{{ supervisee.email }}</dd>
-        </div>
-        <div v-if="!user.supervisees?.length" class="admin-users-detail__item">
-          <dt>Students</dt>
-          <dd>—</dd>
-        </div>
-      </dl>
+      <p v-if="!user.supervisees?.length" class="admin-users-detail__students-empty">No students yet.</p>
+      <ul v-else class="admin-users-detail__students">
+        <li v-for="supervisee in user.supervisees || []" :key="supervisee.email" class="admin-users-detail__student">
+          <div class="admin-users-detail__student-info">
+            <span class="admin-users-detail__student-name">{{ supervisee.name || '—' }}</span>
+            <span class="admin-users-detail__student-email">{{ supervisee.email }}</span>
+          </div>
+        </li>
+      </ul>
     </section>
 
     <section v-if="user?.role === 'admin'" class="admin-users-detail__section">
@@ -1130,6 +1147,7 @@ import {
   removeGroupMember,
   sendGuardianConsentRequest,
   removeAdminUserPhoto,
+  earlierYearMessage,
   setAdminUserActive,
   unassignMentors,
   updateAdminUser,
@@ -1157,6 +1175,7 @@ import {
   supervisorLabel,
   userName
 } from '@/utils/userFormat'
+import { sanitizeRichText } from '@/composables/useAnnouncements'
 import { INTEREST_OPTIONS } from '@/utils/userOptions'
 import {
   APPLICATION_QUESTIONS,
@@ -1191,6 +1210,23 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'updated', user: AdminUser): void
 }>()
+
+const hasAdminNotes = computed(() => {
+  const notesHtml = adminNotesHtml.value
+  if (!notesHtml) return false
+
+  const container = document.createElement('div')
+  container.innerHTML = notesHtml
+  return (
+    Boolean(container.textContent?.trim()) ||
+    Boolean(container.querySelector('img, video, audio, iframe, object, embed, canvas, svg'))
+  )
+})
+
+const adminNotesHtml = computed(() => {
+  if (!props.user?.adminNotes) return ''
+  return sanitizeRichText(props.user.adminNotes)
+})
 
 const guardian = computed(() => {
   const user = props.user
@@ -1524,6 +1560,12 @@ const save = async () => {
     cancelEdit()
     return
   }
+  // A student from an earlier year set back to Active is this year's: said first.
+  if (statusChanged && active && earlierYearMessage(user) && !earlierYearConfirmed.value) {
+    confirmOpen.value = true
+    return
+  }
+  earlierYearConfirmed.value = false
   saving.value = true
   saveError.value = ''
   let updated: AdminUser | null = null
@@ -1718,6 +1760,14 @@ const replacing = computed(() => {
 })
 
 const confirmOpen = ref(false)
+// Activating a student from an earlier year, once its popup is confirmed.
+const earlierYearConfirmed = ref(false)
+
+const confirmEarlierYear = async () => {
+  earlierYearConfirmed.value = true
+  await save()
+  confirmOpen.value = false
+}
 
 const saveSupervisorAndGroup = () => {
   if (!supervisorChanged.value && !groupChanged.value) {
@@ -1934,7 +1984,13 @@ const commitMentorGroups = async () => {
       changed = true
     }
     if (added.length) {
-      await confirmMentorAssignments(added.map((groupId) => ({ groupId, mentorUserId: user.id })))
+      // The admin opened this mentor and chose these groups, so a quiet
+      // mentor is not refused here the way a suggested one would be. A
+      // deactivated account is still refused, by the server.
+      await confirmMentorAssignments(
+        added.map((groupId) => ({ groupId, mentorUserId: user.id })),
+        { allowIdle: true }
+      )
       changed = true
     }
     editing.value = null
@@ -2132,6 +2188,14 @@ const commitSupervisees = async () => {
 // The popup, for whichever part is saving.
 const confirmSetup = computed(() => {
   const name = userName(props.user)
+  if (editing.value === 'account') {
+    return {
+      title: 'Activate for this year?',
+      message: earlierYearMessage(props.user),
+      lines: [] as string[],
+      confirm: confirmEarlierYear
+    }
+  }
   if (editing.value === 'mentorGroups') {
     return {
       title: 'Change their groups?',
@@ -2556,6 +2620,48 @@ const sendConsentRequest = async () => {
   color: var(--teal);
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+.admin-users-detail__students {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.admin-users-detail__student {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background-color: var(--bg-light);
+  border-radius: 8px;
+}
+
+.admin-users-detail__student-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-users-detail__student-name {
+  font-weight: 600;
+  color: var(--teal);
+}
+
+.admin-users-detail__student-email {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.admin-users-detail__students-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
 }
 
 .admin-users-detail__consent-request {

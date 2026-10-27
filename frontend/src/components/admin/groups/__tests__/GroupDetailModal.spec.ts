@@ -24,7 +24,9 @@ const textMessage = {
   attachments: [],
   gif: null,
   sent_at: '2026-01-05T00:00:00Z',
-  edited_at: null
+  edited_at: null,
+  deleted_at: null,
+  deleted_by: null
 }
 
 const gifMessage = {
@@ -36,7 +38,67 @@ const gifMessage = {
   attachments: [],
   gif: { gif_url: 'https://example.com/g.gif', preview_url: 'https://example.com/p.gif', title: 'nice' },
   sent_at: '2026-01-06T00:00:00Z',
-  edited_at: null
+  edited_at: null,
+  deleted_at: null,
+  deleted_by: null
+}
+
+const imageMessage = {
+  id: 'm3',
+  group_id: '1',
+  sender: { id: '11', name: 'Grace Hopper', email: 'grace@example.com', role: 'student' },
+  message_type: 'attachment',
+  text: 'our poster draft',
+  attachments: [
+    {
+      id: 77,
+      filename: 'poster.png',
+      mime_type: 'image/png',
+      size: 2048,
+      download_url: '/api/v1/chat/groups/1/messages/m3/attachments/77/download'
+    }
+  ],
+  gif: null,
+  sent_at: '2026-01-07T00:00:00Z',
+  edited_at: null,
+  deleted_at: null,
+  deleted_by: null
+}
+
+const fileMessage = {
+  id: 'm4',
+  group_id: '1',
+  sender: { id: '10', name: 'Ada Lovelace', email: 'ada@example.com', role: 'student' },
+  message_type: 'attachment',
+  text: '',
+  attachments: [
+    {
+      id: 78,
+      filename: 'report.pdf',
+      mime_type: 'application/pdf',
+      size: 4096,
+      download_url: '/api/v1/chat/groups/1/messages/m4/attachments/78/download'
+    }
+  ],
+  gif: null,
+  sent_at: '2026-01-08T00:00:00Z',
+  edited_at: null,
+  deleted_at: null,
+  deleted_by: null
+}
+
+const deletedMessage = {
+  id: 'm5',
+  group_id: '1',
+  sender: { id: '10', name: 'Ada Lovelace', email: 'ada@example.com', role: 'student' },
+  message_type: 'text',
+  text: 'something regrettable',
+  attachments: [],
+  gif: null,
+  sent_at: '2026-01-09T00:00:00Z',
+  edited_at: null,
+  deleted_at: '2026-01-09T01:00:00Z',
+  deleted_by: 'Admin User'
 }
 
 const ungroupedStudent = (id: number, firstName: string, lastName: string) => ({
@@ -90,6 +152,24 @@ const fetchMockFor = (opts: {
       return Promise.resolve(
         new Response(JSON.stringify({ msg: 'Message removed successfully', data: null }), { status: 200 })
       )
+    }
+    // ``mode=url`` asks the chat app for a short-lived signed URL the browser
+    // can load without an Authorization header - see resolveChatAttachmentUrl.
+    if (method === 'GET' && u.includes('/attachments/') && u.includes('mode=url')) {
+      const id = u.match(/\/attachments\/(\d+)\//)?.[1]
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            download_url: `https://files.example.com/signed/${id}`,
+            filename: id === '77' ? 'poster.png' : 'report.pdf',
+            mime_type: id === '77' ? 'image/png' : 'application/pdf'
+          }),
+          { status: 200 }
+        )
+      )
+    }
+    if (method === 'POST' && u.includes('/restore/')) {
+      return Promise.resolve(new Response(JSON.stringify({ id: 'm5' }), { status: 200 }))
     }
     if (method === 'GET' && u.includes('/messages/')) {
       const page = u.includes('page=2') ? 2 : 1
@@ -242,6 +322,96 @@ describe('GroupDetailModal', () => {
     expect(dialog()!.textContent).not.toContain('Hey team, how is everyone?')
   })
 
+  it('renders an image attachment inline so it can be moderated', async () => {
+    const fetchMock = fetchMockFor({ page1: [imageMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+    await flushPromises()
+
+    const img = dialog()!.querySelector('img.group-detail__thumb') as HTMLImageElement | null
+    expect(img).not.toBeNull()
+    expect(img!.getAttribute('src')).toBe('https://files.example.com/signed/77')
+    expect(img!.getAttribute('alt')).toBe('poster.png')
+    // The message's own text still shows; the filename is no longer inlined
+    // into it as "[attachment: ...]".
+    expect(dialog()!.textContent).toContain('our poster draft')
+    expect(dialog()!.textContent).not.toContain('[attachment:')
+  })
+
+  it('offers view, download and close when an image is clicked', async () => {
+    const fetchMock = fetchMockFor({ page1: [imageMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+    await flushPromises()
+
+    expect(dialog()!.querySelector('.group-detail__attachment-menu')).toBeNull()
+
+    const thumb = dialog()!.querySelector('.group-detail__thumb-btn') as HTMLButtonElement
+    thumb.click()
+    await flushPromises()
+
+    const menu = dialog()!.querySelector('.group-detail__attachment-menu')
+    expect(menu).not.toBeNull()
+    const labels = Array.from(menu!.querySelectorAll('button')).map((b) => b.textContent!.trim())
+    expect(labels).toEqual(['View', 'Download', 'Close'])
+
+    const closeButton = menu!.querySelectorAll('button')[2] as HTMLButtonElement
+    closeButton.click()
+    await flushPromises()
+    expect(dialog()!.querySelector('.group-detail__attachment-menu')).toBeNull()
+  })
+
+  it('shows a non-image attachment as a named chip rather than an image', async () => {
+    const fetchMock = fetchMockFor({ page1: [fileMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+    await flushPromises()
+
+    expect(dialog()!.querySelector('img.group-detail__thumb')).toBeNull()
+    const chip = dialog()!.querySelector('.group-detail__attachment-chip')
+    expect(chip).not.toBeNull()
+    expect(chip!.textContent).toContain('report.pdf')
+  })
+
+  it('shows a soft-deleted message with its text, who removed it, and when', async () => {
+    const fetchMock = fetchMockFor({ page1: [deletedMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    const text = dialog()!.textContent!
+    // Admins keep the content: hiding it here would defeat moderation.
+    expect(text).toContain('something regrettable')
+    expect(text).toContain('Deleted by Admin User')
+    expect(text).toContain('hidden from the group')
+    expect(dialog()!.querySelector('.group-detail__message--deleted')).not.toBeNull()
+  })
+
+  it('offers Restore instead of delete on a deleted message, and reloads after', async () => {
+    const fetchMock = fetchMockFor({ page1: [deletedMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    // The trash control is replaced, so a deleted message cannot be re-deleted.
+    expect(dialog()!.querySelector('.group-detail__message-remove')).toBeNull()
+
+    clickButton(dialog()!, 'Restore')
+    await flushPromises()
+
+    const restoreCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).includes('/messages/m5/restore/') &&
+        (init as RequestInit | undefined)?.method === 'POST'
+    )
+    expect(restoreCall).toBeTruthy()
+    // The list is re-fetched so the restored message returns to the live view.
+    const messageGets = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes('/messages/') &&
+        ((init as RequestInit | undefined)?.method ?? 'GET') === 'GET'
+    )
+    expect(messageGets.length).toBeGreaterThan(1)
+  })
+
   it('does not fetch messages until the Messages view is opened', async () => {
     const fetchMock = fetchMockFor({ page1: [textMessage], total: 1 })
     await mountModal(fetchMock)
@@ -272,8 +442,8 @@ describe('GroupDetailModal', () => {
     const removeButtons = Array.from(dialog()!.querySelectorAll('button')).filter(
       (b) => b.textContent?.trim() === 'Remove'
     )
-    expect(removeButtons.length).toBe(2)
-    removeButtons[0].dispatchEvent(new Event('click', { bubbles: true }))
+    expect(removeButtons.length).toBe(3)
+    removeButtons[1].dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
 
     // The click stages the removal; confirm it in the app's ConfirmDialog.
@@ -281,12 +451,11 @@ describe('GroupDetailModal', () => {
     clickButton(confirmDialog()!, 'Remove')
     await flushPromises()
 
-    const call = fetchMock.mock.calls.find(
+    expect(fetchMock.mock.calls.some(
       ([u, i]) => String(u).includes('/group/1/members/10/') && (i as RequestInit | undefined)?.method === 'DELETE'
-    )
-    expect(call).toBeDefined()
+    )).toBe(true)
     expect(dialog()!.textContent).not.toContain('Ada Lovelace')
-    expect(wrapper!.emitted('changed')).toBeTruthy()
+    expect(wrapper!.emitted('changed')?.[0]).toEqual([1])
   })
 
   it('does not remove the member when the confirmation is declined', async () => {
@@ -496,12 +665,12 @@ describe('GroupDetailModal', () => {
     clickButton(dialog()!, 'Add (1)')
     await flushPromises()
 
-    // Rosalind is the third member row.
+    // Rosalind is the fourth member row (after mentor).
     const removeButtons = Array.from(dialog()!.querySelectorAll('button')).filter(
       (b) => b.textContent?.trim() === 'Remove'
     )
-    expect(removeButtons).toHaveLength(3)
-    removeButtons[2].dispatchEvent(new Event('click', { bubbles: true }))
+    expect(removeButtons).toHaveLength(4)
+    removeButtons[3].dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
     expect(confirmDialog()!.textContent).toContain('Remove Rosalind Franklin from BTF1?')
     clickButton(confirmDialog()!, 'Remove')
@@ -741,5 +910,207 @@ describe('GroupDetailModal', () => {
     clickButton(dialog()!, 'Back to group information')
     await flushPromises()
     expect(dialog()!.textContent).toContain('Members (2)')
+  })
+})
+
+describe('GroupDetailModal message composer', () => {
+  const adminSent = (id: string, text: string) => ({
+    id,
+    group_id: '1',
+    sender: { id: '99', name: 'Ada Quietly', email: 'ada.admin@example.com', role: 'admin' },
+    sent_as_admin: true,
+    message_type: 'text',
+    text,
+    attachments: [],
+    gif: null,
+    sent_at: '2026-01-09T00:00:00Z',
+    edited_at: null
+  })
+
+  /**
+   * One history list, served oldest-first in pages of 50 like the backend.
+   * A send appends to it, so the re-fetch after a send sees the new message.
+   * `sendError` fails every send with a 400; `holdSends` keeps them pending
+   * until `release()` is called.
+   */
+  const composerFetch = (opts: { history?: unknown[]; sendError?: string; holdSends?: boolean } = {}) => {
+    const history = [...(opts.history ?? [])] as { id: string }[]
+    const pending: (() => void)[] = []
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      const u = String(url)
+      const json = (body: unknown, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(body), { status }))
+
+      if (u.includes('/services/csrf/')) return json({ csrfToken: 'csrf-test' })
+      if (method === 'POST' && u.includes('/group/1/messages/')) {
+        if (opts.sendError) return json({ msg: opts.sendError, data: null }, 400)
+        const { text } = JSON.parse(String(init?.body ?? '{}'))
+        const created = adminSent(`sent-${history.length + 1}`, text)
+        const respond = () => {
+          history.push(created)
+          return new Response(JSON.stringify({ msg: 'Message sent', data: created }), { status: 201 })
+        }
+        if (opts.holdSends) return new Promise<Response>((resolve) => pending.push(() => resolve(respond())))
+        return Promise.resolve(respond())
+      }
+      if (method === 'GET' && u.includes('/messages/')) {
+        const page = Number(new URL(u, 'http://x').searchParams.get('page') || 1)
+        const items = history.slice((page - 1) * 50, page * 50)
+        return json({
+          msg: 'ok',
+          data: { items, total: history.length, page, limit: 50, has_more: page * 50 < history.length }
+        })
+      }
+      return json({})
+    })
+    return { fetchMock, release: () => pending.splice(0).forEach((resolve) => resolve()) }
+  }
+
+  const textarea = () => dialog()!.querySelector('#group-detail-compose') as HTMLTextAreaElement
+  const sendButton = () =>
+    Array.from(dialog()!.querySelectorAll('button')).find((b) =>
+      ['Send', 'Sending...'].includes(b.textContent?.trim() ?? '')
+    ) as HTMLButtonElement
+  const type = async (value: string) => {
+    textarea().value = value
+    textarea().dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+  }
+  const submit = async () => {
+    textarea().form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+  }
+  const posts = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === 'POST')
+  const gets = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.filter(
+      ([u, i]) => String(u).includes('/messages/') && ((i as RequestInit | undefined)?.method ?? 'GET') === 'GET'
+    )
+
+  it('is offered in the Messages view and needs non-blank text', async () => {
+    const { fetchMock } = composerFetch({ history: [textMessage] })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    expect(dialog()!.textContent).toContain('Send a message as Administrator')
+    expect(dialog()!.textContent).toContain('Group members see this from "Administrator"')
+    expect(sendButton().disabled).toBe(true)
+
+    await type('   \n  ')
+    expect(sendButton().disabled).toBe(true)
+    await submit()
+    expect(posts(fetchMock)).toHaveLength(0)
+
+    await type('Hello team')
+    expect(sendButton().disabled).toBe(false)
+  })
+
+  it('sends the text, clears it, confirms, and shows the message in the refreshed history', async () => {
+    const { fetchMock } = composerFetch({ history: [textMessage] })
+    await mountModal(fetchMock)
+    await openMessages()
+    const getsBefore = gets(fetchMock).length
+
+    await type('Reminder: posters are due Friday.')
+    await submit()
+
+    const [[url, init]] = posts(fetchMock)
+    expect(String(url)).toMatch(/\/group\/1\/messages\/$/)
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ text: 'Reminder: posters are due Friday.' })
+
+    expect(textarea().value).toBe('')
+    expect(dialog()!.querySelector('[role="status"]')!.textContent).toContain('Message sent.')
+    expect(gets(fetchMock).length).toBe(getsBefore + 1)
+    expect(dialog()!.textContent).toContain('Messages (2)')
+    expect(dialog()!.textContent).toContain('Reminder: posters are due Friday.')
+  })
+
+  it('identifies admin-sent messages while keeping the real admin', async () => {
+    const { fetchMock } = composerFetch({ history: [textMessage, adminSent('a1', 'From the team')] })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    const [member, admin] = Array.from(dialog()!.querySelectorAll('.group-detail__message'))
+    expect(admin.textContent).toContain('Sent as Administrator')
+    expect(admin.textContent).toContain('Ada Quietly')
+    expect(admin.textContent).toContain('ada.admin@example.com')
+    expect(admin.querySelector('.group-detail__role-badge--admin')).toBeTruthy()
+    // Member messages keep their own role badge.
+    expect(member.textContent).not.toContain('Sent as Administrator')
+    expect(member.querySelector('.group-detail__role-badge')!.textContent!.trim()).toBe('student')
+  })
+
+  it('prevents a second send while one is in flight', async () => {
+    const { fetchMock, release } = composerFetch({ history: [textMessage], holdSends: true })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    await type('Only once')
+    await submit()
+    expect(sendButton().textContent).toContain('Sending...')
+    expect(sendButton().disabled).toBe(true)
+    expect(textarea().disabled).toBe(true)
+
+    await submit()
+    sendButton().dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+    expect(posts(fetchMock)).toHaveLength(1)
+
+    release()
+    await flushPromises()
+    expect(sendButton().textContent).toContain('Send')
+    expect(textarea().disabled).toBe(false)
+    expect(textarea().value).toBe('')
+  })
+
+  it('keeps the text and shows the error when sending fails', async () => {
+    const alertSpy = vi.fn()
+    vi.stubGlobal('alert', alertSpy)
+    const { fetchMock } = composerFetch({ history: [textMessage], sendError: 'Group not found' })
+    await mountModal(fetchMock)
+    await openMessages()
+    const getsBefore = gets(fetchMock).length
+
+    await type('Will this arrive?')
+    await submit()
+
+    expect(dialog()!.querySelector('.group-detail__composer [role="alert"]')!.textContent).toContain('Group not found')
+    expect(textarea().value).toBe('Will this arrive?')
+    expect(sendButton().disabled).toBe(false)
+    expect(dialog()!.querySelector('[role="status"]')).toBeNull()
+    expect(gets(fetchMock).length).toBe(getsBefore)
+    expect(alertSpy).not.toHaveBeenCalled()
+  })
+
+  it('jumps to the last page so a new message on a full page is shown', async () => {
+    const fifty = Array.from({ length: 50 }, (_, i) => ({ ...textMessage, id: `h${i}`, text: `old ${i}` }))
+    const { fetchMock } = composerFetch({ history: fifty })
+    await mountModal(fetchMock)
+    await openMessages()
+    expect(dialog()!.textContent).not.toContain('Page 1 of')
+
+    await type('The fifty-first')
+    await submit()
+
+    const last = gets(fetchMock).at(-1)!
+    expect(String(last[0])).toContain('page=2')
+    expect(dialog()!.textContent).toContain('Page 2 of 2')
+    expect(dialog()!.textContent).toContain('The fifty-first')
+    expect(dialog()!.textContent).toContain('Messages (51)')
+  })
+
+  it('does not carry a draft over to another group', async () => {
+    const { fetchMock } = composerFetch({ history: [textMessage] })
+    await mountModal(fetchMock)
+    await openMessages()
+    await type('Meant for BTF1')
+
+    await wrapper!.setProps({ group: { ...groupFixture(), id: 2, name: 'BTF2' } })
+    await flushPromises()
+    await openMessages()
+
+    expect(textarea().value).toBe('')
+    expect(sendButton().disabled).toBe(true)
   })
 })

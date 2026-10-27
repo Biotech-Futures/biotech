@@ -45,6 +45,12 @@ socket they currently have open belongs to group B.
 
 For deletes the embedded message has ``is_deleted=true`` and a non-null
 ``deleted_at`` so the front end can drive its UI from a single shape.
+
+Messages sent through the admin interface (``sent_as_admin``) are published
+as a non-admin sees them: sender "Administrator", no sender id, in the
+message, a quoted ``reply_to`` and ``mention.created``. The real sender rides
+server-side under ``_admin_identity``; ``chat_message`` always strips it and
+restores it only for a connection whose user is an admin at that moment.
 """
 
 import time
@@ -54,7 +60,9 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from apps.chat.models import Messages
 from apps.chat.rbac import can_access_chat_group
+from apps.chat.serializers import ADMIN_IDENTITY_KEY
 from apps.chat.views import mark_delivered_cursor
+from apps.common.rbac import is_admin
 from apps.groups.models import Groups
 
 
@@ -114,7 +122,11 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
     def _auto_mark_delivered(self, user):
         latest_id = (
             Messages.objects
-            .filter(group_id=self.group_id, deleted_at__isnull=True)
+            .filter(
+                group_id=self.group_id,
+                deleted_at__isnull=True,
+                is_suppressed=False,
+            )
             .exclude(sender_user_id=user.id)
             .order_by("-id")
             .values_list("id", flat=True)
@@ -164,7 +176,13 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         # newly-created message to its client, also mark that message as
         # delivered for the connected user (skipping the sender, who has
         # no MessageStatus row of their own). Idempotent.
-        payload = event.get("payload") or {}
+        payload = dict(event.get("payload") or {})
+        # The real sender of an admin-sent message rides along server-side
+        # only. It is always removed here, and put back only for a viewer who
+        # is an admin right now (see _reveal_admin_identity).
+        identity = payload.pop(ADMIN_IDENTITY_KEY, None)
+        if identity:
+            payload = await self._reveal_admin_identity(payload, identity)
         # Don't echo a user's own typing indicator back to them — the FE
         # already knows it's typing locally and showing "you are typing"
         # would be noise.
@@ -175,7 +193,11 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         if payload.get("event") == "message.created":
             user = self.scope.get("user")
             msg = payload.get("message") or {}
+            # A masked frame has no sender id; the hidden one still decides
+            # whether this connection is the sender's own.
             sender_id = msg.get("sender_user")
+            if identity and "message" in identity:
+                sender_id = identity["message"].get("sender_user")
             mid = msg.get("id")
             if (
                 user is not None
@@ -185,6 +207,38 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
             ):
                 await self._mark_one_delivered(user, mid)
         await self.send_json(payload)
+
+    async def _reveal_admin_identity(self, payload, identity):
+        """Return ``payload`` with the hidden sender restored, if this
+        connection's user is an admin; otherwise the masked ``payload``.
+
+        Checked against the database on every such frame rather than once at
+        connect, so revoking someone's admin access stops the reveal on their
+        next frame, not their next reconnect. Only admin-sent messages carry
+        an identity, so ordinary chat traffic never pays for the query.
+        """
+        if not await self._viewer_is_admin():
+            return payload
+        revealed = dict(payload)
+        if "message" in identity and isinstance(revealed.get("message"), dict):
+            message = dict(revealed["message"])
+            message.update(identity["message"])
+            revealed["message"] = message
+        if "reply_to" in identity and isinstance((revealed.get("message") or {}).get("reply_to"), dict):
+            message = dict(revealed["message"])
+            message["reply_to"] = {**message["reply_to"], **identity["reply_to"]}
+            revealed["message"] = message
+        if "payload" in identity:
+            revealed.update(identity["payload"])
+        return revealed
+
+    @database_sync_to_async
+    def _viewer_is_admin(self):
+        user = self.scope.get("user")
+        try:
+            return is_admin(user)
+        except Exception:  # noqa: BLE001 — fail closed: an error never reveals
+            return False
 
     @database_sync_to_async
     def _mark_one_delivered(self, user, message_id):

@@ -4,7 +4,9 @@ The consolidated frontend/backend change on current `main` implements **five stu
 `POST /api/v1/registration` (both slash variants and `registration-intake/`
 are aliases). Mentors register at the same endpoint with `journey: "mentor"`
 (normalized JSON only, no legacy fallback); see
-[Mentor registration](#mentor-registration). It combines the
+[Mentor registration](#mentor-registration). Supervisors register themselves
+there too, with `journey: "supervisor"`; see
+[Supervisor registration](#supervisor-registration). It combines the
 full `registration` branch and the production changes from frontend #475 and
 backend #476. Registration history is retained while its older frontend wiring
 is reconciled with current main and the newer intake contract.
@@ -17,11 +19,19 @@ is reconciled with current main and the newer intake contract.
 | `supervisor_group` | 2-5 | Current supervisor session/profile; real group and shared interests |
 | `supervisor_csv` | 1-1000 | Current supervisor session/profile; atomic batch with original CSV row numbers |
 
-Supervisor identity is resolved from the session and its existing profile,
-never from a payload claim. A current supervisor role (or staff/admin authority)
-and an existing supervisor profile are required. Anonymous, suspended/deactivated
+Supervisor identity is resolved from the session and its existing profile.
+An admin without a supervisor profile must select an existing supervisor using
+`payload.supervisorEmail`; omitting the email is rejected. The supervisor list is
+an autocomplete aid, not an exhaustive list of accepted profiles. A valid email
+can be entered manually if the list is unavailable or omits the supervisor;
+the backend checks that a `SupervisorProfile` exists for that email. A current
+supervisor role (or staff/admin authority) is required. Anonymous, suspended/deactivated
 or unauthorized users cannot use supervisor journeys.
-Registration never creates a supervisor or grants a public caller that role.
+A student's registration never grants the person sending it the supervisor
+role. The supervisor a student names gets it only when their email has no
+account yet: they're created then (see
+[Compatibility and deployment](#compatibility-and-deployment)). A supervisor can
+also register themselves (see [Supervisor registration](#supervisor-registration)).
 
 Group creators provide guardian contact. Represented students may defer it.
 Identity-only teammates retain blank school/year and null geography until the
@@ -84,24 +94,39 @@ not bypass the window for a team or supervisor batch.
       "overrides": {}
     }],
     "source": {"method": "student_individual"},
-    "supervisorMode": "school",
     "supervisor": {
       "firstName": "Sam", "lastName": "Teacher",
-      "email": "teacher@example.com", "school": "Example High"
+      "email": "teacher@example.com"
     }
   }
 }
 ```
 
-The nominated supervisor is required for public individual/team intake; mode defaults to
-`school`. `parent` mode permits a blank supervisor school, but the supervisor
-must match the named guardian. Guardian contact is always required for
+A supervisor's first name, last name and valid email are required for public
+individual intake and creating a student group. Missing, blank and whitespace-only
+values are rejected. Joining by `group.joinCode` inherits the group's assigned
+supervisor or original recorded nomination; a group with neither cannot accept
+a registration. Nomination records contact details and does not create a
+supervisor account or grant a role. Guardian contact is always required for
 self-registration and for a team's creator. Supervisor journeys omit the
 supervisor object; each complete student may set `guardianDeferred:true`.
 Teams/groups supply `group:{"interests":[...]}` and empty personal-interest
 arrays. CSV source metadata supplies `fileName` and one unique, ordered
 `rowNumbers` entry for each included student. Optional guardian phone/relationship
 details, pronouns, grouping preference and personal interests are retained per student.
+The registration page no longer asks for pronouns or a photo, so it sends
+neither. The API still accepts both, and a returning student keeps the pronouns
+already saved when none are sent.
+
+Upload student details (`supervisor_csv`) takes an .xlsx or a CSV. An .xlsx is
+read by `POST /api/v1/registration/sheet/` (its first sheet back as CSV text).
+**Download example template** is an .xlsx made by
+`POST /api/v1/registration/sheet/template/` from the page's own columns and
+example row (`registrationTemplateRows`), so they're said in one place; a CSV
+of the same if that can't be reached. Its example row (Alex Example) has
+addresses on the reserved `.invalid` domain and a note beside it that it won't
+be registered. Uploaded back, that row is left out and the page says so; any
+other `.invalid` address is the placeholder Submit refuses.
 
 If supplying a photo, use multipart `request` containing the same JSON and
 actual files in indexed fields `students.N`, at most one per student.
@@ -124,11 +149,15 @@ and the adapter use one shared soft-warning helper. Hard errors return field
 paths without warnings. Soft HTTP 400 responses include all unacknowledged
 `warnings:[{code,field,override_field,message}]`, using the original `students.N.*`
 indices. All students' hard checks run before any soft warnings are returned.
-Only literal boolean `ConfirmSchoolOverride`, `ConfirmNameEmailOverride`,
-`ConfirmEmailInvalidOverride` and `ConfirmGuardianEmailInvalidOverride` flags
-under `students.N.overrides` are accepted (the last two are described under
-[Email check before submission](#email-check-before-submission)); they never
-override hard errors. Failures and warnings do not consume links.
+Only literal boolean flags under `students.N.overrides` are accepted:
+`ConfirmSchoolOverride`, `ConfirmNameEmailOverride`,
+`ConfirmEmailInvalidOverride` and `ConfirmGuardianEmailInvalidOverride` (the
+last two are described under
+[Email check before submission](#email-check-before-submission)),
+`ConfirmGuardianEmailHasAccountOverride`, and for the supervisor a student
+names (on the first student) `ConfirmSupervisorEmailInvalidOverride` and
+`ConfirmSupervisorNameEmailOverride` (an address that looks like a typo of the
+supervisor's name). They never override hard errors. Failures and warnings do not consume links.
 
 Intake and management lock the current registration-year row before the
 invitation, recheck idempotency after waiting, and save every student, group, receipt
@@ -204,8 +233,141 @@ exception after close doesn't apply. An email that already has an account
 Once the save commits, the mentor gets the **Registration confirmation (to
 mentor)** email (the `registration_mentor` template, System Emails > Registration).
 
-Mentors aren't covered by the name/email typo warning, or by the
+Mentors aren't covered by the
 [email check before submission](#email-check-before-submission).
+
+## Supervisor registration
+
+A supervisor (a teacher, usually) registers on the public registration page by
+choosing **Supervisor**, as a mentor does: Contact (name and email), School &
+profile (school, teacher or parent, country and state), then Review with the policies and **Submit
+registration**. `register()` hands `journey: "supervisor"` to
+`apps/users/supervisor_registration.py` before any student handling. The
+request needs the same session, `X-CSRFToken` and UUID `Idempotency-Key` as a
+mentor's. The page asks for no pronouns or photo, but the API still accepts
+them. A photo is sent as a student's is: the same JSON in a multipart
+`request`, with the file as `supervisor` (at most one), checked by the shared
+profile-image validator.
+
+Their email is checked as a mentor's is: a placeholder address or one whose
+mailbox doesn't exist is refused (`supervisor.email`); one that couldn't be
+checked, or that looks like a typo of their name, is a warning confirmed with
+`supervisor.overrides` (`ConfirmEmailInvalidOverride`,
+`ConfirmNameEmailOverride`). An address with an account is refused, except a
+supervisor's that Start new year deactivated (`returning_self_supervisor`):
+that account comes back, active, with this form's details in place of last
+year's, as a returning mentor's does.
+
+```json
+{
+  "journey": "supervisor",
+  "payload": {
+    "supervisor": {
+      "firstName": "Sam", "lastName": "Teacher", "email": "sam.teacher@example.com",
+      "school": "Example High", "relationship": "teacher", "country": "Australia", "state": "NSW",
+      "pronouns": "she/her", "pronounsOther": "", "profilePhoto": null
+    }
+  },
+  "policiesAgreed": true
+}
+```
+
+| Field | Rule |
+| --- | --- |
+| `firstName`, `lastName` | Required, up to 150 characters |
+| `email` | Required email, up to 254 characters; saved in lower case |
+| `school` | Required, for every supervisor (a parent too) |
+| `relationship` | `teacher` or `parent` |
+| `country` | Required |
+| `state` | Required when the country is Australia |
+| `pronouns`, `pronounsOther` | Optional, as a student's: `pronounsOther` is required when `pronouns` is `Other`, and is what's saved then |
+| `profilePhoto` | `{name, type, size}` of the attached photo, or `null`; metadata without the file is refused |
+
+Unknown fields are refused, and each error comes back on its own field
+(`supervisor.<field>`). A supervisor is saved in one transaction:
+
+- an account that is **active** at once (no password): unlike a mentor's, no
+  admin activates it, and they sign in as anyone does to register their
+  students;
+- the `supervisor` role from now, with **no end date**;
+- a supervisor profile holding the school, their pronouns on their account,
+  and their photo, if they gave one;
+- teacher or parent kept on their registration as `supervisor_mode` (`school`
+  or `parent`), as a student's nominated supervisor's is;
+- this year's students who named this email as their supervisor before it was
+  a supervisor's (their registration's `supervisor_details`, in the current
+  registration window) become theirs, as their teacher or their parent. A
+  student with a supervisor keeps theirs.
+
+The answer is the usual receipt with **`student_count: 0`**, HTTP 201, or HTTP
+200 with the same receipt for an unchanged retry. A changed request with a used
+key returns HTTP 409, and the per-IP limit returns HTTP 429, as for mentors.
+
+Supervisors follow the student registration dates: when registration is closed
+the answer is "Registration is closed". Late links are for `student_individual`
+only, so a supervisor request carrying one is refused. An email that already has
+an account (student, mentor, supervisor or anyone else) is refused on
+`supervisor.email`.
+
+Once the save commits, the supervisor gets the **Registration confirmation (to
+new supervisor)** email (the `registration_new_supervisor` template, System
+Emails > Self registration). Like the mentor's, it confirms that they've
+registered for the year's Challenge, as a supervisor.
+
+Supervisors aren't covered by the
+[email check before submission](#email-check-before-submission), as mentors
+aren't.
+
+## Setting a password after registering
+
+Someone registering themselves (`student_individual`, `student_team`'s person
+sending the form, `mentor` or `supervisor`) isn't shown Registration Complete:
+the page takes them to **Set password** (`/#/register/password`). Their receipt
+carries a `passwordToken` for their account, also on an unchanged retry, while
+it has no password. It's never given for students a supervisor or admin
+registers.
+
+`POST /api/v1/registration/password/` takes `{token, password}` (no session or
+CSRF: the token is the authority). The token is signed for that one account,
+lasts an hour, and works only while the account has no password; after that,
+the reset link changes it. The password needs 8 characters, as on the
+first-sign-in page. A student or supervisor is then signed in
+(`{signedIn: true, user, csrfToken}`) and taken to their profile. A mentor's
+account waits for an admin to activate it, so they aren't signed in
+(`{signedIn: false}`) and are told they can sign in once it's activated.
+
+A student someone else registered (a team's students after the one sending
+the form, and every student a supervisor or admin registers) is emailed a
+link to the same page instead, while they have no password: a **Set your
+password** button in their registration email (`registration_group`,
+`registration_by_supervisor` or `registration_by_admin`, merge tag
+`SET_PASSWORD_URL`), `/#/register/password?token=…`. Its token is signed
+apart from a receipt's and lasts 14 days. The page first asks
+`GET /api/v1/registration/password/?token=…` whether the link still works and
+whether the student gives their guardian too (`{needsGuardian, guardian}`).
+System Emails' previews and test sends carry a sample link that sets no one's
+password. An admin's saved version of one of those emails shows the button
+only if it includes `SET_PASSWORD_URL`.
+
+Anyone without a password can also set one the first time they sign in, as
+before, and someone whose link expired does so. Either way the page is headed
+**Complete your registration** (**Set your password** for an admin or support
+agent). A student without all of their guardian's details (first name, last
+name and email) gives those first, as step 1, then their password as step 2.
+The guardian is saved as the student's profile saves one
+(`save_own_guardian`, as `PUT /api/v1/users/me/guardian/` does, which emails
+the guardian the permission form), then the password is set. From the link,
+`POST /api/v1/registration/password/` takes them as `guardian`; refused, no
+password is set, and the page goes back to step 1.
+
+The registration form asks only the person filling it in to agree to the
+BIOTech Futures policies, so a student, mentor or supervisor someone else
+registered agrees on the password step instead: a required checkbox, sent as
+`policiesAgreed` to either endpoint (`/api/v1/registration/password/` or, at
+first sign-in, `/api/v1/set-password/`), which records `policies_agreed_at`.
+`needs_policies` decides who's asked: anyone with one of those roles whose
+`policies_agreed_at` is empty, never an admin or a support agent.
+`/api/v1/users/me/` and the link's check (`needsPolicies`) say whether to ask.
 
 ## Email check before submission
 
@@ -379,10 +541,77 @@ QuickEmailVerification's free sandbox, which answers by the test address used
 | `QEV_USE_SANDBOX` | `false` | Use QuickEmailVerification's free test endpoint. |
 | `QEV_ALERT_EMAIL` | `info@biotechfutures.org` | Where low-credit alerts go (the paid key's balance, below 500 then 100). |
 
+### Each email box, as it's left
+
+Separately from the check above, the page checks each email box as focus
+leaves it (`POST /api/v1/registration/email-check/field/`,
+`apps/users/email_field_check.py`), with Submit's own checks: format, the
+template's placeholder, an address already used, a guardian or supervisor the
+same as the student, the mailbox (looked up once and kept, so Submit doesn't
+look it up again), and a name that looks like a typo of the address (the
+student's, a mentor's, a supervisor's own, or the supervisor a student
+names). Its kinds
+are `student`, `guardian`, `supervisor` (the one a student names), `mentor`
+and `supervisor_self` (a supervisor registering themselves), across every
+journey: the four sign-ups, a supervisor's three and an admin's three (a CSV
+row as it's corrected in the review table). Each student's School box is
+checked as it's left too (kind `school`): one that looks like a university
+is a warning, confirmed with `ConfirmSchoolOverride`. On the page
+(`frontend/src/registration/emailFieldCheck.ts`, through the gateway's
+`checkEmailField`):
+
+- **A hard problem** is the box's error, and its step doesn't go on until the
+  address is corrected.
+- **A warning** is shown under the box with a "Yes, this address is correct"
+  tick. The tick is kept while the address is, and goes to Submit as that
+  warning's override, so it isn't asked again.
+- **A check that can't be done** (no network, or past the limit) says
+  nothing. Submit still checks.
+
+It's limited to `registration_email_field_check` (30 a minute) per person,
+in `REST_FRAMEWORK`'s throttle rates, as each new address can cost a lookup.
+
+Admin > Users > Add user (and Edit) does the same for the user's own address,
+a student's guardian's and a student's School (`POST /api/v1/admin/user/email-check/`,
+`apps/admin/user_email_check.py`, admins only, 60 a minute): what saving
+refuses is shown under the box, and so is a warning (a mailbox that doesn't
+exist or couldn't be checked, a likely typo, a guardian address with an
+account, a School that looks like a university), with nothing to tick: saving
+goes ahead. (Management > Registration is the registration page, with its
+ticks.) Saving itself refuses a bad format, the
+placeholder, an address in use, a guardian who is the student, and a
+student's address as a guardian.
+
+Admin > Users > Import Students and Import Mentors check every address in the
+file once it's chosen, before Import (`POST /api/v1/admin/user/import-check/`,
+`apps/admin/import_email_check.py`, admins only, 30 a minute):
+
+- **A problem** moves the row to "Skipped before import", and importing
+  refuses it too: not an address, the placeholder, an address with an account,
+  a student or mentor listed twice, a guardian who is the student or a
+  student, or a supervisor who is the student, a student, or an account that
+  isn't a supervisor's (so importing never makes a student, mentor or admin a
+  supervisor).
+- **A warning** lists the row under "Check before importing", and it's still
+  imported: a mailbox that doesn't exist or couldn't be checked, a name that
+  looks like a typo of the address, a guardian address with an account, or a
+  new supervisor's address a letter or two off an existing supervisor's
+  ("Did you mean …?"; the new supervisor is still made).
+
+New addresses are looked up in the background with the pre-check's job and
+workers (`GET /api/v1/admin/user/import-check/<jobId>/` follows it), whatever
+`EMAIL_PRECHECK_ENABLED` says, and each is paid for once: the answers are kept
+and reused.
+
 ## Compatibility and deployment
 
 Existing `{body: ...}` student callers keep the same endpoint and HTTP 200
-body echo on first success. They now receive real validation and the same
+body echo on first success. **SP2 introduces a required-field change:** legacy
+callers must now send non-blank `SupervisorEmail`, `SupervisorFirstName` and
+`SupervisorSurname`, with a valid supervisor email. Bodies omitting these details
+are rejected with HTTP 400 field errors before any student is saved. Update
+legacy integrations before deploying SP2; the HTTP 200 body echo remains for
+valid first submissions. They now receive real validation and the same
 registration-window/invitation gate. Anonymous legacy submissions retain
 their historical CSRF behavior; authenticated legacy writes still require
 session CSRF. Optional idempotency keys return a receipt on unchanged retry.
@@ -394,22 +623,32 @@ authorization mechanism and do not change validation or grant any role.
 
 Registration creates only a **pending student** with an unusable password,
 the target's existing six-week student assignment, and **no guardian consent**.
-It never activates an account or creates a supervisor/admin role. Supervisor
-contacts are retained on the receipt for the existing staff invitation
-workflow; an existing supervisor profile may be linked without modifying
-that person's name, school, geography or role. Unlike the unsafe legacy
-side effect, an unknown supervisor nomination does not create an account.
-Registration does not send approval/invitation email or simulate those flows.
-Staff must provision unknown supervisors through the existing protected
-workflow, and guardian permission remains the real existing consent process.
+It never creates an admin role. Supervisor contacts are retained on the
+receipt; an existing supervisor profile is linked without modifying that
+person's name, school, geography or role. A supervisor a student names whose
+email has no account is **created on the spot**, as an admin's student import
+creates one (`_resolve_supervisor_id`): an active account with no password, the
+supervisor role with no end date, and a profile at the student's school, in the
+student's country and state. The students (all of a group's) are linked to them
+at once, and the supervisor joins the group. Once the registration is saved
+they're sent **Named as supervisor (to new supervisor)** (the
+`registration_named_supervisor` template, System Emails > Registered by
+student), once per registration, naming every student in it. They sign in
+with their email the first time, and set a password then. An email belonging to any other account (a
+student, mentor or admin) is still refused. Students who named a supervisor
+before this, with no account then, are linked when that supervisor registers
+themselves (see [Supervisor registration](#supervisor-registration)). Guardian
+permission remains the real existing consent process.
 
 Before deployment:
 
 1. Install `backend/requirements.txt` and apply through `users.0025_registration_multi_student`
    with the normal `manage.py migrate` deployment step.
 2. Configure the **registration** year's opening/closing timestamps via the
-   management endpoint. Unconfigured/null boundaries deliberately retain the
-   legacy open default; task/challenge deadlines do not close registration.
+   Management endpoint. Unconfigured/null boundaries deliberately retain the
+   legacy open default, except in a year Start new year began (Management >
+   New Year), which stays closed until its opening date is set;
+   task/challenge deadlines do not close registration.
 3. Keep a stable production `SECRET_KEY`, correctly configured session/CSRF
    origins, frontend base URL and shared throttle cache. The gateway's two
    custom headers are included in the CORS allowlist.

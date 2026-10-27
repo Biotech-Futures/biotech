@@ -11,9 +11,22 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='submission',
-            name='cohort',
-            field=models.PositiveIntegerField(db_index=True, default=apps.submissions.models._default_cohort),
+        # The database gets a plain value: the default works out the challenge
+        # year, which reads tables another app may not have made yet.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.AddField(
+                    model_name='submission',
+                    name='cohort',
+                    field=models.PositiveIntegerField(db_index=True, default=2026),
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='submission',
+                    name='cohort',
+                    field=models.PositiveIntegerField(db_index=True, default=apps.submissions.models._default_cohort),
+                ),
+            ],
         ),
     ]

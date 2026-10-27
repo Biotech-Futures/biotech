@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { registerProfileTimeZone } from '@/utils/date'
-import { formatCalendarDate, relativeDays } from '@/utils/mentorFormat'
+import { formatCalendarDate, mentorConcern, relativeDays } from '@/utils/mentorFormat'
 
 afterEach(() => {
   registerProfileTimeZone(() => undefined)
@@ -33,5 +33,139 @@ describe('formatCalendarDate', () => {
     expect(formatCalendarDate('')).toBe('')
     expect(formatCalendarDate(null)).toBe('')
     expect(formatCalendarDate('Oct 2026')).toBe('Oct 2026')
+  })
+})
+
+describe('mentorConcern', () => {
+  // Fixed clock: these are all day counts against "now".
+  const freeze = () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-27T12:00:00Z'))
+  }
+  const daysAgo = (days: number) =>
+    new Date(Date.UTC(2026, 9, 27, 12) - days * 86_400_000).toISOString()
+
+  it('reports a disabled account as inactive, however recently they spoke', () => {
+    freeze()
+    expect(
+      mentorConcern({ isActive: false, lastMessageAt: daysAgo(0), dateJoined: daysAgo(400) })
+    ).toBe('inactive')
+  })
+
+  it('reports an enabled account that has gone quiet as idle, not inactive', () => {
+    freeze()
+    // The two are different facts: a working login is never "inactive".
+    expect(
+      mentorConcern(
+        { isActive: true, lastMessageAt: daysAgo(56), dateJoined: daysAgo(86), currentAssignedCount: 1 },
+        30
+      )
+    ).toBe('idle')
+  })
+
+  it('excuses a mentor who spoke inside the window', () => {
+    freeze()
+    expect(
+      mentorConcern(
+        { isActive: true, lastMessageAt: daysAgo(3), dateJoined: daysAgo(400), currentAssignedCount: 1 },
+        30
+      )
+    ).toBeNull()
+  })
+
+  it('excuses a mentor who joined inside the window and has not posted', () => {
+    freeze()
+    // The grace the matcher gives, now read the same way here: they have a
+    // group, they have simply not had the time to use it.
+    expect(
+      mentorConcern(
+        { isActive: true, lastMessageAt: null, dateJoined: daysAgo(14), currentAssignedCount: 1 },
+        30
+      )
+    ).toBeNull()
+  })
+
+  it('stops excusing them once the window passes', () => {
+    freeze()
+    expect(
+      mentorConcern(
+        { isActive: true, lastMessageAt: null, dateJoined: daysAgo(31), currentAssignedCount: 1 },
+        30
+      )
+    ).toBe('idle')
+  })
+
+  it('excuses a mentor with no group however long they are quiet', () => {
+    freeze()
+    // Nowhere to post, so silence says nothing. Marking them idle would lock
+    // them out of ever being given a group.
+    expect(
+      mentorConcern(
+        { isActive: true, lastMessageAt: null, dateJoined: daysAgo(400), currentAssignedCount: 0 },
+        30
+      )
+    ).toBeNull()
+  })
+
+  it('takes the stricter reading when the join date is unknown', () => {
+    freeze()
+    expect(mentorConcern({ isActive: true, lastMessageAt: null }, 30)).toBe('idle')
+  })
+})
+
+describe('mentorConcern at the exact threshold', () => {
+  // The same edges pinned on the backend in IdleRuleMatchesTheScreensTests.
+  // The matcher enforces assignment, so if the two read this edge differently
+  // a mentor is either hidden for no reason or offered and then refused.
+  const NOW = Date.UTC(2026, 9, 27, 12)
+  const DAY = 86_400_000
+  const freeze = () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(NOW))
+  }
+  const agoMs = (ms: number) => new Date(NOW - ms).toISOString()
+  const withGroup = (over: Record<string, unknown>) => ({
+    isActive: true,
+    dateJoined: agoMs(400 * DAY),
+    currentAssignedCount: 1,
+    lastMessageAt: null,
+    ...over
+  })
+
+  it('counts silence of exactly the threshold as idle', () => {
+    freeze()
+    expect(
+      mentorConcern(withGroup({ lastMessageAt: agoMs(30 * DAY) }), 30)
+    ).toBe('idle')
+  })
+
+  it('counts silence a moment short of the threshold as fine', () => {
+    freeze()
+    expect(
+      mentorConcern(withGroup({ lastMessageAt: agoMs(30 * DAY - 1000) }), 30)
+    ).toBeNull()
+  })
+
+  it('follows the threshold the admin set', () => {
+    freeze()
+    // Quiet for 40 days: idle at 40 and at 39, not yet at 41.
+    const quiet40 = withGroup({ lastMessageAt: agoMs(40 * DAY) })
+    expect(mentorConcern(quiet40, 40)).toBe('idle')
+    expect(mentorConcern(quiet40, 39)).toBe('idle')
+    expect(mentorConcern(quiet40, 41)).toBeNull()
+  })
+
+  it('ends the join-date grace exactly at the threshold', () => {
+    freeze()
+    expect(
+      mentorConcern(withGroup({ dateJoined: agoMs(30 * DAY) }), 30)
+    ).toBe('idle')
+  })
+
+  it('keeps the grace a moment short of the threshold', () => {
+    freeze()
+    expect(
+      mentorConcern(withGroup({ dateJoined: agoMs(30 * DAY - 1000) }), 30)
+    ).toBeNull()
   })
 })

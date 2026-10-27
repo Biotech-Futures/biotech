@@ -6,8 +6,17 @@ import RegistrationPage from '@/views/RegistrationPage.vue'
 import pageSource from '@/views/RegistrationPage.vue?raw'
 import globalCss from '@/assets/main.css?raw'
 import { createStudent } from '@/registration/registration'
+import { REGISTRATION_GATEWAY_KEY, type RegistrationGateway } from '@/registration/registrationGateway'
+import { heldRegistrationPassword } from '@/registration/registrationPassword'
 import { setRegistrationState } from '@/composables/useRegistrationOpen'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+
+// Where a supervisor back for a new year goes once signed in.
+const routerPush = vi.hoisted(() => vi.fn())
+vi.mock('vue-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('vue-router')>()),
+  useRouter: () => ({ push: routerPush }),
+}))
 
 // Registration as it is by default: open, with no dates.
 const OPEN = { open_now: true, opens_at: null, closes_at: null, can_register_students: true }
@@ -52,6 +61,28 @@ afterEach(() => {
 })
 
 describe('canonical registration intake', () => {
+  it.each(['individual', 'team'])(
+    'requires supervisor details for a student %s registration',
+    async (kind) => {
+      const wrapper = mountPage()
+      await clickButton(wrapper, 'Student')
+      await clickButton(wrapper, kind === 'team' ? 'I have a group' : "I don't have a group")
+      const setup = wrapper.vm as unknown as { currentStep: number }
+      setup.currentStep = 2
+      await wrapper.vm.$nextTick()
+      const prefix = kind === 'team' ? 'student-team' : 'student-individual'
+      for (const field of ['first', 'last', 'email']) {
+        expect(wrapper.get(`#${prefix}-supervisor-${field}`).attributes('required')).toBeDefined()
+      }
+      await wrapper.get('form').trigger('submit')
+      expect(wrapper.text()).toContain('Enter the supervisor first name.')
+      expect(wrapper.text()).toContain('Enter the supervisor last name.')
+      expect(wrapper.text()).toContain('Enter the supervisor email.')
+      expect(setup.currentStep).toBe(2)
+      wrapper.unmount()
+    },
+  )
+
   it('renders compact headings and flat white panels with the target platform green', () => {
     const css = /<style scoped>([\s\S]+)<\/style>/.exec(pageSource)?.[1]
     if (!css) throw new Error('Expected registration stylesheet')
@@ -140,7 +171,8 @@ describe('canonical registration intake', () => {
       const joinContinue = () => wrapper.get('.group-join__actions button')
       expect(html.indexOf('group-join__actions')).toBeLessThan(html.indexOf('or-divider'))
       await joinContinue().trigger('click')
-      expect(wrapper.text()).toContain('Enter the 6-digit group code.')
+      expect(wrapper.text()).toContain('Enter the group code.')
+      expect(wrapper.text()).not.toContain('digit')
       // Add member beside the step's Continue.
       expect(wrapper.get('.form-footer').text()).toContain('Add member')
 
@@ -170,7 +202,7 @@ describe('canonical registration intake', () => {
       expect(setup.validateCurrentStep()).toBe(false)
       await check('12')
       expect(setup.validateCurrentStep()).toBe(false)
-      expect(setup.errors['studentTeam.joinCode']).toBe('Enter the 6-digit group code.')
+      expect(setup.errors['studentTeam.joinCode']).toBe('No group has this code. Check it with your group.')
 
       // Cleared: back to creating one.
       await check('')
@@ -189,7 +221,7 @@ describe('canonical registration intake', () => {
 
   it.each([
     { mode: 'canonical', journey: 'Register as an individual student', choice: "I don't have a group", steps: 4 },
-    { mode: 'canonical', journey: 'Create a student group', choice: 'I have a group', steps: 4 },
+    { mode: 'canonical', journey: 'Register as a group', choice: 'I have a group', steps: 4 },
     { mode: 'canonical', journey: 'Register as a mentor', choice: '', steps: 4 },
     // Its one step has no tabs.
     { mode: 'supervisor', journey: 'Register one student', choice: 'Register one student', steps: 0 },
@@ -251,9 +283,10 @@ describe('canonical registration intake', () => {
     const wrapper = mountPage()
     try {
       expect(wrapper.text()).not.toContain('Mentor')
+      expect(wrapper.findAll('.role-option').map((option) => option.get('strong').text())).toEqual(['Student'])
       await clickButton(wrapper, 'Student')
       expect(wrapper.text()).toContain('Register as an individual student')
-      expect(wrapper.text()).not.toContain('Create a student group')
+      expect(wrapper.text()).not.toContain('Register as a group')
     } finally {
       wrapper.unmount()
       window.history.replaceState({}, '', previous)
@@ -310,14 +343,18 @@ describe('canonical registration intake', () => {
     }
   })
 
-  it('limits public role selection to student and mentor', async () => {
+  it('offers students, supervisors and mentors their registration', async () => {
     const wrapper = mountPage()
 
     expect(wrapper.text()).not.toContain('guardian consent invitation')
     expect(wrapper.find('.welcome-layout').exists()).toBe(false)
     expect(wrapper.text()).toContain('Who are you registering as?')
     expect(wrapper.text()).not.toContain('Guardian')
-    expect(wrapper.text()).not.toContain('Supervisor or teacher')
+    expect(wrapper.findAll('.role-option').map((option) => option.get('strong').text())).toEqual([
+      'Student',
+      'Mentor',
+      'Supervisor',
+    ])
     expect(wrapper.find('.setup-progress').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Registration setup')
     expect(wrapper.text()).not.toContain('Step 1 of 2')
@@ -412,7 +449,8 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).toContain(
       'before you can access most features of the program.',
     )
-    expect(wrapper.text()).toContain('It does not send a permission email or record consent.')
+    expect(wrapper.text()).toContain('Registration saves their contact details.')
+    expect(wrapper.text()).not.toContain('It does not send a permission email')
     // A nominated supervisor is their name and email: no type or school.
     expect(wrapper.text()).not.toContain('Teacher / school supervisor')
     expect(wrapper.text()).not.toContain('Nominated parent-supervisor')
@@ -537,7 +575,7 @@ describe('canonical registration intake', () => {
     expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Submit registration')
   })
 
-  it("lets a student leave out their supervisor, but asks for all of one that's started", async () => {
+  it('asks a student for all of their supervisor: each part is required', async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Student')
     await clickButton(wrapper, "I don't have a group")
@@ -549,19 +587,23 @@ describe('canonical registration intake', () => {
     }
     setup.currentStep = 2
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('A supervisor is usually a teacher, but can also be a guardian.')
-    // No * on the supervisor's fields.
+    expect(wrapper.text()).toContain("Enter your supervisor's name and email. These details are required.")
+    // A * on each of the supervisor's fields.
     for (const id of ['first', 'last', 'email']) {
-      expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).not.toContain('*')
+      expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).toContain('*')
     }
 
     setup.validateCurrentStep()
-    expect(Object.keys(setup.errors).some((key) => key.includes('.supervisor.'))).toBe(false)
+    expect(setup.errors).toMatchObject({
+      'studentIndividual.supervisor.firstName': 'Enter the supervisor first name.',
+      'studentIndividual.supervisor.lastName': 'Enter the supervisor last name.',
+      'studentIndividual.supervisor.email': expect.any(String),
+    })
 
     setup.forms.studentIndividual.supervisor.firstName = 'Sam'
     setup.validateCurrentStep()
+    expect(setup.errors['studentIndividual.supervisor.firstName']).toBeUndefined()
     expect(setup.errors['studentIndividual.supervisor.lastName']).toBeTruthy()
-    expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
   })
 
   it("starts each member in Member 1's country, and offers the group's schools", async () => {
@@ -744,6 +786,100 @@ describe('canonical registration intake', () => {
     vi.unstubAllGlobals()
   })
 
+  it('asks a University of Sydney student whether they study Engineering there, and their ID', async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      errors: Record<string, string>
+      validateCurrentStep: () => boolean
+      forms: { mentor: Record<string, string> }
+    }
+    Object.assign(setup.forms.mentor, {
+      affiliation: 'undergraduate',
+      institution: 'The University of Sydney',
+      universityYear: '2',
+      fieldOfStudy: 'Engineering',
+    })
+    setup.currentStep = 1
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Are you studying Engineering at USYD?')
+    expect(wrapper.text()).toContain('5 PEP hours per group you mentor, up to 15hrs')
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.usydEngineering']).toBeTruthy()
+
+    setup.forms.mentor.usydEngineering = 'yes'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('#mentor-student-id').exists()).toBe(true)
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.studentId']).toBe('Enter your student ID, in numbers.')
+    setup.forms.mentor.studentId = '530123456'
+    expect(setup.validateCurrentStep()).toBe(true)
+
+    // Not at Western Sydney University, nor of an academic.
+    setup.forms.mentor.institution = 'Western Sydney University'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('Are you studying Engineering at USYD?')
+    Object.assign(setup.forms.mentor, { institution: 'USYD', affiliation: 'academic' })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('Are you studying Engineering at USYD?')
+  })
+
+  it("adds a mentor in Australia a step for their state's check before Review", async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      maxReachedStep: number
+      errors: Record<string, string>
+      validateCurrentStep: () => boolean
+      forms: { mentor: Record<string, string | string[]> }
+    }
+    expect(wrapper.findAll('.step-navigation li')).toHaveLength(4)
+    Object.assign(setup.forms.mentor, { country: 'Australia' })
+    await wrapper.vm.$nextTick()
+    setup.forms.mentor.state = 'QLD'
+    await wrapper.vm.$nextTick()
+    // Contact, Affiliation, Mentoring, Checks, Review.
+    expect(wrapper.findAll('.step-navigation li').map((step) => step.text())).toEqual([
+      expect.stringContaining('Contact'),
+      expect.stringContaining('Affiliation'),
+      expect.stringContaining('Mentoring'),
+      expect.stringContaining('Checks'),
+      expect.stringContaining('Review'),
+    ])
+
+    setup.currentStep = setup.maxReachedStep = 3
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Date of Birth')
+    expect(wrapper.text()).toContain('This is used for WWCC verification and is deleted after use.')
+    expect(wrapper.text()).toContain('Blue Card (QLD)')
+    expect(wrapper.get('#mentor-wwcc-description a').attributes('href')).toBe('https://www.qld.gov.au/bluecard')
+    expect(wrapper.text()).toContain('Do you identify as Aboriginal or Torres Strait Islander?')
+    expect(wrapper.text()).toContain('Languages Spoken')
+    expect(setup.validateCurrentStep()).toBe(false)
+    for (const field of ['dateOfBirth', 'wwccNumber', 'indigenous', 'languages'])
+      expect(setup.errors[`mentor.${field}`], field).toBeTruthy()
+
+    Object.assign(setup.forms.mentor, {
+      dateOfBirth: '1999-04-12',
+      wwccNumber: '12345678',
+      indigenous: 'prefer_not',
+      languages: ['English', 'Other (please specify)'],
+    })
+    await wrapper.vm.$nextTick()
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.languagesOther']).toBe('Enter the other language.')
+    setup.forms.mentor.languagesOther = 'Tagalog'
+    expect(setup.validateCurrentStep()).toBe(true)
+
+    // Elsewhere, no such step: Review is the fourth again.
+    setup.forms.mentor.country = 'New Zealand'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.step-navigation li')).toHaveLength(4)
+    expect(setup.maxReachedStep).toBe(3)
+  })
+
   it("asks a mentor only why they'd mentor, in 150 words at most", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
@@ -806,7 +942,7 @@ describe('canonical registration intake', () => {
     const block = wrapper.get('.group-code')
     expect(block.get('.group-code__value').text()).toBe('482915')
     expect(block.text()).toContain('Save this code for future reference and share it with your teammates.')
-    expect(block.text()).toContain('held for you for 24 hours until you register')
+    expect(block.text()).toContain("It's held for you for 4 months.")
     // Before the group's interests.
     const html = wrapper.html()
     expect(html.indexOf('group-code')).toBeLessThan(html.indexOf('Group members'))
@@ -1057,20 +1193,23 @@ describe('canonical registration intake', () => {
     expect(html.indexOf('studentTeam-creator-state')).toBeLessThan(html.indexOf('interest-selector'))
     expect(wrapper.text()).not.toContain('Mutual Area(s) of Interest')
     // Their guardian on Your profile, after their profile; their supervisor on Group.
-    expect(wrapper.text()).not.toContain('A supervisor is usually a teacher, but can also be a guardian.')
+    expect(wrapper.text()).not.toContain("Enter your supervisor's name and email. These details are required.")
     expect(wrapper.text()).not.toContain('Add guardian contact (optional)')
     expect(
       wrapper.get('#studentTeam-creator-guardian-firstName').attributes('required'),
     ).toBeDefined()
-    expect(html.indexOf('studentTeam-creator-profilePhoto')).toBeLessThan(
+    expect(html.indexOf('studentTeam-creator-state')).toBeLessThan(
       html.indexOf('studentTeam-creator-guardian-firstName'),
     )
+    // No pronouns or photo asked for.
+    expect(wrapper.find('#studentTeam-creator-pronouns').exists()).toBe(false)
+    expect(wrapper.find('#studentTeam-creator-profilePhoto').exists()).toBe(false)
     setup.currentStep = 2
     setup.maxReachedStep = 2
     await wrapper.vm.$nextTick()
     // The supervisor before Member 1, and no shared interests.
-    expect(wrapper.text()).toContain('A supervisor is usually a teacher, but can also be a guardian.')
-    expect(wrapper.text()).not.toContain('Mutual Area(s) of Interest')
+    expect(wrapper.text()).toContain("Enter your supervisor's name and email. These details are required.")
+    expect(wrapper.text()).not.toContain('Mutual Areas of Interest')
     const group = wrapper.html()
     expect(group.indexOf('student-team-supervisor-first')).toBeLessThan(
       group.indexOf('Group members'),
@@ -1092,15 +1231,192 @@ describe('canonical registration intake', () => {
     expect(wrapper.get('#studentTeam-creator-firstName').element).toHaveProperty('value', 'Jordan')
   })
 
-  it('provides first-time supervisor guidance without granting public supervisor access', () => {
+  it("registers a supervisor as a mentor's registration goes: contact, school, review", async () => {
     const wrapper = mountPage()
-    expect(wrapper.get('.supervisor-guidance').text()).toBe(
-      'If you are a supervisor, please contact BIOTech Support for an invitation.',
-    )
-    // Only the invitation contact: no sign-in link for supervisors here.
-    expect(wrapper.text()).not.toContain('Sign in to register students')
-    expect(wrapper.get('.supervisor-guidance a').attributes('href')).toMatch(/^mailto:/)
-    expect(wrapper.findAll('.role-option')).toHaveLength(2)
+    // No invitation to ask Support for any more.
+    expect(wrapper.text()).not.toContain('for an invitation')
+    await clickButton(wrapper, 'Supervisor')
+    expect(wrapper.get('.journey-context .page-title').text()).toBe('Register as a supervisor')
+    expect(wrapper.findAll('.step-navigation .tab-pill').map((step) => step.text())).toEqual([
+      '1Contact',
+      '2School & profile',
+      '3Review',
+    ])
+
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      validateCurrentStep: () => boolean
+      errors: Record<string, string>
+      forms: { supervisor: Record<string, string> }
+    }
+    // Their name and email first.
+    expect(wrapper.find('#supervisor-email').exists()).toBe(true)
+    expect(wrapper.find('#supervisor-school').exists()).toBe(false)
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors).toMatchObject({
+      'supervisor.firstName': 'Enter your first name.',
+      'supervisor.lastName': 'Enter your last name.',
+      'supervisor.email': 'Enter the email.',
+    })
+    Object.assign(setup.forms.supervisor, { firstName: 'Sam', lastName: 'Teacher', email: 'teacher@example.com' })
+    expect(setup.validateCurrentStep()).toBe(true)
+
+    // Then their school with teacher or parent beside it and where it is (a
+    // state in Australia). No pronouns or photo.
+    setup.currentStep = 1
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('#supervisor-email').exists()).toBe(false)
+    const grid = wrapper.findAll('.field-grid .registration-field__label').map((label) => label.text())
+    expect(grid.slice(0, 2)).toEqual(['School *', 'Teacher or parent *'])
+    expect(wrapper.find('#supervisor-pronouns').exists()).toBe(false)
+    expect(wrapper.find('#supervisor-profilePhoto').exists()).toBe(false)
+    setup.forms.supervisor.country = 'Australia'
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors).toMatchObject({
+      'supervisor.school': 'Enter your school.',
+      'supervisor.relationship': 'Choose teacher or parent.',
+      'supervisor.state': 'Enter your state.',
+    })
+    Object.assign(setup.forms.supervisor, {
+      school: 'Example High',
+      relationship: 'parent',
+      state: 'NSW',
+    })
+    expect(setup.validateCurrentStep()).toBe(true)
+
+    // Review, with the policies to agree to before Submit registration.
+    setup.currentStep = 2
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.review-section h3').map((title) => title.text())).toEqual(['Supervisor', 'School'])
+    expect(wrapper.text()).toContain('Sam Teacher')
+    expect(wrapper.text()).toContain('Example High')
+    expect(wrapper.text()).toContain('Teacher or parent')
+    expect(wrapper.text()).toContain('Parent')
+    expect(wrapper.find('[data-test="policies-agree"]').exists()).toBe(true)
+    expect(wrapper.get('.form-footer .primary-action').text()).toBe('Submit registration')
+  })
+
+  it('sends a supervisor\'s registration as a mentor\'s, and says they can sign in', async () => {
+    const submit = vi.fn<RegistrationGateway['submit']>(async () => ({
+      ok: true,
+      receipt: {
+        referenceCode: 'ref',
+        journey: 'supervisor',
+        studentCount: 0,
+        submittedAt: '2026-10-24T00:00:00Z',
+      },
+    }))
+    const wrapper = mount(RegistrationPage, {
+      props: { mode: 'canonical' },
+      global: {
+        plugins: [createPinia()],
+        provide: { [REGISTRATION_GATEWAY_KEY as symbol]: { submit } },
+        stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
+      },
+    })
+    try {
+      await clickButton(wrapper, 'Supervisor')
+      const setup = wrapper.vm as unknown as {
+        currentStep: number
+        maxReachedStep: number
+        forms: { supervisor: Record<string, string> }
+      }
+      Object.assign(setup.forms.supervisor, {
+        firstName: 'Sam',
+        lastName: 'Teacher',
+        email: 'teacher@example.com',
+        school: 'Example High',
+        relationship: 'teacher',
+        country: 'New Zealand',
+      })
+      setup.currentStep = setup.maxReachedStep = 2
+      await wrapper.vm.$nextTick()
+      await wrapper.get('[data-test="policies-agree"]').setValue(true)
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(submit.mock.calls[0]?.[0]).toEqual({
+        journey: 'supervisor',
+        payload: {
+          supervisor: {
+            firstName: 'Sam',
+            lastName: 'Teacher',
+            email: 'teacher@example.com',
+            school: 'Example High',
+            relationship: 'teacher',
+            country: 'New Zealand',
+            state: '',
+          },
+        },
+      })
+      // Active at once: no "we'll activate it", but sign in.
+      expect(wrapper.get('.success-intro h3').text()).toBe('Registration Complete')
+      expect(wrapper.get('.success-note').text()).toBe('You can now sign in to register your students.')
+      expect(wrapper.text()).not.toContain('We will contact you after we set up and activate your account')
+      expect(wrapper.get('.form-footer .primary-action').attributes('href')).toBe('/login')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('takes someone registering themselves to set their password, not the Complete page', async () => {
+    // The page's router: this file's, as useRouter gives it.
+    routerPush.mockReset()
+    const submit = vi.fn<RegistrationGateway['submit']>(async () => ({
+      ok: true,
+      receipt: {
+        referenceCode: 'ref',
+        journey: 'mentor',
+        studentCount: 0,
+        submittedAt: '2026-10-24T00:00:00Z',
+        passwordToken: 'signed-token',
+      },
+    }))
+    const wrapper = mount(RegistrationPage, {
+      props: { mode: 'canonical' },
+      global: {
+        plugins: [createPinia()],
+        provide: { [REGISTRATION_GATEWAY_KEY as symbol]: { submit } },
+        stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
+      },
+    })
+    try {
+      await clickButton(wrapper, 'Mentor')
+      const setup = wrapper.vm as unknown as {
+        currentStep: number
+        maxReachedStep: number
+        forms: { mentor: Record<string, unknown> }
+      }
+      Object.assign(setup.forms.mentor, {
+        firstName: 'Jordan',
+        lastName: 'Ng',
+        email: 'jordan.ng@example.com',
+        country: 'New Zealand',
+        affiliation: 'academic',
+        institution: 'University of Auckland',
+        fieldOfStudy: 'Biology',
+        interests: ['Biomedical Innovations'],
+        capacity: '2',
+        motivation: 'To help.',
+      })
+      setup.currentStep = setup.maxReachedStep = 3
+      await wrapper.vm.$nextTick()
+      await wrapper.get('[data-test="policies-agree"]').setValue(true)
+      // Not without signing.
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(submit).not.toHaveBeenCalled()
+      expect(wrapper.get('.mentor-sign').text()).toContain('Sign in the box to confirm your details.')
+      setup.forms.mentor.signature = 'data:image/png;base64,iVBORw0KGgo='
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(submit).toHaveBeenCalledOnce()
+      expect(routerPush).toHaveBeenCalledWith('/register/password')
+      expect(heldRegistrationPassword()).toEqual({ token: 'signed-token', mentor: true })
+      expect(wrapper.find('.success-body').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+      sessionStorage.clear()
+    }
   })
 
   it('gives every logical radio group a shared native name', async () => {

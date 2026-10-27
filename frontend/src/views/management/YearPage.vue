@@ -4,35 +4,39 @@
       <div class="card-header">
         <h3 class="card-title">Current Year</h3>
       </div>
-      <p class="year__value">{{ currentYear }}</p>
+      <p class="year__value">{{ newYear?.year ?? '' }}</p>
       <p class="year__hint">
         The competition year currently in progress. Once this year's competition wraps
         up, use Prepare New Year below to roll the platform over.
       </p>
+      <p v-if="newYear?.started" class="year__hint" data-test="year-started">
+        Started {{ formatStatementTime(newYear.started.started_at) }}
+        <template v-if="newYear.started.started_by">by {{ newYear.started.started_by }}</template>.
+      </p>
 
       <ul class="year__facts">
         <li>
-          <span class="year__fact-label">Registration start</span>
+          <span class="year__fact-label">Registration Start</span>
           <span v-if="registration?.opens_at">{{ formatStatementTime(registration.opens_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="year__fact-label">Registration close</span>
+          <span class="year__fact-label">Registration Close</span>
           <span v-if="registration?.closes_at">{{ formatStatementTime(registration.closes_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="year__fact-label">Challenge start</span>
+          <span class="year__fact-label">Challenge Start</span>
           <span v-if="challengeStart">{{ formatStatementTime(challengeStart) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="year__fact-label">Submission deadline</span>
+          <span class="year__fact-label">Submission Deadline</span>
           <span v-if="deadline">{{ formatStatementTime(deadline.closes_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="year__fact-label">Last extension</span>
+          <span class="year__fact-label">Last Extension</span>
           <span v-if="lastExtension">{{ formatStatementTime(lastExtension) }}</span>
           <span v-else class="year__muted">none granted</span>
         </li>
@@ -43,14 +47,14 @@
           </span>
         </li>
         <li>
-          <span class="year__fact-label">Notify finalists</span>
+          <span class="year__fact-label">Notify Finalists</span>
           <span v-if="finalists.length" :class="allNotified ? 'year__ok' : 'year__muted'">
             {{ notifiedCount }} of {{ finalists.length }} notified
           </span>
           <span v-else class="year__muted">no finalists</span>
         </li>
         <li>
-          <span class="year__fact-label">Symposium date</span>
+          <span class="year__fact-label">Symposium Date</span>
           <span v-if="symposiumDate">{{ dayText(symposiumDate) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
@@ -74,18 +78,72 @@
         </ul>
       </div>
       <p class="year__hint">
-        These steps are instructions for the backend - the Start new year button will
-        run them automatically once it's built.
+        It can be started from 1 September, once submissions have closed and no email is
+        sending. If an email is sending, it waits for it to finish first. Nothing is deleted.
+        What's archived stays on record.
       </p>
-      <button type="button" class="btn btn-outline btn-sm" disabled title="Coming soon">
+
+      <ul v-if="newYear?.blockers.length" class="year__notes year__notes--blocker" data-test="year-blockers">
+        <li v-for="reason in newYear.blockers" :key="reason">
+          <i class="fas fa-circle-xmark" aria-hidden="true"></i> {{ reason }}
+        </li>
+      </ul>
+      <ul v-if="newYear?.warnings.length" class="year__notes year__notes--warning" data-test="year-warnings">
+        <li v-for="note in newYear.warnings" :key="note">
+          <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ note }}
+        </li>
+      </ul>
+      <p v-if="error" class="year__error" role="alert">{{ error }}</p>
+      <div v-if="summary.length" class="year__done" role="status" data-test="year-done">
+        <p class="year__done-title">{{ newYear?.year }} has started.</p>
+        <ul>
+          <li v-for="line in summary" :key="line">{{ line }}</li>
+        </ul>
+      </div>
+
+      <button
+        type="button"
+        class="btn btn-outline btn-field"
+        :disabled="!canStart"
+        data-test="start-new-year"
+        @click="openConfirm"
+      >
         Start new year <i class="fas fa-rotate" aria-hidden="true"></i>
       </button>
     </section>
+
+    <ConfirmDialog
+      v-model="confirmOpen"
+      :title="`Start ${newYear?.next_year ?? 'the new year'}?`"
+      message="Every student, mentor and supervisor is signed out and deactivated, and this year's groups, events and announcements are archived. This can't be undone from here."
+      confirm-label="Start new year"
+      busy-label="Starting..."
+      variant="danger"
+      :busy="starting"
+      :disabled="typed.trim() !== String(newYear?.next_year)"
+      @confirm="start"
+    >
+      <div class="year__type">
+        <label class="table-filter-label" for="new-year-confirm">
+          Type <span class="year__keyword">{{ newYear?.next_year }}</span> to confirm
+        </label>
+        <input
+          id="new-year-confirm"
+          v-model="typed"
+          class="form-input app-input"
+          autocomplete="off"
+          inputmode="numeric"
+          :placeholder="String(newYear?.next_year ?? '')"
+        />
+      </div>
+    </ConfirmDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatStatementTime } from '@/utils/date'
 import { fetchFinalists, type FinalistRow } from '@/utils/gradingAPI'
 import {
@@ -93,11 +151,13 @@ import {
   fetchChallengeStart,
   fetchFinalistEmailDetails,
   fetchGroupExtensions,
-  challengeYear,
+  fetchNewYear,
   fetchRegistrationOpen,
   fetchRelease,
   fetchSubmissionDeadline,
+  startNewYear,
   type GroupExtension,
+  type NewYearState,
   type RegistrationState,
   type ReleaseStatus,
   type SubmissionDeadline
@@ -126,15 +186,16 @@ const steps: { title: string; steps: string[] }[] = [
   {
     title: 'Group Work and Content',
     steps: [
-      'Archives all group tasks, chats and submissions.',
+      'Archives all group and individual tasks, chats and submissions.',
       'Archives all events and announcements, and hides all resources.'
     ]
   },
   {
     title: 'Management',
     steps: [
+      'Archives all role tasks.',
       'Resets the sent progress of every email.',
-      'Clears these dates: Registration Start and End, Challenge Start, Submission Deadline, Symposium (with Confirm Attendance and Slides Due) and Results (Survey Closes).',
+      'Clears these dates: Registration Start and End, Challenge Start, Pages Visibility, Submission Deadline, Symposium (with Confirm Attendance and Slides Due) and Results (Survey Closes).',
       "Archives late registration links, extensions, slot allocations, marks and certificates. Resets each supervisor's late registration permission and resource visibility.",
       'Clears the Symposium registration link and the feedback survey link.'
     ]
@@ -165,11 +226,82 @@ const lastExtension = computed(() => {
   return sorted[sorted.length - 1]
 })
 
-// Mirrors the backend's current_cohort: the deadline's year, or the calendar
-// year while no deadline exists.
-const currentYear = computed(() => challengeYear(deadline.value))
+// The year in progress, the next, and what stops it starting now.
+const newYear = ref<NewYearState | null>(null)
+const confirmOpen = ref(false)
+const typed = ref('')
+const starting = ref(false)
+const error = ref('')
+// What the press just changed, a line each.
+const summary = ref<string[]>([])
+
+const canStart = computed(() => !!newYear.value && !newYear.value.blockers.length && !starting.value)
+
+/** "412 accounts deactivated", from what Start new year counted. */
+const COUNTED: [key: string, one: string, many: string][] = [
+  ['accounts', 'account deactivated and signed out', 'accounts deactivated and signed out'],
+  ['groups', 'group archived', 'groups archived'],
+  ['tasks', 'task archived', 'tasks archived'],
+  ['role_tasks', 'role task archived', 'role tasks archived'],
+  ['events', 'event archived', 'events archived'],
+  ['announcements', 'announcement archived', 'announcements archived'],
+  ['resources', 'resource hidden', 'resources hidden'],
+  ['extensions', 'extension revoked', 'extensions revoked'],
+  ['late_links', 'late registration link revoked', 'late registration links revoked']
+]
+
+const summaryOf = (counts: Record<string, number>) =>
+  COUNTED.map(([key, one, many]) => {
+    const n = counts[key] ?? 0
+    return `${n} ${n === 1 ? one : many}`
+  })
+
+function openConfirm() {
+  typed.value = ''
+  error.value = ''
+  confirmOpen.value = true
+}
+
+async function start() {
+  starting.value = true
+  error.value = ''
+  try {
+    newYear.value = await startNewYear(typed.value)
+    summary.value = summaryOf(newYear.value.started?.counts ?? {})
+    confirmOpen.value = false
+    await loadFacts()
+  } catch (err) {
+    error.value = apiErrorFromUnknown(err, 'The new year could not be started.').message
+    confirmOpen.value = false
+  } finally {
+    starting.value = false
+  }
+}
+
+// While an email is sending, checked again every so often: the button comes
+// on by itself once it has finished.
+const RECHECK_MS = 15000
+let recheck: ReturnType<typeof setTimeout> | undefined
+
+async function loadYear() {
+  clearTimeout(recheck)
+  try {
+    newYear.value = await fetchNewYear()
+  } catch (err) {
+    error.value = apiErrorFromUnknown(err, 'The year could not be loaded.').message
+    return
+  }
+  if (newYear.value.sending) recheck = setTimeout(loadYear, RECHECK_MS)
+}
 
 onMounted(async () => {
+  await loadYear()
+  await loadFacts()
+})
+
+onUnmounted(() => clearTimeout(recheck))
+
+async function loadFacts() {
   // Best-effort: each block independent so one failure doesn't blank the page.
   try {
     registration.value = await fetchRegistrationOpen()
@@ -211,7 +343,7 @@ onMounted(async () => {
   } catch {
     finalists.value = []
   }
-})
+}
 </script>
 
 <style scoped>
@@ -279,6 +411,79 @@ onMounted(async () => {
 
 .year__steps a {
   color: var(--dark-green);
+}
+
+/* What stops it starting now, and what's worth knowing first. */
+.year__notes {
+  list-style: none;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.year__notes li {
+  border-radius: 6px;
+  padding: 0.45rem 0.75rem;
+}
+
+.year__notes--blocker li {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.year__notes--blocker i {
+  color: var(--danger);
+}
+
+.year__notes--warning li {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.year__error {
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  margin: 0 0 0.9rem;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.year__done {
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  margin: 0 0 0.9rem;
+  font-size: 0.9rem;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.year__done-title {
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+  color: var(--dark-green);
+}
+
+.year__done ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+/* The year typed to confirm, on the dialog's own background. */
+.year__type {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.75rem;
+}
+
+.year__type input {
+  background-color: var(--white);
+}
+
+.year__keyword {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700;
+  color: var(--danger);
 }
 
 .btn:disabled {

@@ -251,12 +251,16 @@ def get_group_activity_analytics(
     mentor_assignments = active_memberships.filter(
         membership_role=GroupMembership.MembershipRoleChoices.MENTOR
     )
-    mentor_assignment_count = mentor_assignments.count()
     mentored_group_ids = mentor_assignments.values("group_id")
-    students_in_mentored_groups = active_memberships.filter(
-        membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-        group_id__in=mentored_group_ids,
-    ).count()
+    students_in_mentored_groups = (
+        active_memberships.filter(
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+            group_id__in=mentored_group_ids,
+        )
+        .values("user_id")
+        .distinct()
+        .count()
+    )
 
     comparison_year = (end_date or timezone.localdate()).year
     average_group_size_by_year = []
@@ -296,11 +300,13 @@ def get_group_activity_analytics(
         groups_with_mentor = (
             mentor_memberships_at_year_end.values("group_id").distinct().count()
         )
-        historical_mentor_assignments = mentor_memberships_at_year_end.count()
         historical_students_in_mentored_groups = (
             student_memberships_at_year_end.filter(
                 group_id__in=mentor_memberships_at_year_end.values("group_id")
-            ).count()
+            )
+            .values("user_id")
+            .distinct()
+            .count()
         )
         student_counts_by_group = {
             row["group_id"]: row["student_count"]
@@ -388,10 +394,10 @@ def get_group_activity_analytics(
                 "students_per_mentor": (
                     round(
                         historical_students_in_mentored_groups
-                        / historical_mentor_assignments,
+                        / historical_mentor_count,
                         2,
                     )
-                    if historical_mentor_assignments
+                    if historical_mentor_count
                     else None
                 ),
                 "group_size_distribution": group_size_distribution,
@@ -414,8 +420,8 @@ def get_group_activity_analytics(
         "mentor_count": mentor_count,
         "student_count": student_count,
         "students_per_mentor": (
-            round(students_in_mentored_groups / mentor_assignment_count, 2)
-            if mentor_assignment_count
+            round(students_in_mentored_groups / mentor_count, 2)
+            if mentor_count
             else None
         ),
         "average_group_size_by_year": average_group_size_by_year,

@@ -5,9 +5,8 @@
     <section class="card">
       <h3 class="extensions__section-title">Extend Deadline</h3>
       <p class="extensions__hint">
-        Search by the group's name to extend their deadline. Times are in your local
-        timezone ({{ localTimeZone }}). Students see the closing time; the server quietly
-        keeps accepting for the grace hours after it.
+        Search by the group's name to extend their deadline. Times are Sydney time. Students see
+        the closing time; the server quietly keeps accepting for the grace hours after it.
       </p>
       <!-- Granting is the Grant button only: Enter in a field (e.g. the
            search box) must never grant an extension. -->
@@ -16,16 +15,12 @@
           <span>Search</span>
           <GroupSearchInput ref="picker" v-model="groupQuery" />
         </label>
-        <label class="extensions__field">
-          <span>Extended until</span>
-          <AppDateTimePicker
-            v-model="untilLocal"
-            :min="minLocal || undefined"
-            required
-            class="extensions__input app-input app-input--compact"
-            default-time="23:59"
-          />
-        </label>
+        <SydneyDateTimeFields
+          v-model="untilLocal"
+          date-label="Extended until"
+          required
+          :min="minLocal || undefined"
+        />
         <label class="extensions__field">
           <span>Grace hours</span>
           <input
@@ -47,7 +42,7 @@
         </label>
         <button
           type="button"
-          class="btn btn-primary btn-sm"
+          class="btn btn-primary btn-field"
           :disabled="isSaving || !groupQuery || !untilLocal"
           @click="save"
         >
@@ -63,7 +58,7 @@
       <p v-if="isLoading" class="extensions__hint">Loading…</p>
       <div v-else-if="loadError" class="extensions__load-error">
         <p>Failed to load. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </div>
       <!-- Kept in the server's order: the page owns sorting, and sorts nothing. -->
       <AppDataTable
@@ -128,12 +123,12 @@
           the current one.
         </p>
         <div class="extensions__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="overwriteWarning = null">
+          <button type="button" class="btn btn-outline btn-field" @click="overwriteWarning = null">
             Cancel
           </button>
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="isSaving"
             @click="performSave(overwriteWarning.id)"
           >
@@ -152,12 +147,12 @@
           group back on the standard submission deadline.
         </p>
         <div class="extensions__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="pendingRevoke = null">
+          <button type="button" class="btn btn-outline btn-field" @click="pendingRevoke = null">
             Cancel
           </button>
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="isSaving"
             @click="revoke(pendingRevoke.group_id)"
           >
@@ -182,11 +177,17 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
-import { describeBrowserTimeZone, formatShortDateTime, formatStatementTime } from '@/utils/date'
+import {
+  SYDNEY_TIME_ZONE,
+  formatShortDateTime,
+  formatSydneyStatement,
+  fromSydneyDateTimeInput,
+  sydneyToday,
+  toSydneyDateTimeInput
+} from '@/utils/date'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
-import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
+import SydneyDateTimeFields from '@/components/management/SydneyDateTimeFields.vue'
 
-const localTimeZone = describeBrowserTimeZone()
 
 const extensions = ref<GroupExtension[]>([])
 const isLoading = ref(false)
@@ -197,13 +198,9 @@ const isSaving = ref(false)
 
 const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
 const groupQuery = ref('')
-// Defaults to today at 23:59 — extensions are almost always end-of-day,
-// so the admin only has to adjust the date.
-const defaultUntilLocal = () => {
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
-}
+// Sydney's "YYYY-MM-DDTHH:MM": today at 23:59 by default, as extensions are
+// almost always end-of-day, so the admin only has to adjust the date.
+const defaultUntilLocal = () => `${sydneyToday()}T23:59`
 const untilLocal = ref(defaultUntilLocal())
 const graceHours = ref(24)
 const reason = ref('')
@@ -244,7 +241,7 @@ const extensionRows = computed(() =>
       id: e.id,
       record: { ...e, status },
       group: e.group_name,
-      until: formatShortDateTime(e.extended_until),
+      until: formatShortDateTime(e.extended_until, SYDNEY_TIME_ZONE),
       added: e.added ?? '—',
       grace: e.grace_hours ? `+${e.grace_hours}h` : '—',
       status: status.label,
@@ -266,11 +263,7 @@ const minLocal = ref('')
 const loadDeadlineFloor = async () => {
   try {
     const deadline = (await fetchSubmissionDeadline()).deadline
-    if (deadline) {
-      const d = new Date(deadline.closes_at)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      minLocal.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-    }
+    if (deadline) minLocal.value = toSydneyDateTimeInput(deadline.closes_at)
   } catch {
     minLocal.value = ''
   }
@@ -306,7 +299,7 @@ const save = async () => {
     overwriteWarning.value = {
       id,
       groupName: existing.group_name,
-      until: formatStatementTime(existing.extended_until)
+      until: formatSydneyStatement(existing.extended_until)
     }
     return
   }
@@ -316,7 +309,7 @@ const save = async () => {
 const performSave = async (id: number) => {
   isSaving.value = true
   try {
-    const iso = new Date(untilLocal.value).toISOString()
+    const iso = fromSydneyDateTimeInput(untilLocal.value)!
     await saveGroupExtension(id, iso, graceHours.value || 0, reason.value)
     flashSaved('Extension granted.')
     groupQuery.value = ''
@@ -336,7 +329,7 @@ const performSave = async (id: number) => {
 const pendingRevoke = ref<GroupExtension | null>(null)
 
 // "05/11/2026 at 13:00", as the other management popups write it.
-const untilLabel = (iso: string) => formatStatementTime(iso)
+const untilLabel = (iso: string) => formatSydneyStatement(iso)
 
 const revoke = async (id: number) => {
   actionError.value = ''

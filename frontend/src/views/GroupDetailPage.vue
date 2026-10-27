@@ -207,8 +207,31 @@
 
       <!-- Desktop: two columns; mobile: single column via tabs -->
       <div class="split" :data-active="activeTab">
-        <!-- Left column: Tasks -->
+        <!-- Left column: Tasks / Meetings workspace -->
+        <div class="workspace-column">
+
+          <div class="workspace-switch">
+          <button
+            type="button"
+            class="workspace-switch-btn"
+            :class="{ active: workspaceView === 'tasks' }"
+            @click="workspaceView = 'tasks'"
+          >
+            Tasks
+          </button>
+
+          <button
+            type="button"
+            class="workspace-switch-btn"
+            :class="{ active: workspaceView === 'meetings' }"
+            @click="workspaceView = 'meetings'"
+          >
+            Meetings
+          </button>
+        </div>
+
         <section class="pane pane--tasks card">
+          <template v-if="workspaceView === 'tasks'">
           <div class="card-header">
             <h3 class="card-title subheading">Tasks</h3>
             <div class="task-header-actions">
@@ -861,7 +884,13 @@
               </form>
             </div>
           </Transition>
+        </template>
+        <GroupMeetingsPage
+          v-if="workspaceView === 'meetings'"
+          embedded
+        />
         </section>
+      </div> <!-- Close workspace-column -->
 
         <!-- Right column: Discussion -->
         <section class="pane pane--discussion">
@@ -1161,6 +1190,7 @@
                     {
                       own: message.isOwn,
                       pending: message.isLocalOnly,
+                      suppressed: message.isSuppressed,
                       'message--same-sender': followsSameSender(index),
                       'search-hit': String(highlightedSearchMessageId) === String(message.id),
                     },
@@ -1185,6 +1215,35 @@
                     <span class="message-author">{{ message.author }}</span>
                     <span class="message-meta">
                       <span v-if="message.editedAt" class="message-edited">edited</span>
+                      <span
+                        v-if="message.isSuppressed"
+                        class="message-suppressed-label"
+                        :title="
+                          isModerationRemoval(message)
+                            ? 'This message was reviewed and removed by an administrator because it did not meet the community guidelines. It is no longer visible to other group members.'
+                            : 'This message has been flagged as potentially inappropriate and is pending review by administration. It is not visible to other group members while the review is underway.'
+                        "
+                        :aria-label="
+                          isModerationRemoval(message)
+                            ? 'Removed after review. This message was reviewed and removed by an administrator because it did not meet the community guidelines. It is no longer visible to other group members.'
+                            : 'Hidden pending review. This message has been flagged as potentially inappropriate and is pending review by administration. It is not visible to other group members while the review is underway.'
+                        "
+                      >
+                        <i
+                          :class="[
+                            'fas',
+                            isModerationRemoval(message)
+                              ? 'fa-ban'
+                              : 'fa-eye-slash',
+                          ]"
+                          aria-hidden="true"
+                        ></i>
+                        {{
+                          isModerationRemoval(message)
+                            ? 'Removed after review'
+                            : 'Hidden pending review'
+                        }}
+                      </span>
                       <span class="message-date">{{ formatDayMonthTime(message.date) }}</span>
                       <!-- Inline action cluster: always-visible reply + smile,
                            and a kebab menu (Edit/Delete) shown only while the
@@ -1192,7 +1251,7 @@
                            an admin (``canManageMessage``). -->
                       <span class="message-inline-actions">
                         <button
-                          v-if="!message.isDeleted"
+                          v-if="!message.isDeleted && !message.isSuppressed"
                           type="button"
                           class="inline-action-btn"
                           title="Reply"
@@ -1202,7 +1261,7 @@
                           <i class="fas fa-reply"></i>
                         </button>
                         <button
-                          v-if="!message.isDeleted && supportsMessageReactions"
+                          v-if="!message.isDeleted && !message.isSuppressed && supportsMessageReactions"
                           type="button"
                           class="inline-action-btn"
                           :class="{ active: activeReactionPickerMessageId === message.id }"
@@ -1237,6 +1296,7 @@
                               @click.stop
                             >
                               <button
+                                v-if="canEditMessage(message)"
                                 type="button"
                                 class="inline-kebab-item"
                                 role="menuitem"
@@ -1246,6 +1306,7 @@
                                 <span>Edit</span>
                               </button>
                               <button
+                                v-if="canDeleteMessage(message)"
                                 type="button"
                                 class="inline-kebab-item inline-kebab-item--danger"
                                 role="menuitem"
@@ -1287,9 +1348,27 @@
                     <strong>{{ getReplyText(message.replyTo) }}</strong>
                   </div>
                   <div v-if="message.isDeleted" class="message-text message-text--deleted">
-                    {{ getDeletedMessageText(message) }}
+                    <span class="message-deleted-label">{{ getDeletedMessageText(message) }}</span>
+                    <!-- Admins, and whoever removed this message, keep the
+                         original text and can undo it. Everyone else sees the
+                         tombstone line only. -->
+                    <template v-if="canRestoreMessage(message)">
+                      <span v-if="message.text" class="message-deleted-original">{{ message.text }}</span>
+                      <button
+                        type="button"
+                        class="message-restore-btn"
+                        :disabled="restoringMessageId === message.id"
+                        @click="restoreDeletedMessage(message)"
+                      >
+                        {{ restoringMessageId === message.id ? 'Restoring…' : 'Restore' }}
+                      </button>
+                    </template>
                   </div>
-                  <div v-else-if="editingMessageId !== message.id" class="message-text">
+                  <div
+                    v-else-if="editingMessageId !== message.id"
+                    class="message-text"
+                    :class="{ 'message-text--empty': !message.text }"
+                  >
                     <template
                       v-for="(segment, segmentIndex) in getMessageTextSegments(message.text)"
                       :key="`${message.id}-segment-${segmentIndex}`"
@@ -1511,7 +1590,7 @@
                   </div>
 
                   <div
-                    v-if="message.isOwn"
+                    v-if="message.isOwn && !message.isDeleted"
                     class="message-receipt-wrap"
                   >
                     <button
@@ -1783,6 +1862,7 @@
 </template>
 
 <script setup>
+import GroupMeetingsPage from './GroupMeetingsPage.vue'
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppDatePicker from '../components/AppDatePicker.vue'
@@ -1793,6 +1873,10 @@ import GroupSubmissionSection from '@/components/submission/GroupSubmissionSecti
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { splitTextIntoLinkSegments, firstLinkHref } from '@/utils/linkify'
+import {
+  hideModerationDeletionFromViewer,
+  isModerationRemoval,
+} from '@/utils/chatModeration'
 import {
   applyCursorToMessage,
   getReceiptAriaLabel as receiptAriaLabel,
@@ -1814,9 +1898,9 @@ import {
 } from '@/utils/tasksAPI'
 
 const route = useRoute()
-// Submission, Finalist or Results open: the page scrolls as a whole, rather
-// than holding the group's card and tabs while the section scrolls below.
-const SECTION_ROUTES = ['group-submission', 'group-finalist', 'group-results']
+// Submission, Finalist, Results or Plan open: the page scrolls as a whole,
+// rather than holding the group's card and tabs while the section scrolls below.
+const SECTION_ROUTES = ['group-submission', 'group-finalist', 'group-results', 'group-plan']
 const onSectionPage = computed(() => SECTION_ROUTES.includes(String(route.name)))
 const router = useRouter()
 const auth = useAuthStore()
@@ -1849,6 +1933,9 @@ const showGroupMembersDialog = ref(false)
 
 // Active mobile tab
 const activeTab = ref('tasks')
+const workspaceView = ref(
+  route.query.tab === 'meetings' ? 'meetings' : 'tasks'
+)
 
 // Live task state
 const tasks = ref([])
@@ -2473,7 +2560,7 @@ const loadGroupOptions = async () => {
 
 const switchGroup = (id) => {
   if (!id || id === routeGroupId.value) return
-  // Stays on the section open (Submission, Finalist or Results).
+  // Stays on the section open (Submission, Finalist, Results or Plan).
   const name = onSectionPage.value ? String(route.name) : 'group-detail'
   void router.push({ name, params: { id } })
 }
@@ -3293,7 +3380,10 @@ const normalizeMessage = (item) => {
     raw?.deletedByIsAdmin === true ||
     raw?.deleted_by_is_admin === 'true' ||
     raw?.deletedByIsAdmin === 'true'
-  const isOwnMessage = isOwn || (isDeleted && deletedById > 0 && deletedById === currentUserId)
+  // Ownership follows the sender, always. Treating "I deleted it" as "mine"
+  // moved another member's message to the right-hand side and coloured it as
+  // the admin's own; getDeletedMessageText already names the remover.
+  const isOwnMessage = isOwn
   const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
   const author = isOwnMessage
@@ -3319,6 +3409,8 @@ const normalizeMessage = (item) => {
     deletedByName,
     deletedByIsAdmin,
     isEdited: Boolean(raw?.is_edited || raw?.isEdited || raw?.edited_at),
+    isSuppressed: Boolean(raw?.is_suppressed || raw?.isSuppressed),
+    suppressedAt: raw?.suppressed_at || raw?.suppressedAt || null,
     isDeleted,
     readCount: Number(raw?.read_count || raw?.readCount || 0),
     deliveredCount: Number(raw?.delivered_count || raw?.deliveredCount || 0),
@@ -3332,9 +3424,52 @@ const normalizeMessage = (item) => {
   }
 }
 
+/** Admins may undo any removal; anyone else only their own, which mirrors
+ *  the API. The tombstone carries ``deletedById``, so no extra request. */
+// Whoever may read a removed message keeps its content on screen instead of
+// watching it blank out: admins, and the person who removed it. Mirrors
+// MessagePublicSerializer._may_read_removed on the backend.
+const mayReadRemoved = (deletedById) =>
+  auth.isAdmin || Number(deletedById || 0) === Number(currentUserId.value || 0)
+
+/** What a delete clears locally — nothing, for a viewer who may still read it. */
+const removedContentPatch = (deletedById) =>
+  mayReadRemoved(deletedById) ? {} : { text: '', attachments: [], resources: [], preview: null }
+
+const canRestoreMessage = (message) => {
+  if (!message?.isDeleted) return false
+  if (auth.isAdmin) return true
+  return Number(message.deletedById || 0) === Number(auth.user?.id || 0)
+}
+
+const restoringMessageId = ref(null)
+
+// Restore is admin-only on the API too; the button simply isn't rendered for
+// anyone else. The websocket 'message.restored' event puts the text back for
+// every open client, so no local patching is needed here.
+const restoreDeletedMessage = async (message) => {
+  // ``backendGroupId`` at module scope is a computed; every call site resolves
+  // the plain id the same way, so the URL cannot end up with "[object Object]".
+  const groupId = getBackendGroupId()
+  if (!groupId || !message?.id) return
+  restoringMessageId.value = message.id
+  chatError.value = ''
+  try {
+    await requestJson(`${buildChatMessageUrl(groupId, message.id)}restore/`, {
+      method: 'POST'
+    })
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'The message could not be restored.'
+  } finally {
+    restoringMessageId.value = null
+  }
+}
+
 const getDeletedMessageText = (message) => {
   if (!message?.isDeleted) return ''
-  if (message.deletedByIsAdmin) return 'Admin deleted a message'
+  if (isModerationRemoval(message) || message.deletedByIsAdmin) {
+    return 'Admin deleted a message'
+  }
   const deletedById = Number(message.deletedById || 0)
   if ((deletedById > 0 && deletedById === currentUserId.value) || (!deletedById && message.isOwn)) {
     return 'You deleted a message'
@@ -4072,6 +4207,9 @@ const showMentionSuggestions = computed(
   () => mentionStartIndex.value >= 0 && mentionSuggestions.value.length > 0,
 )
 
+const hasMessage = (messageId) =>
+  messages.value.some((message) => String(message.id) === String(messageId))
+
 const applyMessageUpdate = (messageId, updater) => {
   const index = messages.value.findIndex((message) => String(message.id) === String(messageId))
   if (index === -1) return
@@ -4755,8 +4893,11 @@ const clearReplyTarget = () => {
   replyTarget.value = null
 }
 
-const canManageMessage = (message) => {
-  if (!message || isPendingMessage(message) || message.isDeleted) return false
+// Edit: the sender inside their 10-minute window, or an admin. Mirrors
+// CanEditMessage on the API. A suppressed message is nobody's to touch while
+// its ticket is open.
+const canEditMessage = (message) => {
+  if (!message || isPendingMessage(message) || message.isDeleted || message.isSuppressed) return false
   if (auth.isAdmin) return true
   if (!message.isOwn) return false
 
@@ -4765,8 +4906,31 @@ const canManageMessage = (message) => {
   return manageWindowNow.value - sentAt <= 10 * 60 * 1000
 }
 
+/** Whoever sent this takes part in the group as a student. */
+const senderIsAStudent = (message) => {
+  const senderId = Number(message?.senderId || 0)
+  if (!senderId) return false
+  return groupMemberships.value.some(
+    (item) =>
+      Number(item.userId) === senderId && String(item.role || '').toLowerCase() === 'student',
+  )
+}
+
+// Delete is wider than edit: a mentor of this group may take a student's
+// message down, but never rewrite it (AM8). Mirrors CanModerateMessage.
+const canDeleteMessage = (message) => {
+  if (!message || isPendingMessage(message) || message.isDeleted || message.isSuppressed) return false
+  if (canEditMessage(message)) return true
+  return myGroupRole.value === 'mentor' && senderIsAStudent(message)
+}
+
+// The kebab exists if either action is available to this viewer.
+const canManageMessage = (message) => canEditMessage(message) || canDeleteMessage(message)
+
 const startMessageEdit = (message) => {
-  if (!canManageMessage(message)) return
+  // Deliberately the edit rule, not the combined one: a mentor who can delete
+  // a student's message must not be able to open it for editing.
+  if (!canEditMessage(message)) return
   clearReplyTarget()
   closeAllComposerPanels({ except: null })
   editingMessageId.value = message.id
@@ -4836,11 +5000,10 @@ const deleteMessage = async (message) => {
     })
     applyMessageUpdate(message.id, (current) => ({
       ...current,
-      text: '',
-      attachments: [],
-      resources: [],
+      // The remover may always read it back, so nothing is cleared here
+      // beyond the reactions, which the API drops for everyone.
+      ...removedContentPatch(currentUserId.value),
       reactions: {},
-      preview: null,
       deletedAt: new Date().toISOString(),
       deletedById: currentUserId.value,
       deletedByName: auth.isAdmin ? 'Admin' : getCurrentUserMentionName(),
@@ -4950,6 +5113,32 @@ const handleSocketPayload = async (payload) => {
     payload.message && typeof payload.message === 'object' ? payload.message : null
   const socketMessageId = socketMessage?.id ?? payload.message_id
 
+  if (eventName === 'message.suppressed' && socketMessageId) {
+    // The server deliberately sends no text in this event. Everybody except
+    // the sender removes the row; the sender keeps their existing local copy
+    // in a muted state while support reviews the linked ticket.
+    if (Number(payload.sender_user_id || 0) === Number(auth.user?.id || 0)) {
+      applyMessageUpdate(socketMessageId, (message) => ({
+        ...message,
+        isSuppressed: true,
+        suppressedAt: payload.suppressed_at || new Date().toISOString(),
+      }))
+    } else {
+      messages.value = messages.value.filter(
+        (message) => String(message.id) !== String(socketMessageId),
+      )
+      mentionItems.value = mentionItems.value.filter(
+        (mention) => String(mention.message_id) !== String(socketMessageId),
+      )
+    }
+    return
+  }
+
+  if (eventName === 'message.moderation_approved' && socketMessage) {
+    upsertMessage(socketMessage)
+    return
+  }
+
   if (eventName === 'message.created' && socketMessage) {
     upsertMessage(socketMessage)
     removeTypingUser(payload.user_name || socketMessage.sender_name || '')
@@ -4994,24 +5183,40 @@ const handleSocketPayload = async (payload) => {
 
   if (eventName === 'message.deleted') {
     if (!socketMessageId) return
-    if (socketMessage) {
+    // A suppressed message is evidence, not group content: it leaves the
+    // room entirely rather than becoming a tombstone.
+    if (hideModerationDeletionFromViewer(socketMessage, payload, auth.user?.id)) {
+      messages.value = messages.value.filter(
+        (message) => String(message.id) !== String(socketMessageId),
+      )
+      mentionItems.value = mentionItems.value.filter(
+        (mention) => String(mention.message_id) !== String(socketMessageId),
+      )
+      return
+    }
+    // One payload reaches the whole room, redacted for all of them, so its
+    // blank text and empty attachments must not overwrite the copy a viewer
+    // who may read the removal already holds. They get the removal merged
+    // onto what they have; everyone else gets the broadcast as before.
+    const source = socketMessage || payload
+    const deletedById = Number(source.deleted_by ?? source.deletedBy ?? 0)
+    const keepsContent = mayReadRemoved(deletedById) && hasMessage(socketMessageId)
+
+    if (socketMessage && !keepsContent) {
       upsertMessage(socketMessage)
     } else {
       const deletedByIsAdmin =
-        payload.deleted_by_is_admin === true ||
-        payload.deletedByIsAdmin === true ||
-        payload.deleted_by_is_admin === 'true' ||
-        payload.deletedByIsAdmin === 'true'
+        source.deleted_by_is_admin === true ||
+        source.deletedByIsAdmin === true ||
+        source.deleted_by_is_admin === 'true' ||
+        source.deletedByIsAdmin === 'true'
       applyMessageUpdate(socketMessageId, (message) => ({
         ...message,
-        text: '',
-        attachments: [],
-        resources: [],
+        ...removedContentPatch(deletedById),
         reactions: {},
-        preview: null,
-        deletedAt: payload.deleted_at || new Date().toISOString(),
-        deletedById: Number(payload.deleted_by || 0),
-        deletedByName: deletedByIsAdmin ? 'Admin' : payload.deleted_by_name || '',
+        deletedAt: source.deleted_at || new Date().toISOString(),
+        deletedById,
+        deletedByName: deletedByIsAdmin ? 'Admin' : source.deleted_by_name || '',
         deletedByIsAdmin,
         isDeleted: true,
       }))
@@ -6149,7 +6354,63 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
+<style>
+/* Tasks / Meetings workspace switch */
+
+.workspace-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding: 5px;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+.workspace-switch-btn {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.workspace-switch-btn:hover:not(.active) {
+  background: var(--accent-green-soft);
+  color: var(--teal);
+}
+
+.workspace-switch-btn.active {
+  background: var(--dark-green) !important;
+  color: #ffffff !important;
+}
+
+.pane--tasks > .card-header {
+  flex: 0 0 auto;
+}
+
+.pane--tasks > .tasks-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane--tasks > .meetings-page--embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* Header */
 .gd-head {
   display: flex;
@@ -6184,7 +6445,8 @@ onBeforeUnmount(() => {
   padding: 0.12rem 0.45rem;
   border: 1px solid var(--border-light);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--gd-meta-background, rgba(255, 255, 255, 0.65));
+  color: var(--gd-meta-color, inherit);
 }
 .gd-onboarding-notice {
   display: flex;
@@ -6419,6 +6681,29 @@ onBeforeUnmount(() => {
   border-bottom-color: var(--dark-green);
 }
 
+/* Left workspace: switch above scrollable card */
+.workspace-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace-column > .workspace-switch {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-bottom: 0;
+}
+
+.workspace-column > .pane--tasks {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Split layout */
 .split {
   display: grid;
@@ -6437,6 +6722,13 @@ onBeforeUnmount(() => {
   min-height: 320px;
   position: relative;
   container-type: inline-size;
+}
+
+.pane--tasks > .meetings-page--embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Discussion pane */
@@ -8787,8 +9079,40 @@ onBeforeUnmount(() => {
 }
 
 .message-text--deleted {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
   color: var(--text-secondary);
   font-style: italic;
+}
+
+.message-deleted-label {
+  font-style: italic;
+}
+
+.message-deleted-original {
+  display: block;
+  margin-top: 0.3rem;
+  font-style: normal;
+  opacity: 0.9;
+}
+
+.message-restore-btn {
+  align-self: flex-start;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.message-restore-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .message.own .message-text--deleted {
@@ -8796,16 +9120,20 @@ onBeforeUnmount(() => {
 }
 
 .message-edited {
+  color: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+  opacity: 0.68;
+}
+
+.message-suppressed-label {
   display: inline-flex;
   align-items: center;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
-  color: var(--text-primary);
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  gap: 0.25rem;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: #5f6b70;
+  cursor: help;
 }
 
 .message-attachments {
@@ -9482,6 +9810,7 @@ onBeforeUnmount(() => {
   background: var(--air-force-blue);
   color: var(--white);
   border-color: var(--white);
+  margin-left: 12px;
 }
 
 @media (min-width: 1181px) {
@@ -9739,6 +10068,19 @@ onBeforeUnmount(() => {
   vertical-align: baseline;
 }
 
+/* An attachment-only message has no text, but the spacer above still drew
+   a full line box above the chip. Nothing here needs clearing of ticks. */
+.message-text--empty {
+  display: none;
+}
+
+/* A deleted bubble carries .message-text too, so it inherited the tick
+   spacer - and as a flex column that became an empty row at the bottom.
+   Deleted messages show no receipt, so there is nothing to clear. */
+.message.own .message-text--deleted::after {
+  content: none;
+}
+
 .message:hover .message-content {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
@@ -9762,6 +10104,35 @@ onBeforeUnmount(() => {
 
 .message.own:hover .message-content {
   box-shadow: 0 4px 14px rgba(31, 122, 63, 0.16);
+}
+
+.message.suppressed .message-content,
+.message.own.suppressed .message-content {
+  background: #f4f5f5;
+  border-color: #b9c2c5;
+  border-style: dashed;
+  color: #59656a;
+  box-shadow: none;
+  opacity: 0.58;
+  filter: saturate(0.25);
+}
+
+.message.suppressed .message-avatar {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+.message.suppressed:hover .message-content,
+.message.suppressed:focus-within .message-content {
+  opacity: 0.72;
+}
+
+.pane--discussion .message.own.suppressed .message-text,
+.message.own.suppressed .message-author,
+.message.own.suppressed .message-time,
+.message.own.suppressed .message-date,
+.message.own.suppressed .message-action-btn {
+  color: #59656a !important;
 }
 
 /* Resource chip + open/download popover */
@@ -10180,8 +10551,8 @@ onBeforeUnmount(() => {
 }
 
 .message-edited {
-  background: #eef3f5;
-  color: var(--air-force-blue);
+  background: transparent;
+  color: inherit;
 }
 
 .reaction-pick-group {
@@ -10592,6 +10963,369 @@ onBeforeUnmount(() => {
   .skeleton-filter {
     width: 100%;
   }
+}
+
+/* =========================================================
+   Group workspace — dark mode
+   ========================================================= */
+
+html[data-theme='dark'] .group-detail {
+  color: #e8eeee;
+
+  --gd-meta-background: #26332f;
+  --gd-meta-color: #c8d0ce;
+}
+
+html[data-theme='dark'] .group-hero-card,
+html[data-theme='dark'] .pane--tasks {
+  background: #111d1a;
+  border-color: #2b3835;
+}
+
+/* Task empty areas */
+html[data-theme='dark'] .task-empty-state {
+  background: #18231f;
+  border-color: #34413d;
+  color: #c8d0ce;
+}
+
+html[data-theme='dark'] .task-empty-state i {
+  color: #788783;
+}
+
+html[data-theme='dark'] .task-empty-cta {
+  background: transparent;
+  color: #b9d0ca;
+  border-color: #667773;
+}
+
+html[data-theme='dark'] .task-empty-cta:hover {
+  background: #22302c;
+  color: #ffffff;
+}
+
+/* Tabs */
+html[data-theme='dark'] .mobile-tabs {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .tab-btn {
+  color: #aeb9b6;
+}
+
+html[data-theme='dark'] .tab-btn.active {
+  color: #ffffff;
+}
+
+/* Tasks */
+html[data-theme='dark'] .task-list {
+  color: #e8eeee;
+}
+
+html[data-theme='dark'] .task-state-menu {
+  background: #18231f;
+  border-color: #34413d;
+  color: #e8eeee;
+}
+
+/* =========================================================
+   Group workspace — dark mode controls
+   ========================================================= */
+
+/* Tasks / Meetings tab bar */
+:global(html[data-theme='dark']) .mobile-tabs {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+:global(html[data-theme='dark']) .tab-btn {
+  background: transparent;
+  color: #aeb9b6;
+}
+
+:global(html[data-theme='dark']) .tab-btn.active {
+  background: #0b8f73;
+  color: #ffffff;
+  border-color: #20c9a6;
+}
+
+/* Task search input */
+:global(html[data-theme='dark']) .task-search,
+:global(html[data-theme='dark']) .task-search input {
+  background: #18231f;
+  color: #e8eeee;
+  border-color: #34413d;
+}
+
+:global(html[data-theme='dark']) .task-search input::placeholder {
+  color: #8e9b97;
+}
+
+/* Filter button */
+:global(html[data-theme='dark']) .filter-btn {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+/* Sort dropdown */
+:global(html[data-theme='dark']) .sort-select,
+:global(html[data-theme='dark']) select {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+/* =========================================================
+   DARK MODE — remaining workspace controls
+   ========================================================= */
+
+/* Tasks / Meetings switch */
+html[data-theme='dark'] .workspace-switch {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .workspace-switch button {
+  background: transparent;
+  color: #aeb9b6;
+}
+
+html[data-theme='dark'] .workspace-switch button.active,
+html[data-theme='dark'] .workspace-switch button.is-active {
+  background: #0b8f73;
+  color: #ffffff;
+}
+
+/* Select button */
+html[data-theme='dark'] .task-mode-toggle {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-mode-toggle:hover {
+  background: #22302c;
+}
+
+html[data-theme='dark'] .task-mode-toggle.is-active {
+  background: #0b8f73;
+  color: #ffffff;
+  border-color: #0b8f73;
+}
+
+
+/* Search tasks */
+html[data-theme='dark'] .task-search {
+  background: #18231f;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-search-input {
+  background: #18231f;
+  color: #e8eeee;
+}
+
+html[data-theme='dark'] .task-search-input::placeholder {
+  color: #899793;
+}
+
+html[data-theme='dark'] .task-search-icon {
+  color: #899793;
+}
+
+
+/* Filters button */
+html[data-theme='dark'] .task-toolbar-btn {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .task-toolbar-btn:hover {
+  background: #22302c;
+}
+
+
+/* Sort: Due date */
+html[data-theme='dark'] .task-toolbar-sort select {
+  background: #18231f;
+  color: #dce5e2;
+  border-color: #34413d;
+  color-scheme: dark;
+}
+
+
+/* Members button */
+html[data-theme='dark'] .group-members-btn {
+  background: #18231f;
+  color: #b9d0ca;
+  border-color: #34413d;
+}
+
+html[data-theme='dark'] .group-members-btn:hover {
+  background: #22302c;
+}
+
+
+/* Number beside Members */
+html[data-theme='dark'] .group-members-btn span {
+  background: #263733;
+  color: #e8eeee;
+  border-color: #3b4d48;
+}
+
+
+
+/* Dropdown options */
+html[data-theme='dark'] .task-toolbar-sort select option,
+html[data-theme='dark'] .task-filter-panel select option {
+  background: #18231f;
+  color: #e8eeee;
+}
+
+/* =========================================================
+   Embedded Meetings — dark mode
+   ========================================================= */
+
+/* Meeting cards */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-card) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+/* Meeting title */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-header h2) {
+  color: #e8eeee !important;
+}
+
+/* Meeting date/time */
+:global(html[data-theme='dark']) .group-detail :deep(.meeting-time) {
+  color: #aeb9b6 !important;
+}
+
+/* Meeting description */
+:global(html[data-theme='dark']) .group-detail :deep(.description) {
+  color: #d4dcda !important;
+}
+
+/* You can manage */
+:global(html[data-theme='dark']) .group-detail :deep(.manage-badge) {
+  background: #26332f !important;
+  color: #c8d5d1 !important;
+  border: 1px solid #3c4b47 !important;
+}
+
+/* Upcoming / Past */
+:global(html[data-theme='dark']) .group-detail :deep(.tab-button) {
+  background: transparent !important;
+  color: #aeb9b6 !important;
+}
+
+:global(html[data-theme='dark']) .group-detail :deep(.tab-button.active) {
+  background: #26332f !important;
+  color: #ffffff !important;
+}
+
+/* Join Meeting */
+:global(html[data-theme='dark']) .group-detail :deep(.primary-button) {
+  background: #26332f !important;
+  color: #ffffff !important;
+  border: 1px solid #45534f !important;
+}
+
+/* View Details */
+:global(html[data-theme='dark']) .group-detail :deep(.secondary-button) {
+  background: #18231f !important;
+  color: #e8eeee !important;
+  border-color: #53625e !important;
+}
+
+/* Schedule Meeting form */
+:global(html[data-theme='dark']) .group-detail :deep(.create-form) {
+  background: #18231f !important;
+  border-color: #34413d !important;
+  color: #e8eeee !important;
+}
+
+:global(html[data-theme='dark']) .group-detail :deep(.form-input) {
+  background: #111d1a !important;
+  color: #e8eeee !important;
+  border-color: #45534f !important;
+}
+
+/* =========================================================
+   Group workspace — dark mode finishing touches
+   ========================================================= */
+
+/* =========================================================
+   Dark mode scrollbars
+   ========================================================= */
+
+/* Meetings panel */
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded) {
+  scrollbar-color: #53615d #18231f;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar) {
+  width: 8px;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar-track) {
+  background: #18231f;
+}
+
+:global(html[data-theme='dark'] .pane--tasks > .meetings-page--embedded::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border-radius: 999px;
+}
+
+/* Tasks panel */
+:global(html[data-theme='dark'] .card-content) {
+  scrollbar-color: #53615d #18231f;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar) {
+  width: 8px;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar-track) {
+  background: #18231f;
+}
+
+:global(html[data-theme='dark'] .card-content::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border-radius: 999px;
+}
+
+/* =========================================================
+   Group page scrollbar — dark mode
+   ========================================================= */
+
+:global(html[data-theme='dark'] .group-detail) {
+  scrollbar-color: #53615d #111d1a;
+  scrollbar-width: thin;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar) {
+  width: 10px;
+  height: 10px;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-track) {
+  background: #111d1a;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border: 2px solid #111d1a;
+  border-radius: 999px;
+}
+
+:global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-thumb:hover) {
+  background: #687773;
 }
 
 /* Dark theme: the task and chat boxes take the grey other pages give their

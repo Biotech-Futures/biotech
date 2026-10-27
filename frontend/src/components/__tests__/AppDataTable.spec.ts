@@ -108,6 +108,14 @@ describe('the bottom bar', () => {
     expect(wrapper.find('.data-table-summary').text()).toBe('1 - 5 out of 12')
   })
 
+  it('caps rows per page to maxPageSize and drops the All choice', async () => {
+    const wrapper = mountTable({ rows: many, pageSize: 5, totalCount: 12, page: 1, maxPageSize: 10 })
+    expect(await appSelectLabels(wrapper, '.data-table-page-size')).toEqual([
+      '5 Entries',
+      '7 Entries'
+    ])
+  })
+
   const picker = (wrapper: ReturnType<typeof mountTable>) => wrapper.find('.data-table-page-size .app-select')
 
   it('reads as the rows there are, and is off, while they all fit on one page', () => {
@@ -211,5 +219,32 @@ describe('the bottom bar', () => {
     await wrapper.find('.data-table-search-input').setValue('Name 1')
     await flushPromises()
     expect(box.style.minHeight).toBe('')
+  })
+})
+
+describe('rows per page', () => {
+  // More rows than one page holds: the picker is disabled while everything
+  // already fits on screen, and a disabled one will not open to be read.
+  const manyRows = Array.from({ length: 40 }, (_, index) => ({
+    id: index + 1,
+    icon: 'x',
+    name: `Name ${index}`,
+    school: 'North',
+    open: false
+  }))
+  const pageSizeOptions = (props: Record<string, unknown> = {}) =>
+    appSelectLabels(mountTable({ rows: manyRows, ...props }), '.data-table-page-size')
+
+  it('offers All by default, as every other table does', async () => {
+    expect(await pageSizeOptions()).toContain('All Entries')
+  })
+
+  it('leaves All out when the server caps a page', async () => {
+    // All would ask for more rows than the server allows, so a table with a
+    // ceiling offers sizes up to it and nothing beyond.
+    const options = await pageSizeOptions({ maxPageSize: 15 })
+
+    expect(options).not.toContain('All Entries')
+    expect(options.length).toBeGreaterThan(0)
   })
 })

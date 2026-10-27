@@ -35,6 +35,7 @@ class RoleTaskMineListView(generics.ListAPIView):
     """GET /api/v1/tasks/role-tasks/mine/ — role tasks for the current user's
     active roles, each merged with the user's own completion state."""
 
+    hidden_with_pages = True
     serializer_class = RoleTaskMineSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
@@ -55,6 +56,7 @@ class RoleTaskToggleView(generics.GenericAPIView):
     user's own completion on a role task. Creates the RoleTaskCompletion row
     on first call (lazily) rather than it having been fanned out in advance."""
 
+    hidden_with_pages = True
     serializer_class = TaskToggleSerializer
     permission_classes = [permissions.IsAuthenticated]
 

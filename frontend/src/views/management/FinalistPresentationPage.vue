@@ -1,6 +1,6 @@
 <template>
   <!-- The finalists' presentations at the Symposium: the times they can
-       present, which change year to year. -->
+       present, which carry on from year to year until changed. -->
   <div class="finalist-presentation">
     <section class="card finalist-presentation__setup">
       <div class="card-header">
@@ -8,8 +8,8 @@
       </div>
       <h3 class="finalist-presentation__section-title">Presentation Times</h3>
       <p class="finalist-presentation__hint">
-        Each finalist team will tick every time it can make. The times change each year, so
-        add, change or remove them until they're final.
+        Each finalist team will tick every time it can make. The times carry on from last
+        year, so add, change or remove them until they're final.
       </p>
       <p class="finalist-presentation__hint">
         <template v-if="symposiumDay">
@@ -31,7 +31,7 @@
       <p v-if="isLoading" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="loadError" class="finalist-presentation__load-error">
         <p>Failed to load the times. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </div>
       <template v-else-if="data">
         <!-- After adding, the next time starts where this one ended and runs
@@ -47,7 +47,7 @@
           </label>
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="isSaving || !draft.starts_at || !draft.ends_at"
             @click="add"
           >
@@ -151,7 +151,7 @@
       <p v-if="isLoadingResponses" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="responsesError" class="finalist-presentation__load-error">
         <p>Failed to load the teams. {{ responsesError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="loadResponses">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="loadResponses">Try again</button>
       </div>
       <template v-else>
         <AppDataTable
@@ -164,6 +164,12 @@
           search-placeholder="Group name"
           empty-message="No finalist teams yet."
         >
+          <!-- As Grading's By Group: how many teams have answered, and been given a time. -->
+          <template #stats>
+            <span>
+              {{ answeredCount }}/{{ teams.length }} Answered · {{ allocatedCount }}/{{ teams.length }} Allocated
+            </span>
+          </template>
           <template #search-side>
             <button
               type="button"
@@ -215,81 +221,6 @@
         <p v-if="allocateError" class="finalist-presentation__error" role="alert">{{ allocateError }}</p>
       </template>
     </section>
-
-    <section class="card finalist-presentation__submissions">
-      <h3 class="finalist-presentation__section-title">Finalist Submissions</h3>
-      <p class="finalist-presentation__hint">
-        <template v-if="slidesDue">
-          Each finalist team's presentation slides, due {{ slidesDue }}, set on
-          <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
-        </template>
-        <template v-else>
-          Each finalist team's presentation slides. Set the date they're due on
-          <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
-        </template>
-      </p>
-      <p v-if="isLoadingSlides" class="finalist-presentation__hint">Loading…</p>
-      <div v-else-if="slidesError" class="finalist-presentation__load-error">
-        <p>Failed to load the slides. {{ slidesError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="loadSlides">Try again</button>
-      </div>
-      <AppDataTable
-        v-else
-        :columns="submissionColumns"
-        :rows="submissionRows"
-        row-key="id"
-        :selectable="false"
-        :page-size="DATA_TABLE_ALL"
-        :sort="NO_SORT"
-        search-placeholder="Group name"
-        empty-message="No finalist teams yet."
-        :action-columns="2"
-      >
-        <template #search-side>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="!anySlides || isDownloadingZip"
-            @click="downloadSlides"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i>
-            {{ isDownloadingZip ? 'Preparing…' : 'Download' }}
-          </button>
-        </template>
-        <template #cell-group="{ row }">
-          <span class="finalist-presentation__cell--strong">{{ slidesOf(row).group_name }}</span>
-        </template>
-        <template #cell-submitted="{ row }">
-          <template v-if="slidesOf(row).submitted">{{ formatSubmitted(slidesOf(row).submitted_at) }}</template>
-          <span v-else class="finalist-presentation__muted">Not submitted yet</span>
-        </template>
-        <!-- Open | Download. A PDF opens in a new tab; PowerPoint can't show in
-             the browser, so it only downloads. The name is on hover. -->
-        <template #actions="{ row, column }">
-          <template v-if="slidesOf(row).submitted">
-            <a
-              v-if="column === 0 && fileType(slidesOf(row).file_name) === 'PDF'"
-              :href="presentationSlidesUrl(slidesOf(row).group_id)"
-              target="_blank"
-              rel="noopener"
-              class="btn btn-outline btn-sm"
-              :title="slidesOf(row).file_name"
-            >
-              Open
-            </a>
-            <a
-              v-else-if="column === 1"
-              :href="presentationSlidesDownloadUrl(slidesOf(row).group_id)"
-              class="btn btn-outline btn-sm"
-              :title="slidesOf(row).file_name"
-            >
-              Download
-            </a>
-          </template>
-        </template>
-      </AppDataTable>
-      <p v-if="zipError" class="finalist-presentation__error" role="alert">{{ zipError }}</p>
-    </section>
   </div>
 </template>
 
@@ -303,16 +234,11 @@ import {
   addPresentationSlot,
   allocatePresentationSlot,
   deletePresentationSlot,
-  downloadPresentationSlidesZip,
   fetchPresentationResponses,
-  fetchPresentationSlides,
   fetchPresentationSlots,
-  presentationSlidesDownloadUrl,
-  presentationSlidesUrl,
   setPresentationTimesShown,
   updatePresentationSlot,
   type PresentationResponseTeam,
-  type PresentationSlidesTeam,
   type PresentationSlot,
   type PresentationSlots
 } from '@/utils/managementAPI'
@@ -377,7 +303,7 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// Both tables keep the teams in the order they come; nothing sorts them.
+// The teams in the order they come; nothing sorts them.
 const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
 
 // Allocate Slots: each team as a row, with plain text for search; the team
@@ -393,6 +319,11 @@ const teamRows = computed(() =>
 )
 
 const teamOf = (row: Record<string, unknown>) => row.team as PresentationResponseTeam
+
+// "12/28 Answered · 9/28 Allocated": the teams that gave their times, and
+// those given one.
+const answeredCount = computed(() => teams.value.filter((team) => team.answered_at).length)
+const allocatedCount = computed(() => teams.value.filter((team) => team.allocated_slot_id != null).length)
 
 // Group, Answered, Allocate, then a column for each time, centred, the
 // team's given time tinted.
@@ -466,66 +397,9 @@ const allocate = async (team: PresentationResponseTeam, value: AppSelectValue) =
   }
 }
 
-// Finalist Submissions: each finalist team's slides.
-const slidesTeams = ref<PresentationSlidesTeam[]>([])
-const slidesDueOn = ref<string | null>(null)
-const isLoadingSlides = ref(false)
-const slidesError = ref('')
-
-const loadSlides = async () => {
-  isLoadingSlides.value = true
-  slidesError.value = ''
-  try {
-    const slides = await fetchPresentationSlides()
-    slidesTeams.value = slides.teams
-    slidesDueOn.value = slides.slides_due
-  } catch (err) {
-    slidesError.value = apiErrorFromUnknown(err).message
-  } finally {
-    isLoadingSlides.value = false
-  }
-}
-
-// Finalist Submissions: each team as a row, with plain text for search.
-const submissionColumns: DataTableColumn[] = [
-  { key: 'group', label: 'Group', sortable: false },
-  { key: 'submitted', label: 'Submitted', sortable: false },
-  { key: 'type', label: 'Type', sortable: false }
-]
-
-const submissionRows = computed(() =>
-  slidesTeams.value.map((team) => ({
-    id: team.group_id,
-    team,
-    group: team.group_name,
-    submitted: team.submitted ? formatSubmitted(team.submitted_at) : 'Not submitted yet',
-    type: team.submitted ? fileType(team.file_name) : '—'
-  }))
-)
-
-const slidesOf = (row: Record<string, unknown>) => row.team as PresentationSlidesTeam
-
-const anySlides = computed(() => slidesTeams.value.some((team) => team.submitted))
-
-const isDownloadingZip = ref(false)
-const zipError = ref('')
-
-const downloadSlides = async () => {
-  isDownloadingZip.value = true
-  zipError.value = ''
-  try {
-    await downloadPresentationSlidesZip()
-  } catch (err) {
-    zipError.value = `Failed to download the slides. ${apiErrorFromUnknown(err).message}`
-  } finally {
-    isDownloadingZip.value = false
-  }
-}
-
 onMounted(() => {
   void load()
   void loadResponses()
-  void loadSlides()
 })
 
 // "Friday, 23rd October 2026".
@@ -537,7 +411,6 @@ const sydneyClock = computed(() => {
   const clock = sydneyClockOn(iso)
   return `${clock.name} (${clock.daylight ? 'daylight saving, ' : ''}${clock.offset})`
 })
-const slidesDue = computed(() => formatEventCalendarDay(slidesDueOn.value))
 
 const minutesOf = (hhmm: string) => {
   const [hours, minutes] = hhmm.split(':').map(Number)
@@ -556,9 +429,6 @@ const slotLabel = (slot: PresentationSlot | undefined) =>
 
 // "17/10/26 23:06", as the other management tables write it.
 const formatSubmitted = (iso: string | null) => (iso ? formatShortDateTime(iso) : '')
-
-// "PDF", "PPTX" or "PPT", from the file's name.
-const fileType = (name: string) => (name.includes('.') ? name.split('.').pop()!.toUpperCase() : '')
 
 // Every change answers with the whole list, which replaces the one shown.
 const run = async (change: () => Promise<PresentationSlots>): Promise<boolean> => {

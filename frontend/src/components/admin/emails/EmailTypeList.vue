@@ -37,7 +37,7 @@
         <!-- Registration's heading, above the first of its groups shown. -->
         <li
           v-if="startsSection(index)"
-          class="email-type-list__heading email-type-list__heading--section"
+          class="email-type-list__heading"
           role="presentation"
           data-test="email-section"
         >
@@ -47,7 +47,7 @@
         <li
           v-if="startsGroup(index)"
           class="email-type-list__heading"
-          :class="{ 'email-type-list__heading--sub': sectionOf(groupOf(template.key)) }"
+          :class="{ 'email-type-list__heading--sub': SUBHEADINGS.has(groupOf(template.key)) }"
           role="presentation"
           data-test="email-group"
         >
@@ -111,17 +111,17 @@ const query = ref('')
 // Each email's group, with a heading above it, in the order the list shows them.
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
-  // Someone registering themselves, then a supervisor registering students.
-  ['Self registration', ['registration_student', 'registration_group', 'registration_mentor']],
+  // Someone registering themselves; then by whom someone else was registered.
   [
-    'Supervisor registration',
-    [
-      'registration_by_supervisor',
-      'registration_by_admin',
-      'registration_supervisor',
-      'supervisor_registration_status'
-    ]
+    'Self registration',
+    ['registration_student', 'registration_group', 'registration_mentor', 'registration_new_supervisor']
   ],
+  ['Registered by student', ['registration_named_supervisor']],
+  [
+    'Registered by supervisor',
+    ['registration_by_supervisor', 'registration_supervisor', 'supervisor_registration_status']
+  ],
+  ['Registered by admin', ['registration_by_admin']],
   [
     'Guardians',
     [
@@ -135,19 +135,39 @@ const GROUPS: [string, string[]][] = [
   ['Messages and events', ['unread_messages', 'rsvp_reminder', 'event_promotion', 'announcement']],
   ['Submissions', ['submission_reminder', 'submission_confirmation']],
   ['Symposium', ['finalist_notification', 'finalist_submission_reminder', 'finalist_submission_confirmation', 'nonfinalist_invitation', 'nonsubmission_notice']],
-  ['Results', ['results_team', 'results_supervisor']]
+  ['Results', ['results_team', 'results_supervisor']],
+  [
+    'Support enquiries',
+    [
+      'ticket_submitted',
+      'ticket_reply',
+      'ticket_resolved',
+      'ticket_new_for_support',
+      'ticket_flagged_for_support',
+      'ticket_digest'
+    ]
+  ]
 ]
 const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [key, heading] as const)))
 // An email not placed in a group yet still gets a heading.
 const groupOf = (key: string) => GROUP_OF.get(key) ?? 'Other'
 
-// Registration's three groups, under a heading of their own.
+// Registration's groups, under a heading of their own.
 const SECTION_OF: Record<string, string> = {
   'Self registration': 'Registration',
-  'Supervisor registration': 'Registration',
+  'Registered by student': 'Registration',
+  'Registered by supervisor': 'Registration',
+  'Registered by admin': 'Registration',
   Guardians: 'Registration'
 }
 const sectionOf = (group: string) => SECTION_OF[group] ?? ''
+// The groups set as subheadings under Registration.
+const SUBHEADINGS = new Set([
+  'Self registration',
+  'Registered by student',
+  'Registered by supervisor',
+  'Registered by admin'
+])
 
 // The first email shown of its group, or of its section.
 const startsGroup = (index: number) =>
@@ -227,17 +247,12 @@ const filtered = computed(() => {
   margin-top: 0;
 }
 
-/* Registration, over its three groups: a size up, and darker. */
-.email-type-list__heading--section {
-  margin-top: 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--teal);
-}
-
-/* A group under it, set in a little. */
+/* A subheading under Registration: set in, in sentence case. */
 .email-type-list__heading--sub {
   padding-left: 0.75rem;
+  font-size: 0.7rem;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .email-type-list__item {

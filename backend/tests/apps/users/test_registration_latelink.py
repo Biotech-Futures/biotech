@@ -256,7 +256,10 @@ class IntakeTests(RegistrationSetup, TestCase):
     def test_open_registration_saves_an_active_student_and_real_receipt(self):
         response = self.submit()
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(set(response.data), {"reference_code", "journey", "student_count", "created_at"})
+        # With the token to set their password next (apps.users.registration_password).
+        self.assertEqual(
+            set(response.data), {"reference_code", "journey", "student_count", "created_at", "passwordToken"},
+        )
         self.assertEqual(response.data["student_count"], 1)
         self.assertEqual(response.data["journey"], "student_individual")
         row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
@@ -278,10 +281,12 @@ class IntakeTests(RegistrationSetup, TestCase):
         self.assertEqual(row.guardian_phone, "+61 400 000 000")
         self.assertEqual(row.guardian_relationship, "Parent")
         self.assertEqual(row.source, {"method": "student_individual"})
-        self.assertEqual(RoleAssignmentHistory.objects.count(), 1)
-        self.assertEqual(RoleAssignmentHistory.objects.get().role.role_name, "student")
-        self.assertEqual(SupervisorProfile.objects.count(), 0)
-        self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
+        # The student's role, and the role of the supervisor they named, who
+        # had no account: created for them (apps.users.registration_intake).
+        self.assertEqual(
+            sorted(RoleAssignmentHistory.objects.values_list("role__role_name", flat=True)), ["student", "supervisor"],
+        )
+        self.assertEqual(profile.supervisor, SupervisorProfile.objects.get(user__email="teacher@example.com"))
         self.assertEqual(row.supervisor_details["email"], "teacher@example.com")
 
     def test_areas_of_interest_are_optional(self):
@@ -602,12 +607,21 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         self.assertNotIn("warnings", response.data)
         self.assert_not_consumed(invite)
 
-    def test_a_student_may_register_without_a_supervisor(self):
+    def test_a_student_must_name_a_supervisor(self):
         del self.body["payload"]["supervisor"]
         response = self.submit()
-        self.assertEqual(response.status_code, 201, response.data)
-        row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
-        self.assertEqual(row.supervisor_details, {})
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(
+            {field: response.data["fields"][field] for field in (
+                "supervisor.firstName", "supervisor.lastName", "supervisor.email",
+            )},
+            {
+                "supervisor.firstName": ["Enter the supervisor first name."],
+                "supervisor.lastName": ["Enter the supervisor last name."],
+                "supervisor.email": ["Enter the supervisor email."],
+            },
+        )
+        self.assertFalse(RegistrationSubmission.objects.exists())
         self.assertFalse(StudentSupervisor.objects.exists())
 
     def test_a_nominated_supervisor_is_only_their_name_and_email(self):
@@ -813,7 +827,31 @@ class LegacyTests(RegistrationSetup, TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data, body["body"])
         self.assertEqual(StudentProfile.objects.count(), 1)
-        self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
+        # The supervisor they named, who had no account, is created for them.
+        self.assertTrue(SupervisorProfile.objects.filter(user__email="teacher@example.com").exists())
+
+    def test_legacy_requires_supervisor_details_without_consuming_a_late_link(self):
+        self.close_window()
+        invite = self.mint()
+        fields = ("SupervisorEmail", "SupervisorFirstName", "SupervisorSurname")
+        cases = [{field: None for field in fields}]
+        cases.extend({field: value} for field in fields for value in (None, "", "   "))
+        for changes in cases:
+            with self.subTest(changes=changes):
+                body = self.legacy()
+                for field, value in changes.items():
+                    if value is None:
+                        body["body"].pop(field)
+                    else:
+                        body["body"][field] = value
+                response = self.client.post(
+                    INTAKE, body, format="json", HTTP_X_REGISTRATION_INVITATION=invite["token"],
+                )
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertTrue(any(key.startswith("supervisor") for key in response.data["fields"]))
+                self.assertFalse(StudentProfile.objects.exists())
+                self.assertFalse(RegistrationSubmission.objects.exists())
+                self.assert_not_consumed(invite)
 
     def test_legacy_cannot_bypass_window_or_self_guardian_validation(self):
         self.close_window()

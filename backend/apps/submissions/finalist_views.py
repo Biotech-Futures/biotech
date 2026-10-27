@@ -22,11 +22,14 @@ from .errors import (
     NotSubmittedYet,
     PresentationRequired,
     SubmissionLocked,
+    SubmissionsClosed,
     TimesNotShown,
 )
 from .finalist import (
     FinalistAvailabilitySerializer,
     FinalistEntrySerializer,
+    finalist_deadline,
+    finalist_round_open,
     is_finalist_group,
     record_submitted_slides,
     slides_due_at,
@@ -75,9 +78,22 @@ def _require_unlocked(entry, user) -> None:
 
 
 def _deadline_payload() -> dict:
-    # Due when Notify Finalists says the slides are; shown, not enforced, so
-    # the round stays open for now. The shape is the submission portal's.
-    return {"closes_at": slides_due_at(), "is_extended": False, "is_open": True}
+    # Closing when Management > Finalist Submissions says; until a time's set,
+    # due when Notify Finalists says the slides are (shown, not enforced). The
+    # shape is the submission portal's.
+    deadline = finalist_deadline()
+    return {
+        "closes_at": deadline.closes_at if deadline else slides_due_at(),
+        "is_extended": False,
+        "is_open": finalist_round_open(),
+    }
+
+
+def _require_open(user) -> None:
+    """Once finalist submissions close, a team can't change or submit its
+    entry; admins still can, for it."""
+    if not _is_staff(user) and not finalist_round_open():
+        raise SubmissionsClosed("Finalist submissions have closed.")
 
 
 def _entry_data(entry) -> dict:
@@ -116,6 +132,7 @@ class FinalistEntryView(APIView):
     def put(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
+        _require_open(request.user)
 
         if not times_shown():
             raise TimesNotShown()
@@ -139,6 +156,7 @@ class FinalistPresentationView(APIView):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
 
+        _require_open(request.user)
         uploaded = request.FILES.get("file")
         if uploaded is None:
             raise NoFileUploaded()
@@ -171,6 +189,7 @@ class FinalistPresentationView(APIView):
     def delete(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
+        _require_open(request.user)
 
         with transaction.atomic():
             entry = FinalistEntry.objects.select_for_update().filter(group=group).first()
@@ -223,6 +242,7 @@ class FinalistSubmitView(APIView):
     def post(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
+        _require_open(request.user)
 
         with transaction.atomic():
             entry, _ = FinalistEntry.objects.select_for_update().get_or_create(group=group)
@@ -254,6 +274,7 @@ class FinalistReopenView(APIView):
     def post(self, request, group_id: int):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
+        _require_open(request.user)
 
         entry = FinalistEntry.objects.filter(group=group).first()
         if entry is None or not entry.is_submitted:

@@ -1,0 +1,28 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_CONNECT }}: an update on your enquiry{% endblock %}
+
+{% block preheader %}There is a new reply on your enquiry {{ TICKET_NUMBER }}.{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#5c6860; font-size:14px; line-height:1.5; overflow-wrap:anywhere;">
+                Hi {{ GREETING_NAME }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                There is a new reply on your enquiry
+              </h1>
+
+{% comment %}
+What happens next depends on whether the reply asked the requester for
+something. services/emails.py picks the wording, from
+_ticket_reply_next_step.html, and hands it over as NEXT_STEP: on System
+Emails the editor cannot keep a choice made here (see _ticket_status_pill.html).
+{% endcomment %}
+{{ NEXT_STEP|safe }}
+
+{% include "emails/_ticket_meta.html" %}
+{% include "emails/_ticket_signoff.html" %}
+{% endblock %}
+
+{% block footer_note %}{% include "emails/_ticket_footer_note.html" %}{% endblock %}

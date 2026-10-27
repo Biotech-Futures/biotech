@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import models
 from rest_framework import serializers
 from rest_framework.reverse import reverse
 
@@ -20,11 +21,70 @@ from .models import (
 )
 from .rbac import chat_recipients_qs
 from .services.storage import stored_chat_file
-from .utils import sanitize_text
+from .utils import message_contains_blacklisted
+
+
+BLOCKED_MESSAGE_ERROR = "This message contains blocked content and was not sent."
+
+
+def validate_chat_message_text(value: str, *, strip: bool = False) -> str:
+    """Reject configured sensitive words before anything is persisted.
+
+    Only the text around ``<@123>`` mention tokens is read: the filter reads
+    "@" and digits as letters, so a message mentioning user 555 would be
+    refused for "@55" (main's mention fix, e950c8bc, made for its masking)."""
+    text = (value or "").strip() if strip else (value or "")
+    if message_contains_blacklisted(text):
+        raise serializers.ValidationError(BLOCKED_MESSAGE_ERROR)
+    return text
 
 
 def is_admin_actor(user) -> bool:
     return bool(user is not None and is_admin(user))
+
+
+#: Who a message sent through the admin interface appears to come from, for
+#: anyone who isn't an admin.
+ADMINISTRATOR_SENDER_NAME = "Administrator"
+
+#: Context flag: serialize as a non-admin would see it, whoever is asking.
+#: Used for WebSocket broadcasts, which reach every member of the group.
+MASK_ADMIN_SENDER = "mask_admin_sender"
+
+#: Server-internal key on a channel-layer payload holding the real sender that
+#: a masked broadcast hid. GroupChatConsumer always removes it before sending.
+ADMIN_IDENTITY_KEY = "_admin_identity"
+
+
+def can_see_admin_sender(context) -> bool:
+    """Whether this serializer's viewer may see who sent an admin message.
+
+    Fails closed: with no request, or under ``MASK_ADMIN_SENDER``, the answer
+    is no. The admin check runs once per context, not once per message.
+    """
+    if not context or context.get(MASK_ADMIN_SENDER):
+        return False
+    if "_can_see_admin_sender" not in context:
+        request = context.get("request")
+        context["_can_see_admin_sender"] = is_admin_actor(getattr(request, "user", None))
+    return context["_can_see_admin_sender"]
+
+
+def mask_admin_sender(data, message, context, *, id_field, name_field):
+    """Replace the sender of an admin-sent ``message`` in ``data``, in place.
+
+    Its deleter is masked too: only an admin can delete an admin-sent message,
+    usually the one who sent it, so ``deleted_by`` would hand back the id the
+    sender fields hide. ``deleted_by_name`` is already the generic "Admin".
+    """
+    if getattr(message, "sent_as_admin", False) and not can_see_admin_sender(context):
+        if id_field in data:
+            data[id_field] = None
+        if name_field in data:
+            data[name_field] = ADMINISTRATOR_SENDER_NAME
+        if "deleted_by" in data:
+            data["deleted_by"] = None
+    return data
 
 
 def _group_members_blocked_from_resource(group_id, resource) -> bool:
@@ -261,12 +321,27 @@ class ReplyToSerializer(serializers.ModelSerializer):
         return sender.get_full_name() or sender.get_username() or ""
 
     def get_text(self, obj):
-        if obj.deleted_at is not None:
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
+        if obj.deleted_at is not None or (
+            obj.is_suppressed and obj.sender_user_id != viewer_id
+        ):
             return None
         return obj.message_text
 
     def get_deleted(self, obj):
-        return obj.deleted_at is not None
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
+        return obj.deleted_at is not None or (
+            obj.is_suppressed and obj.sender_user_id != viewer_id
+        )
+
+    def to_representation(self, instance):
+        # A quote of an admin-sent message must not name the admin either.
+        return mask_admin_sender(
+            super().to_representation(instance), instance, self.context,
+            id_field="user_id", name_field="user_name",
+        )
 
 
 class ReplyToIdField(serializers.PrimaryKeyRelatedField):
@@ -298,10 +373,12 @@ class ReplyToIdField(serializers.PrimaryKeyRelatedField):
         group_pk = view.kwargs.get("group_pk")
         if group_pk is None:
             return Messages.objects.none()
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
         return Messages.objects.filter(
             group_id=group_pk,
             deleted_at__isnull=True,
-        )
+        ).filter(models.Q(is_suppressed=False) | models.Q(sender_user_id=viewer_id))
 
 
 class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
@@ -310,10 +387,14 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
+    # Read-only: only the admin interface's send path sets it, server side.
+    sent_as_admin = serializers.BooleanField(read_only=True)
     deleted_by_name = serializers.SerializerMethodField()
     deleted_by_is_admin = serializers.SerializerMethodField()
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    is_suppressed = serializers.BooleanField(read_only=True)
+    suppressed_at = serializers.DateTimeField(read_only=True)
     reactions = serializers.SerializerMethodField()
     # Counts are derived from the id lists so the two can never disagree —
     # see MessageReceiptFieldsMixin. Without the ids the FE cannot tell a
@@ -343,6 +424,7 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             "group",
             "sender_user",
             "sender_name",
+            "sent_as_admin",
             "message_text",
             "message_type",
             "sent_at",
@@ -353,6 +435,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             "deleted_by_is_admin",
             "is_deleted",
             "is_edited",
+            "is_suppressed",
+            "suppressed_at",
             "attachments",
             "resources",
             "reactions",
@@ -366,9 +450,15 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             "reply_to_id",
         ]
         read_only_fields = [
-            "id", "group", "sender_user", "deleted_by", "deleted_by_name", "deleted_by_is_admin",
-            "sent_at", "edited_at", "deleted_at",
+            "id", "group", "sender_user", "sent_as_admin", "deleted_by", "deleted_by_name",
+            "deleted_by_is_admin", "sent_at", "edited_at", "deleted_at",
         ]
+
+    def to_representation(self, instance):
+        return mask_admin_sender(
+            super().to_representation(instance), instance, self.context,
+            id_field="sender_user", name_field="sender_name",
+        )
 
     def get_deleted_by_name(self, obj):
         user = getattr(obj, "deleted_by", None)
@@ -401,11 +491,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
-        # Sanitise BEFORE serializer.save() so the moderated text is what
-        # gets persisted. Doing this here keeps the rule decoupled from
-        # the view and ensures every write path goes through the same filter.
         if "message_text" in attrs:
-            attrs["message_text"] = sanitize_text(attrs["message_text"])
+            attrs["message_text"] = validate_chat_message_text(attrs["message_text"])
         return attrs
 
 
@@ -415,6 +502,7 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
+    sent_as_admin = serializers.BooleanField(read_only=True)
     message_text = serializers.SerializerMethodField()
     deleted_by = serializers.IntegerField(source="deleted_by_id", read_only=True)
     deleted_by_name = serializers.SerializerMethodField()
@@ -422,6 +510,8 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
     deleted_at = serializers.DateTimeField(read_only=True)
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    is_suppressed = serializers.BooleanField(read_only=True)
+    suppressed_at = serializers.DateTimeField(read_only=True)
     attachments = serializers.SerializerMethodField()
     resources = serializers.SerializerMethodField()
     reactions = serializers.SerializerMethodField()
@@ -447,7 +537,13 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         model = Messages
         fields = [
             "id",
+            # The viewer needs the sender's id to know what they may do with
+            # the message - a mentor may remove a *student's*. ``mask_admin_sender``
+            # below nulls it on an admin-sent message, so this cannot out an
+            # admin posting as "Administrator" (AM6).
+            "sender_user",
             "sender_name",
+            "sent_as_admin",
             "message_text",
             "message_type",
             "sent_at",
@@ -458,6 +554,8 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
             "deleted_by_is_admin",
             "is_deleted",
             "is_edited",
+            "is_suppressed",
+            "suppressed_at",
             "attachments",
             "resources",
             "reactions",
@@ -472,15 +570,45 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         ]
         read_only_fields = fields
 
+    def to_representation(self, instance):
+        return mask_admin_sender(
+            super().to_representation(instance), instance, self.context,
+            id_field="sender_user", name_field="sender_name",
+        )
+
     def get_reactions(self, obj):
         if obj.deleted_at is not None:
             return {}
         return aggregate_reactions(obj)
 
     def get_message_text(self, obj):
+        # Moderated content is blanked for participants. Admins keep it: they
+        # are the ones who review a removal and decide whether to restore it,
+        # and the same text is already on the admin group screen.
         if obj.deleted_at is not None:
-            return ""
+            return obj.message_text if self._may_read_removed(obj) else ""
         return obj.message_text
+
+    def _may_read_removed(self, obj) -> bool:
+        """Admins, and whoever removed this particular message.
+
+        A mentor who takes a student's message down can see what they removed
+        and undo it; anyone else - including a mentor looking at someone
+        else's removal - gets the blank tombstone.
+        """
+        # Opt-in: only the direct reads a viewer makes for themselves set
+        # ``reveal_deleted``. Broadcast payloads are serialised once and pushed
+        # to every client in the room, so they must never reveal the text just
+        # because a privileged user triggered them.
+        if not self.context.get("reveal_deleted"):
+            return False
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "id", None):
+            return False
+        from apps.chat.rbac import can_restore_chat_message
+
+        return can_restore_chat_message(user, obj)
 
     def get_deleted_by_name(self, obj):
         user = getattr(obj, "deleted_by", None)
@@ -495,7 +623,10 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         return is_admin_actor(user)
 
     def get_attachments(self, obj):
-        if obj.deleted_at is not None:
+        # Kept for whoever reviews the removal, on the same terms as the text:
+        # a removed image is the thing a moderator most needs to look at, and
+        # blanking it meant deciding whether to restore it blind.
+        if obj.deleted_at is not None and not self._may_read_removed(obj):
             return []
         return MessageAttachmentSerializer(
             obj.attachments.all(),
@@ -504,12 +635,12 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         ).data
 
     def get_resources(self, obj):
-        if obj.deleted_at is not None:
+        if obj.deleted_at is not None and not self._may_read_removed(obj):
             return []
         return MessageResourcePublicSerializer(obj.resources.all(), many=True).data
 
     def get_preview(self, obj):
-        if obj.deleted_at is not None:
+        if obj.deleted_at is not None and not self._may_read_removed(obj):
             return None
         # Reverse OneToOne raises DoesNotExist when no row — guard so
         # missing previews surface as ``None`` instead of an exception.
@@ -532,7 +663,7 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
     )
 
     def validate_message_text(self, value):
-        return sanitize_text((value or "").strip())
+        return validate_chat_message_text(value, strip=True)
 
     def validate_uploaded_file(self, value):
         return validate_uploaded_file(
@@ -595,6 +726,12 @@ class MentionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def to_representation(self, instance):
+        return mask_admin_sender(
+            super().to_representation(instance), instance.message, self.context,
+            id_field="sender_user_id", name_field="sender_name",
+        )
+
     def get_message_text(self, obj):
         # Soft-deleted parent messages mustn't leak their text through
         # the mentions inbox either — mirror ReplyToSerializer's policy.
@@ -615,7 +752,7 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         fields = ["message_text"]
 
     def validate_message_text(self, value):
-        return sanitize_text(value)
+        return validate_chat_message_text(value)
 
     def update(self, instance, validated_data):
         from django.utils import timezone

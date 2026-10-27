@@ -14,6 +14,7 @@ from .views import (
     BounceCheckTriggerView,
     SendWaitingEmailsView,
     ChallengeStartView,
+    NewYearView,
     ResourceReleasesView,
     ResourceReleaseView,
     RegistrationOpenView,
@@ -43,6 +44,7 @@ from .views import (
     PresentationResponsesView,
     PresentationSlidesFileView,
     PresentationSlidesView,
+    FinalistSubmissionsCloseView,
     PresentationSlidesZipFileView,
     PresentationSlidesZipView,
     PresentationSlotDetailView,
@@ -78,9 +80,11 @@ urlpatterns = [
     path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
     # Management > Challenge Start.
     path("challenge-start/", ChallengeStartView.as_view(), name="challenge-start"),
-    # Challenge Start > Release Resources.
+    # When each resource is released: the Resources page's admin columns.
     path("resource-releases/", ResourceReleasesView.as_view(), name="resource-releases"),
     path("resource-releases/<int:resource_id>/", ResourceReleaseView.as_view(), name="resource-release"),
+    # Management > New Year: the year in progress, and Start new year.
+    path("new-year/", NewYearView.as_view(), name="new-year"),
     # Late Registration > Supervisors After Close.
     path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
     path(
@@ -145,7 +149,7 @@ urlpatterns = [
     path("nonsubmissions/preview/", NonSubmissionEmailPreviewView.as_view(), name="nonsubmission-email-preview"),
     path("nonsubmissions/send/", NonSubmissionEmailSendView.as_view(), name="nonsubmission-email-send"),
 
-    # The Finalist Presentation tab: this year's times finalists can present.
+    # The Finalist Presentation tab: the times finalists can present.
     path(
         "finalists/presentation-slots/",
         PresentationSlotListView.as_view(),
@@ -175,6 +179,11 @@ urlpatterns = [
         name="presentation-allocation",
     ),
     # The slides each finalist team hands in for its presentation.
+    path(
+        "finalists/submissions-close/",
+        FinalistSubmissionsCloseView.as_view(),
+        name="finalist-submissions-close",
+    ),
     path(
         "finalists/presentation-slides/",
         PresentationSlidesView.as_view(),
