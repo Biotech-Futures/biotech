@@ -84,6 +84,22 @@ const normalizeReceipt = (
   }
 }
 
+// The only warnings a mentor, or a supervisor registering themselves, can be
+// asked to confirm: about their own email, at mentor.overrides.<name>.
+const OWN_OVERRIDES = new Set(['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'])
+
+const isOwnWarning = (request: RegistrationRequest, field: string, overrideField: string) => {
+  if (request.journey !== 'mentor' && request.journey !== 'supervisor') return false
+  const [who, kind, name, ...rest] = overrideField.split('.')
+  return (
+    who === request.journey &&
+    kind === 'overrides' &&
+    OWN_OVERRIDES.has(name ?? '') &&
+    !rest.length &&
+    field === `${request.journey}.email`
+  )
+}
+
 const normalizeWarnings = (
   data: unknown,
   request: RegistrationRequest,
@@ -103,15 +119,18 @@ const normalizeWarnings = (
       !item.message.trim()
     )
       return null
-    // Each warning is about the field its override confirms, for a student in the request.
-    const override = parseOverridePath(item.override_field)
-    if (
-      !override ||
-      overrideFields.has(item.override_field) ||
-      !studentRequestPrefixes(request)[override.index] ||
-      item.field !== registrationOverrideField(override.index, override.name)
-    )
-      return null
+    // Each warning is about the field its override confirms, for a student in
+    // the request, or for the mentor or supervisor registering themselves.
+    if (overrideFields.has(item.override_field)) return null
+    if (!isOwnWarning(request, item.field, item.override_field)) {
+      const override = parseOverridePath(item.override_field)
+      if (
+        !override ||
+        !studentRequestPrefixes(request)[override.index] ||
+        item.field !== registrationOverrideField(override.index, override.name)
+      )
+        return null
+    }
     overrideFields.add(item.override_field)
     warnings.push({
       code: item.code,

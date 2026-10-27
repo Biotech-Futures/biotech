@@ -945,6 +945,62 @@ describe('registration gateway UI integration', () => {
     expect(submitMock).toHaveBeenCalledTimes(2)
   })
 
+  it("shows a mentor's own email warning as theirs, and sends its tick back", async () => {
+    const registered = successfulGateway('mentor')
+    const send = vi
+      .fn<RegistrationGateway['submit']>()
+      .mockResolvedValueOnce({
+        ok: false,
+        message: 'Check this.',
+        warnings: [
+          {
+            code: 'name_email_mismatch',
+            field: 'mentor.email',
+            overrideField: 'mentor.overrides.ConfirmNameEmailOverride',
+            message: 'Check this email.',
+          },
+        ],
+      })
+      .mockImplementation((...args) => registered.submit(...args))
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareMentor(wrapper)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    expect(wrapper.get('.registration-warnings label').text()).toBe('Your email: Check this email.')
+    await wrapper.get('.registration-warnings input').setValue(true)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+    expect(send.mock.calls[1]![1]).toMatchObject({
+      overrides: { 'mentor.overrides.ConfirmNameEmailOverride': true },
+    })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration Complete'))
+  })
+
+  it("names a warning about a student's supervisor as the supervisor's email", async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check this.',
+      warnings: [
+        {
+          code: 'email_unverified',
+          field: 'studentIndividual.supervisor.email',
+          overrideField: 'ConfirmSupervisorEmailInvalidOverride',
+          message: "We couldn't confirm this address.",
+        },
+      ],
+    })
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    expect(wrapper.get('.registration-warnings label').text()).toBe(
+      "Supervisor email: We couldn't confirm this address.",
+    )
+  })
+
   it('tells a mentor they can sign in, with nothing for an admin to review', async () => {
     const wrapper = mountWithGateway(successfulGateway('mentor'))
     await prepareMentor(wrapper)

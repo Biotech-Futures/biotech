@@ -2477,11 +2477,15 @@ const includedCsvRows = computed(() =>
   ),
 )
 const warningSubject = (warning: RegistrationWarning) => {
+  // A mentor's or self-registering supervisor's own email is theirs alone.
+  if (warning.field === 'mentor.email' || warning.field === 'supervisor.email') return 'Your email'
   const field = warning.field.endsWith('.school')
     ? 'School'
     : warning.field.endsWith('.guardian.email')
       ? 'Guardian email'
-      : 'Student email'
+      : warning.field.endsWith('.supervisor.email')
+        ? 'Supervisor email'
+        : 'Student email'
   const csvRow = /^supervisorCsv\.rows\.(\d+)\./.exec(warning.field)
   if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
   const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
