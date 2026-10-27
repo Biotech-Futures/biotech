@@ -1338,7 +1338,12 @@ describe('admin user detail: a mentor edited part by part', () => {
 
     expect(wrapper.find('[data-test="admin-replacing"]').exists()).toBe(false)
     expect(unassignMentors).not.toHaveBeenCalled()
-    expect(confirmMentorAssignments).toHaveBeenCalledWith([{ groupId: 4, mentorUserId: 5 }])
+    // allowIdle: the admin opened this mentor and named the groups, so a quiet
+    // mentor is not refused here the way a suggested one is.
+    expect(confirmMentorAssignments).toHaveBeenCalledWith(
+      [{ groupId: 4, mentorUserId: 5 }],
+      { allowIdle: true }
+    )
     expect(wrapper.emitted('updated')).toEqual([[updated]])
   })
 
@@ -1362,7 +1367,10 @@ describe('admin user detail: a mentor edited part by part', () => {
     await wrapper.find('.admin-modal--confirm').findAll('button').find((b) => b.text() === 'Save')!.trigger('click')
     await flushPromises()
     expect(unassignMentors).toHaveBeenCalledWith([2])
-    expect(confirmMentorAssignments).toHaveBeenCalledWith([{ groupId: 3, mentorUserId: 5 }])
+    expect(confirmMentorAssignments).toHaveBeenCalledWith(
+      [{ groupId: 3, mentorUserId: 5 }],
+      { allowIdle: true }
+    )
   })
 
   it('shows no more groups than their capacity', async () => {

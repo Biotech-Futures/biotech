@@ -50,7 +50,7 @@
       </template>
       <template #search-side>
         <div class="admin-mentors__inactive-days">
-          <label for="inactive-days-input" class="admin-mentors__inactive-label">Inactive after</label>
+          <label for="inactive-days-input" class="admin-mentors__inactive-label">Idle after</label>
           <input
             id="inactive-days-input"
             type="number"
@@ -68,7 +68,7 @@
           @click="replaceDialogOpen = true"
         >
           <i class="fas fa-sync-alt" aria-hidden="true"></i>
-          Replace Inactive Mentors
+          Replace Idle Mentors
           <span class="admin-mentors__badge">{{ inactiveGroups.length }}</span>
         </button>
       </template>
@@ -91,26 +91,6 @@
           <i class="fas fa-comment-slash" aria-hidden="true"></i>
           Never
         </span>
-      </template>
-      <template #cell-status="{ row }">
-        <div class="admin-mentors__status-cell">
-          <span v-if="mentorOf(row).isActive" class="admin-mentors__active-badge">
-            <i class="fas fa-check-circle" aria-hidden="true"></i>
-            Active
-          </span>
-          <span v-else class="admin-mentors__danger">
-            <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
-            Inactive
-          </span>
-          <button
-            type="button"
-            class="btn btn-sm btn-outline admin-mentors__toggle-btn"
-            :disabled="statusBusy"
-            @click.stop="toggleActive(mentorOf(row))"
-          >
-            {{ mentorOf(row).isActive ? 'Deactivate' : 'Activate' }}
-          </button>
-        </div>
       </template>
       <template #cell-loggedIn="{ row }">
         <span v-if="mentorOf(row).hasLoggedIn" class="admin-mentors__logged-in">
@@ -170,7 +150,7 @@ import type { AdminMentorDetail } from '@/utils/adminAPI'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { formatExactTime, formatShortDate } from '@/utils/date'
 import {
-  isEffectivelyInactive,
+  mentorConcern,
   lastMessageDays,
   relativeDays
 } from '@/utils/mentorFormat'
@@ -229,7 +209,6 @@ const columns: DataTableColumn[] = [
   { key: 'institution', label: 'Institution' },
   { key: 'capacity', label: 'Capacity' },
   { key: 'lastMessage', label: 'Last Message' },
-  { key: 'status', label: 'Status' },
   { key: 'loggedIn', label: 'Logged In' }
 ]
 
@@ -268,7 +247,6 @@ const mentorRows = computed(() =>
     institution: mentor.institution ?? '—',
     capacity: `${mentor.currentAssignedCount}/${mentor.maxGroupCount} (${mentor.remainingCapacity} left)`,
     lastMessage: mentor.lastMessageAt ? relativeDays(mentor.lastMessageAt) : 'Never',
-    status: mentor.isActive ? 'Active' : 'Inactive',
     loggedIn: mentor.hasLoggedIn ? 'Yes' : 'No'
   }))
 )
@@ -280,7 +258,7 @@ const onSelected = (ids: Array<string | number>) => {
 }
 
 const rowClass = (row: Record<string, unknown>) =>
-  isEffectivelyInactive(mentorOf(row), inactiveDays.value) ? 'admin-mentors__row--inactive' : undefined
+  mentorConcern(mentorOf(row), inactiveDays.value) ? 'admin-mentors__row--inactive' : undefined
 
 const mentorImportOpen = ref(false)
 

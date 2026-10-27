@@ -101,14 +101,14 @@ describe('AdminPeoplePage', () => {
   })
 
   it('keeps mentor status, capacity and login fields searchable', async () => {
-    routeState.query = { tab: 'mentors', search: 'Inactive' }
+    routeState.query = { tab: 'mentors', search: 'Active' }
     const mentor = {
       mentorId: 8,
       firstName: 'Grace',
       lastName: 'Ali',
       name: 'Grace Ali',
       email: 'grace@example.com',
-      isActive: false,
+      isActive: true,
       institution: 'Sample Institute',
       countryName: 'Australia',
       maxGroupCount: 3,
@@ -140,6 +140,45 @@ describe('AdminPeoplePage', () => {
     expect(wrapper.text()).toContain('Grace Ali')
     await search.setValue('never logged in')
     expect(wrapper.text()).toContain('Grace Ali')
+  })
+
+  it('lists active mentors only, so a deactivated one is not offered work', async () => {
+    // Deactivated accounts cannot take part, so they are not in the roster an
+    // admin assigns from. They are reactivated from the Users page instead.
+    routeState.query = { tab: 'mentors' }
+    const deactivated = {
+      mentorId: 9,
+      firstName: 'Omar',
+      lastName: 'Haddad',
+      name: 'Omar Haddad',
+      email: 'omar@example.com',
+      isActive: false,
+      institution: 'Sample Institute',
+      countryName: 'Australia',
+      maxGroupCount: 3,
+      currentAssignedCount: 0,
+      remainingCapacity: 3,
+      interests: [],
+      lastMessageAt: null,
+      hasLoggedIn: true,
+      lastLogin: null,
+      availability: [],
+      certificates: [],
+    }
+    const fetchWithMentor = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/mentor/')) {
+        return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data: [deactivated] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      return fetchMock(url)
+    })
+    vi.stubGlobal('fetch', fetchWithMentor)
+    wrapper = mount(AdminPeoplePage)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Omar Haddad')
   })
 
   it('renders the four tab labels', async () => {

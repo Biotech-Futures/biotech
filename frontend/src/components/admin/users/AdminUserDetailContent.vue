@@ -1984,7 +1984,13 @@ const commitMentorGroups = async () => {
       changed = true
     }
     if (added.length) {
-      await confirmMentorAssignments(added.map((groupId) => ({ groupId, mentorUserId: user.id })))
+      // The admin opened this mentor and chose these groups, so a quiet
+      // mentor is not refused here the way a suggested one would be. A
+      // deactivated account is still refused, by the server.
+      await confirmMentorAssignments(
+        added.map((groupId) => ({ groupId, mentorUserId: user.id })),
+        { allowIdle: true }
+      )
       changed = true
     }
     editing.value = null

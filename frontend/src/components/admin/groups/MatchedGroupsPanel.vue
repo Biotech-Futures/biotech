@@ -33,7 +33,7 @@
         <template #stats>
           Matched: {{ groups.length }}
           <span v-if="inactiveCount > 0" class="matched-groups__inactive">
-            · <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ inactiveCount }} inactive
+            · <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ inactiveCount }} to replace
           </span>
         </template>
         <template #search-side>
@@ -46,10 +46,10 @@
             type="button"
             class="btn btn-sm btn-outline"
             :disabled="inactiveCount === 0"
-            :title="inactiveCount === 0 ? 'No matched mentors are inactive' : undefined"
+            :title="inactiveCount === 0 ? 'No matched mentors need replacing' : undefined"
             @click="bulkDialogOpen = true"
           >
-            <i class="fas fa-rotate" aria-hidden="true"></i> Replace Inactive Mentors
+            <i class="fas fa-rotate" aria-hidden="true"></i> Replace Idle Mentors
           </button>
         </template>
         <template #cell-group="{ row }">
@@ -69,8 +69,17 @@
           </div>
         </template>
         <template #cell-status="{ row }">
-          <span v-if="groupOf(row).mentor.isActive" class="matched-groups__status matched-groups__status--active">
+          <span
+            v-if="statusLabel(groupOf(row)) === 'Active'"
+            class="matched-groups__status matched-groups__status--active"
+          >
             <i class="fas fa-circle-check" aria-hidden="true"></i> Active
+          </span>
+          <span
+            v-else-if="statusLabel(groupOf(row)) === 'Idle'"
+            class="matched-groups__status matched-groups__status--warning"
+          >
+            <i class="fas fa-clock" aria-hidden="true"></i> Idle
           </span>
           <span v-else class="matched-groups__status matched-groups__status--danger">
             <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Inactive
@@ -97,6 +106,20 @@
             <button type="button" class="btn btn-sm btn-outline" :disabled="replaceBusy" @click="cancelReplace">
               Cancel
             </button>
+            <!-- Both on by default: the admin opts out of telling a mentor,
+                 rather than having to remember to opt in. -->
+            <label class="matched-groups__notify">
+              <input v-model="notifyDeparting" type="checkbox" :disabled="replaceBusy" />
+              Notify departing mentor
+            </label>
+            <label class="matched-groups__notify">
+              <input
+                v-model="notifyIncoming"
+                type="checkbox"
+                :disabled="replaceBusy || selectedMentorId === UNASSIGN_VALUE"
+              />
+              Notify incoming mentor
+            </label>
           </div>
           <button
             v-else
@@ -138,9 +161,13 @@
                 <div class="matched-groups__mentor-detail-meta">
                   <span class="matched-groups__country-badge">{{ groupOf(row).mentor.countryName || 'Unknown' }}</span>
                   <span
-                    v-if="groupOf(row).mentor.isActive"
+                    v-if="statusLabel(groupOf(row)) === 'Active'"
                     class="matched-groups__status matched-groups__status--active"
                   >Active</span>
+                  <span
+                    v-else-if="statusLabel(groupOf(row)) === 'Idle'"
+                    class="matched-groups__status matched-groups__status--warning"
+                  >Idle</span>
                   <span v-else class="matched-groups__status matched-groups__status--danger">Inactive</span>
                 </div>
               </div>
@@ -187,6 +214,8 @@ import {
   type MatchedGroupStudent,
   type MentorListItem
 } from '@/utils/adminAPI'
+import { mentorConcern } from '@/utils/mentorFormat'
+import { useIdleThreshold } from '@/composables/admin/useIdleThreshold'
 import { logApiError } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
@@ -257,7 +286,17 @@ const load = async () => {
 
 onMounted(load)
 
-const inactiveGroups = computed(() => groups.value.filter((g) => !g.mentor.isActive))
+// Both reasons belong here: a deactivated mentor cannot take part at all, and
+// an idle one has gone quiet. The dialog labels each so an admin can tell them
+// apart. Previously this counted only deactivated accounts, which is why this
+// tab and the Mentors page reported different numbers.
+// The same threshold the Mentors page offers, so the two screens never report
+// different numbers of mentors needing replacement.
+const { idleDays } = useIdleThreshold()
+
+const inactiveGroups = computed(() =>
+  groups.value.filter((g) => mentorConcern(g.mentor, idleDays.value) !== null)
+)
 const inactiveCount = computed(() => inactiveGroups.value.length)
 
 const showFullMentors = ref(false)
@@ -298,7 +337,7 @@ const sortValue = (group: MatchedGroup, key: SortKey): string | number => {
     case 'mentor':
       return `${group.mentor.name} ${group.mentor.institution ?? ''}`
     case 'status':
-      return group.mentor.isActive ? 'Active' : 'Inactive'
+      return statusLabel(group)
   }
 }
 
@@ -331,7 +370,7 @@ const groupRows = computed(() =>
     country: group.countryName || 'Unknown',
     students: group.studentCount,
     mentor: group.mentor.name,
-    status: group.mentor.isActive ? 'Active' : 'Inactive'
+    status: statusLabel(group)
   }))
 )
 
@@ -343,6 +382,8 @@ const selectedMentorId = ref('')
 const replaceBusy = ref(false)
 
 const startReplace = (membershipId: number) => {
+  notifyDeparting.value = true
+  notifyIncoming.value = true
   replacingId.value = membershipId
   selectedMentorId.value = ''
 }
@@ -354,12 +395,32 @@ const cancelReplace = () => {
 
 // Scored suggestions aren't loaded per-row here (that's the bulk dialog's
 // job) — this is the plain mentor pool, filtered to those with a free seat,
-// plus whichever mentor already has this group (so the select doesn't lose
-// its value when reopened), plus everyone once "show mentors at capacity" is on.
+// or everyone once "show mentors at capacity" is on. The mentor already on
+// the group is left out: picking them is a replacement that replaces nothing.
+/**
+ * Three states, not two. A quiet mentor is still an enabled account, so a
+ * plain `isActive` check labelled them "Active" on the one screen that counts
+ * them as needing replacement - the row read Active while the same panel
+ * totalled them under "Replace Idle Mentors". Reuses `mentorConcern` and the
+ * admin's own threshold so the column cannot drift from that count.
+ */
+const statusLabel = (group: MatchedGroup): 'Active' | 'Idle' | 'Inactive' => {
+  const concern = mentorConcern(group.mentor, idleDays.value)
+  if (concern === 'inactive') return 'Inactive'
+  if (concern === 'idle') return 'Idle'
+  return 'Active'
+}
+
 const optionsFor = (group: MatchedGroup): MentorListItem[] =>
   mentors.value.filter(
-    (m) => showFullMentors.value || m.remainingCapacity > 0 || m.mentorId === group.mentor.mentorId
+    (m) =>
+      m.mentorId !== group.mentor.mentorId &&
+      mentorConcern(m, idleDays.value) === null &&
+      (showFullMentors.value || m.remainingCapacity > 0)
   )
+
+const notifyDeparting = ref(true)
+const notifyIncoming = ref(true)
 
 // "Select action", Unassign, then each mentor (marked when full).
 const replaceOptionsFor = (group: MatchedGroup): AppSelectOption[] => [
@@ -377,12 +438,18 @@ const confirmReplace = async (group: MatchedGroup) => {
   error.value = ''
   try {
     if (selectedMentorId.value === UNASSIGN_VALUE) {
-      await unassignMentors([group.groupId])
+      // Nobody is arriving, so only the departing flag can apply here.
+      await unassignMentors([group.groupId], { notifyDeparting: notifyDeparting.value })
     } else {
       await replaceMentor({
+        // The server enforces the same rule this screen filtered by, so it has
+        // to be told which threshold the screen was using.
+        idleDays: idleDays.value,
         membershipId: group.membershipId,
         groupId: group.groupId,
-        newMentorUserId: Number(selectedMentorId.value)
+        newMentorUserId: Number(selectedMentorId.value),
+        notifyDeparting: notifyDeparting.value,
+        notifyIncoming: notifyIncoming.value
       })
     }
   } catch (err) {
@@ -522,6 +589,11 @@ const onBulkConfirmed = () => {
   color: #1a7f37;
 }
 
+/* Idle sits between the two: worth acting on, but not an account problem. */
+.matched-groups__status--warning {
+  color: #9a6700;
+}
+
 .matched-groups__status--danger {
   color: var(--danger);
 }
@@ -626,5 +698,14 @@ const onBulkConfirmed = () => {
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.4rem;
+}
+
+.matched-groups__notify {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 </style>
