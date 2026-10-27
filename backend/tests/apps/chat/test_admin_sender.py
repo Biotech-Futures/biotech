@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -37,8 +37,7 @@ CHANNEL_TEST_SETTINGS = {"default": {"BACKEND": "channels.layers.InMemoryChannel
 USER_ID_FIELDS = {"sender_user", "sender_user_id", "user_id", "deleted_by"}
 
 
-@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
-class AdminSenderTestBase(TestCase):
+class AdminSenderTestMixin:
     def setUp(self):
         User = get_user_model()
         self.student = User.objects.create_user(
@@ -106,6 +105,11 @@ class AdminSenderTestBase(TestCase):
 
     def by_id(self, items, message):
         return next(item for item in items if item["id"] == message.id)
+
+
+@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
+class AdminSenderTestBase(AdminSenderTestMixin, TestCase):
+    pass
 
 
 class RestMaskingTests(AdminSenderTestBase):
@@ -309,7 +313,8 @@ class BroadcastTests(AdminSenderTestBase):
         self.assertNotIn(ADMIN_IDENTITY_KEY, envelope["payload"])
 
 
-class ConsumerTests(AdminSenderTestBase):
+@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
+class ConsumerTests(AdminSenderTestMixin, TransactionTestCase):
     """GroupChatConsumer.chat_message, driven directly as in test_typing.py."""
 
     def consumer_for(self, user):
