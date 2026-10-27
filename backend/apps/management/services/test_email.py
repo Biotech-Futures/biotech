@@ -185,7 +185,12 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
     # From the email's sender, as the real one goes.
     sender = sender_for(test.email)
     message = build_message(
-        rendered, to, from_email=sender.from_email, connection=sender_connection(sender), files=files,
+        rendered,
+        to,
+        from_email=sender.from_email,
+        connection=sender_connection(sender),
+        files=files,
+        tracking_key=f"test_{test.email}",
     )
     try:
         # Test emails follow the same retry policy as every other email.

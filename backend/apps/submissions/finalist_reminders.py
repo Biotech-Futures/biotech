@@ -94,7 +94,13 @@ def build_reminder(group, entry: FinalistEntry | None, sender=None) -> list[Emai
     rendered = render_system_email(EMAIL_KEY, context, default_text=text)
     recipients = recipients_for(group)
     sender = sender or sender_for(EMAIL_KEY)
-    return [group_message(rendered, group, recipients, sender=sender)] if recipients else []
+    return [group_message(
+        rendered,
+        group,
+        recipients,
+        sender=sender,
+        tracking_key=EMAIL_KEY,
+    )] if recipients else []
 
 
 def teams_due(now=None) -> list[tuple]:

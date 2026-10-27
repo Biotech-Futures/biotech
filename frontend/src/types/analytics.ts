@@ -266,7 +266,6 @@ export type EmailMonitoringData = {
     failed: number
     clicked: number | null
     opened: number | null
-    spam: number | null
     averageSentPerUser: number | null
     averageOpenedPerUser: number | null
     averageClickedPerUser: number | null

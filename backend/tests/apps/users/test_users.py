@@ -14,6 +14,7 @@ from apps.users.models import AdminScope, StudentProfile
 from apps.groups.models import Countries, CountryStates
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.common.role_names import ROLE_STUDENT, ROLE_SUPERVISOR
+from tests.email_helpers import delivered_destinations
 
 
 User = get_user_model()
@@ -1248,7 +1249,7 @@ class SupervisedStudentEmailViewTests(TestCase):
         self.assertIn("Parent/Guardian Contact", mail.outbox[0].subject)
         self.assertIn(
             "https://connect.example.com/#/profile?guardian=edit",
-            mail.outbox[0].alternatives[0][0],
+            delivered_destinations(mail.outbox[0].alternatives[0][0]),
         )
 
     def test_supervisor_can_email_guardian_for_consent(self):
@@ -1336,7 +1337,7 @@ class SupervisedStudentEmailViewTests(TestCase):
 
         self._post([self.pending_consent.id], "guardian_consent")
         link = self._links([self.pending_consent.id]).json()["links"][0]["link"]
-        self.assertIn(link, mail.outbox[0].alternatives[0][0])
+        self.assertIn(link, delivered_destinations(mail.outbox[0].alternatives[0][0]))
 
     def test_copying_a_lapsed_consent_link_resets_its_time(self):
         from datetime import timedelta

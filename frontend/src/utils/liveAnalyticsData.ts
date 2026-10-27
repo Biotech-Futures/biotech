@@ -1121,6 +1121,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
     }))
 
   const totalDeliveryRuns = email.totals.delivery_runs
+  const engagement = email.engagement
   const maxMailboxQuota = Math.max(...mailboxRows.map((mailbox) => mailbox.quota_limit), fallbackQuota)
   const roleStatusRows = email.status_by_role ?? []
   const roleAttribution = email.role_attribution ?? {
@@ -1197,17 +1198,20 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
       delivered: email.totals.delivered,
       sent: email.totals.attempted,
       failed: email.totals.failed,
-      // The current delivery schema records attempts, successes and failures
-      // only. Engagement/provider metrics must remain unavailable
-      // until an authorised event source is connected.
-      clicked: null,
-      opened: null,
-      spam: null,
+      // Headline engagement uses unique tracked message copies. Raw repeat
+      // events remain available in the backend for auditing but do not inflate
+      // these figures when a message is reopened or scanned more than once.
+      clicked: engagement?.clicked ?? null,
+      opened: engagement?.opened ?? null,
       averageSentPerUser: totalDeliveryRuns
         ? Number((email.totals.attempted / totalDeliveryRuns).toFixed(1))
         : null,
-      averageOpenedPerUser: null,
-      averageClickedPerUser: null,
+      averageOpenedPerUser: engagement && totalDeliveryRuns
+        ? Number((engagement.opened / totalDeliveryRuns).toFixed(1))
+        : null,
+      averageClickedPerUser: engagement && totalDeliveryRuns
+        ? Number((engagement.clicked / totalDeliveryRuns).toFixed(1))
+        : null,
     },
     logs: email.recent_sends
       ? email.recent_sends.map((row) => ({

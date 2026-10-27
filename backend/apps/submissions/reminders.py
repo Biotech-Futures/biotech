@@ -112,7 +112,13 @@ def build_reminders(group, submission, closes_at, sender=None) -> list[EmailMult
     rendered = render_system_email("submission_reminder", context, default_text=text)
     recipients = recipients_for(group)
     sender = sender or sender_for("submission_reminder")
-    return [group_message(rendered, group, recipients, sender=sender)] if recipients else []
+    return [group_message(
+        rendered,
+        group,
+        recipients,
+        sender=sender,
+        tracking_key="submission_reminder",
+    )] if recipients else []
 
 
 def teams_due(now=None) -> list[tuple]:
