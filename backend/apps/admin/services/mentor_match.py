@@ -95,19 +95,30 @@ def _idle_mentor_ids(mentor_ids: List[int], idle_days: int) -> set:
       would be a deadlock - they are excluded from matching for never having
       messaged, and can never message without a group to message in;
     - one who joined within ``idle_days``, who has not had the time yet.
+
+    A deleted message still counts as having spoken. Posting and then removing
+    something is still evidence the mentor turned up, and deleting a message
+    must not be a way to be marked idle. The "last message" both admin screens
+    show counts them for the same reason, so the two cannot disagree.
     """
     if not mentor_ids:
         return set()
 
+    # Strictly after the cutoff, so an age of exactly ``idle_days`` is idle:
+    # "idle after 40 days" has to mean a mentor quiet for 40 days or more. With
+    # ``__gte`` a timestamp sitting precisely on the cutoff counted as recent,
+    # one day short of what the admin asked for, and the screens - which floor
+    # their day count and compare ``< idle_days`` - already read it the strict
+    # way, so the matcher and the badge disagreed on that edge.
     cutoff = timezone.now() - timedelta(days=idle_days)
     spoke_recently = set(
         Messages.objects
-        .filter(sender_user_id__in=mentor_ids, sent_at__gte=cutoff)
+        .filter(sender_user_id__in=mentor_ids, sent_at__gt=cutoff)
         .values_list('sender_user_id', flat=True)
     )
     joined_recently = set(
         User.objects
-        .filter(id__in=mentor_ids, date_joined__gte=cutoff)
+        .filter(id__in=mentor_ids, date_joined__gt=cutoff)
         .values_list('id', flat=True)
     )
     in_a_group = set(
@@ -614,7 +625,9 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
         row['sender_user_id']: row['last_message_at']
         for row in (
             Messages.objects
-            .filter(deleted_at__isnull=True, sender_user_id__in=[r['mentor_id'] for r in rows])
+            # Deleted messages included, matching _idle_mentor_ids: a mentor
+            # who posted and then removed it has still been heard from.
+            .filter(sender_user_id__in=[r['mentor_id'] for r in rows])
             .values('sender_user_id')
             .annotate(last_message_at=Max('sent_at'))
         )

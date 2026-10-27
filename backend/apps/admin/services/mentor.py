@@ -63,13 +63,13 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
     
     mentor_ids = [m['user_id'] for m in mentor_rows]
     
-    # 3. Last message sent by each mentor (excluding deleted messages)
+    # 3. Last message sent by each mentor, deleted ones included: having
+    #    posted and then removed it is still evidence they turned up, and the
+    #    idle rule in apps.admin.services.mentor_match counts them the same
+    #    way, so this badge and the matcher cannot disagree.
     last_message_rows = (
         Messages.objects
-        .filter(
-            deleted_at__isnull=True,
-            sender_user_id__in=mentor_ids
-        )
+        .filter(sender_user_id__in=mentor_ids)
         .values('sender_user_id')
         .annotate(last_message_at=Max('sent_at'))
     )

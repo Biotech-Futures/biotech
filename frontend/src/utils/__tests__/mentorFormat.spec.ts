@@ -112,3 +112,60 @@ describe('mentorConcern', () => {
     expect(mentorConcern({ isActive: true, lastMessageAt: null }, 30)).toBe('idle')
   })
 })
+
+describe('mentorConcern at the exact threshold', () => {
+  // The same edges pinned on the backend in IdleRuleMatchesTheScreensTests.
+  // The matcher enforces assignment, so if the two read this edge differently
+  // a mentor is either hidden for no reason or offered and then refused.
+  const NOW = Date.UTC(2026, 9, 27, 12)
+  const DAY = 86_400_000
+  const freeze = () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(NOW))
+  }
+  const agoMs = (ms: number) => new Date(NOW - ms).toISOString()
+  const withGroup = (over: Record<string, unknown>) => ({
+    isActive: true,
+    dateJoined: agoMs(400 * DAY),
+    currentAssignedCount: 1,
+    lastMessageAt: null,
+    ...over
+  })
+
+  it('counts silence of exactly the threshold as idle', () => {
+    freeze()
+    expect(
+      mentorConcern(withGroup({ lastMessageAt: agoMs(30 * DAY) }), 30)
+    ).toBe('idle')
+  })
+
+  it('counts silence a moment short of the threshold as fine', () => {
+    freeze()
+    expect(
+      mentorConcern(withGroup({ lastMessageAt: agoMs(30 * DAY - 1000) }), 30)
+    ).toBeNull()
+  })
+
+  it('follows the threshold the admin set', () => {
+    freeze()
+    // Quiet for 40 days: idle at 40 and at 39, not yet at 41.
+    const quiet40 = withGroup({ lastMessageAt: agoMs(40 * DAY) })
+    expect(mentorConcern(quiet40, 40)).toBe('idle')
+    expect(mentorConcern(quiet40, 39)).toBe('idle')
+    expect(mentorConcern(quiet40, 41)).toBeNull()
+  })
+
+  it('ends the join-date grace exactly at the threshold', () => {
+    freeze()
+    expect(
+      mentorConcern(withGroup({ dateJoined: agoMs(30 * DAY) }), 30)
+    ).toBe('idle')
+  })
+
+  it('keeps the grace a moment short of the threshold', () => {
+    freeze()
+    expect(
+      mentorConcern(withGroup({ dateJoined: agoMs(30 * DAY - 1000) }), 30)
+    ).toBeNull()
+  })
+})

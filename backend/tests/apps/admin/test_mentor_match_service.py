@@ -1,5 +1,5 @@
 """Tests for admin mentor match service."""
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest import mock
 
 from django.test import TestCase
@@ -11,6 +11,7 @@ from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
     confirm_mentor_assignments, replace_mentor,
     unassign_mentors, recommend_mentors_for_group,
+    _idle_mentor_ids,
 )
 from apps.admin.services.match import recommend_students_for_group
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
@@ -740,3 +741,131 @@ class IneligibleMentorsAreRefusedTests(TestCase):
                 "newMentorUserId": quiet.id,
                 "allowIdle": True,
             })
+
+
+class IdleRuleMatchesTheScreensTests(TestCase):
+    """The edges where the matcher and the admin screens must agree.
+
+    Time is frozen, because "exactly at the threshold" is only meaningful
+    against a fixed instant: computing it from a second ``now()`` would land a
+    few microseconds past the cutoff and test nothing.
+    """
+
+    FROZEN = datetime(2026, 10, 27, 12, 0, 0, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        self.group = Groups.objects.create(group_name="Needs a mentor")
+        self.mentor_group = Groups.objects.create(group_name="Already mentoring")
+        self.student = User.objects.create_user(
+            email="boundary-student@example.com", first_name="Sam", password="pw",
+        )
+        GroupMembership.objects.create(
+            user=self.student, group=self.group, membership_role=STUDENT_ROLE,
+        )
+        # Registered long ago, so only the message under test decides.
+        self.mentor = User.objects.create_user(
+            email="boundary-mentor@example.com", first_name="Mo", password="pw",
+        )
+        User.objects.filter(pk=self.mentor.pk).update(
+            date_joined=self.FROZEN - timedelta(days=400)
+        )
+        MentorProfile.objects.create(
+            user=self.mentor, institution="Uni", mentor_reason="Help",
+        )
+        # Somewhere to have posted, so the no-group exemption is not what is
+        # being measured here.
+        GroupMembership.objects.create(
+            user=self.mentor, group=self.mentor_group, membership_role=MENTOR_ROLE,
+        )
+
+    def _post(self, *, days_ago=0, seconds_later=0, deleted=False):
+        message = Messages.objects.create(
+            group=self.mentor_group, sender_user=self.mentor, message_text="hi",
+        )
+        Messages.objects.filter(pk=message.pk).update(
+            sent_at=(
+                self.FROZEN
+                - timedelta(days=days_ago)
+                + timedelta(seconds=seconds_later)
+            ),
+            deleted_at=self.FROZEN if deleted else None,
+        )
+
+    def _is_idle(self, idle_days=30):
+        with mock.patch("django.utils.timezone.now", return_value=self.FROZEN):
+            return self.mentor.id in _idle_mentor_ids([self.mentor.id], idle_days)
+
+    # -- deleted messages still count --------------------------------------
+
+    def test_a_recent_message_counts_as_activity(self):
+        self._post(days_ago=3)
+
+        self.assertFalse(self._is_idle())
+
+    def test_a_recent_message_still_counts_once_deleted(self):
+        # Deleting a message must not be a route to being marked idle: the
+        # mentor turned up, which is what the rule measures.
+        self._post(days_ago=3, deleted=True)
+
+        self.assertFalse(self._is_idle())
+
+    def test_an_old_deleted_message_does_not_rescue_a_quiet_mentor(self):
+        # Counting deleted messages is not the same as ignoring the threshold.
+        self._post(days_ago=90, deleted=True)
+
+        self.assertTrue(self._is_idle())
+
+    def test_both_payloads_report_a_deleted_message_as_the_last_one(self):
+        # The screens badge from lastMessageAt, so leaving deleted messages out
+        # of these would contradict the rule above: the matcher would hold a
+        # mentor active while the row beside that score called them idle.
+        self._post(days_ago=3, deleted=True)
+        expected = self.FROZEN - timedelta(days=3)
+
+        with mock.patch("django.utils.timezone.now", return_value=self.FROZEN):
+            roster = {m["mentorId"]: m for m in get_mentors()}
+            matched = {
+                group["mentor"]["mentorId"]: group["mentor"]
+                for group in get_matched_groups()
+            }
+
+        self.assertEqual(roster[self.mentor.id]["lastMessageAt"], expected)
+        self.assertEqual(matched[self.mentor.id]["lastMessageAt"], expected.isoformat())
+
+    # -- the threshold means what the admin set -----------------------------
+
+    def test_silence_of_exactly_the_threshold_is_idle(self):
+        # "Idle after 30 days" has to include a mentor quiet for exactly 30.
+        self._post(days_ago=30)
+
+        self.assertTrue(self._is_idle(30))
+
+    def test_silence_a_moment_short_of_the_threshold_is_not(self):
+        # The other side of the same edge, so it is pinned from both
+        # directions rather than only the strict one.
+        self._post(days_ago=30, seconds_later=1)
+
+        self.assertFalse(self._is_idle(30))
+
+    def test_the_edge_follows_the_threshold_the_admin_set(self):
+        # Quiet for 40 days: idle at 40, and still idle at 39, but not at 41.
+        self._post(days_ago=40)
+
+        self.assertTrue(self._is_idle(40))
+        self.assertTrue(self._is_idle(39))
+        self.assertFalse(self._is_idle(41))
+
+    def test_a_grace_of_exactly_the_threshold_has_run_out(self):
+        # The join-date grace ends at the same edge, read the same way.
+        User.objects.filter(pk=self.mentor.pk).update(
+            date_joined=self.FROZEN - timedelta(days=30)
+        )
+
+        self.assertTrue(self._is_idle(30))
+
+    def test_a_grace_a_moment_short_of_the_threshold_still_holds(self):
+        User.objects.filter(pk=self.mentor.pk).update(
+            date_joined=self.FROZEN - timedelta(days=30) + timedelta(seconds=1)
+        )
+
+        self.assertFalse(self._is_idle(30))
