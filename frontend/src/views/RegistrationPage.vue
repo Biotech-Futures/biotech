@@ -327,7 +327,7 @@
             <div v-if="adminChoosesSupervisor && currentStep === 0" class="step-stack admin-supervisor">
               <div class="section-divider section-divider--first">
                 <h3>Supervisor</h3>
-                <p>Enter an existing supervisor's email or select a suggestion. A supervisor is required.</p>
+                <p>A supervisor can be a teacher or a parent. Enter an existing supervisor's email or select a suggestion. A supervisor is required.</p>
               </div>
               <SupervisorSearchField
                 id="admin-supervisor-email"
@@ -362,7 +362,7 @@
               <div v-else-if="currentStep === 2" class="step-stack">
                 <div class="section-divider section-divider--first">
                   <h3>Supervisor</h3>
-                  <p>Enter your supervisor's name and email. These details are required.</p>
+                  <p>Your supervisor can be a teacher or a parent. Enter their name and email. These details are required.</p>
                 </div>
                 <div class="field-grid">
                   <RegistrationTextField
@@ -484,7 +484,7 @@
                   <!-- The group's supervisor, on a line below its code. -->
                   <div class="section-divider">
                     <h3>Supervisor</h3>
-                    <p>Enter your supervisor's name and email. These details are required.</p>
+                    <p>Your supervisor can be a teacher or a parent. Enter their name and email. These details are required.</p>
                   </div>
                   <div class="field-grid">
                     <RegistrationTextField
@@ -1607,7 +1607,7 @@ const roleOptions: RoleOption[] = [
   {
     value: 'supervisor',
     title: 'Supervisor',
-    description: 'Sign up to register your students and follow their progress.',
+    description: 'Teachers and parents can sign up to register their students and follow their progress.',
   },
 ]
 
@@ -1763,7 +1763,7 @@ const journeyOptions: JourneyOption[] = [
     value: 'supervisor',
     role: 'Supervisor',
     title: 'Register as a supervisor',
-    description: 'Share your contact details and school, and review information.',
+    description: 'Supervisors can be teachers or parents. Share your contact details and school, and review information.',
     steps: [
       {
         label: 'Contact',

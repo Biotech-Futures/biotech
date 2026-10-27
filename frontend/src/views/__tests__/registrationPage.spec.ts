@@ -587,7 +587,7 @@ describe('canonical registration intake', () => {
     }
     setup.currentStep = 2
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain("Enter your supervisor's name and email. These details are required.")
+    expect(wrapper.text()).toContain("Your supervisor can be a teacher or a parent. Enter their name and email. These details are required.")
     // A * on each of the supervisor's fields.
     for (const id of ['first', 'last', 'email']) {
       expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).toContain('*')
@@ -1193,7 +1193,7 @@ describe('canonical registration intake', () => {
     expect(html.indexOf('studentTeam-creator-state')).toBeLessThan(html.indexOf('interest-selector'))
     expect(wrapper.text()).not.toContain('Mutual Area(s) of Interest')
     // Their guardian on Your profile, after their profile; their supervisor on Group.
-    expect(wrapper.text()).not.toContain("Enter your supervisor's name and email. These details are required.")
+    expect(wrapper.text()).not.toContain("Your supervisor can be a teacher or a parent. Enter their name and email. These details are required.")
     expect(wrapper.text()).not.toContain('Add guardian contact (optional)')
     expect(
       wrapper.get('#studentTeam-creator-guardian-firstName').attributes('required'),
@@ -1208,7 +1208,7 @@ describe('canonical registration intake', () => {
     setup.maxReachedStep = 2
     await wrapper.vm.$nextTick()
     // The supervisor before Member 1, and no shared interests.
-    expect(wrapper.text()).toContain("Enter your supervisor's name and email. These details are required.")
+    expect(wrapper.text()).toContain("Your supervisor can be a teacher or a parent. Enter their name and email. These details are required.")
     expect(wrapper.text()).not.toContain('Mutual Areas of Interest')
     const group = wrapper.html()
     expect(group.indexOf('student-team-supervisor-first')).toBeLessThan(
