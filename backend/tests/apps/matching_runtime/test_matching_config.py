@@ -275,10 +275,10 @@ class MatchingConfigApiTests(TestCase):
         self.assertEqual(MatchingConfig.objects.count(), 0)
 
     def test_patch_updates_the_config_without_touching_any_total(self):
-        create_config()
+        config = create_config()
 
         response = self.client.patch(
-            "/matching/configs/1/",
+            f"/matching/configs/{config.id}/",
             {"year_weight": "40.00", "timezone_weight": "10.00"},
             format="json",
         )
@@ -289,10 +289,10 @@ class MatchingConfigApiTests(TestCase):
         self.assertEqual(config.total_weight, Decimal("130.00"))
 
     def test_patch_that_breaks_the_ceiling_is_rejected(self):
-        create_config()
+        config = create_config()
 
         response = self.client.patch(
-            "/matching/configs/1/",
+            f"/matching/configs/{config.id}/",
             {"year_max_weight": "90.00"},
             format="json",
         )
@@ -304,9 +304,9 @@ class MatchingConfigApiTests(TestCase):
         )
 
     def test_delete_removes_the_config(self):
-        create_config()
+        config = create_config()
 
-        response = self.client.delete("/matching/configs/1/")
+        response = self.client.delete(f"/matching/configs/{config.id}/")
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(MatchingConfig.objects.count(), 0)
