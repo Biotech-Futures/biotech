@@ -39,6 +39,7 @@ from apps.announcements.models import (
 from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
 from apps.users.models import User
 from apps.users.models.admin_scope import AdminScope
+from tests.email_helpers import delivered_destinations
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -764,9 +765,14 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
     def test_html_body_links_to_announcement_detail(self):
         outbox, announcement = self._send()
         html_body, _ = outbox[0].alternatives[0]
-        # We don't pin the exact host (settings-driven) — just assert
-        # the id is in the URL and that the link is wrapped in an anchor.
-        self.assertIn(f"/{announcement.id}", html_body)
+        # The host is settings-driven and delivered links are instrumented, so
+        # assert the decoded destination rather than the tracking URL itself.
+        self.assertTrue(
+            any(
+                destination.endswith(f"/#/announcements/{announcement.id}")
+                for destination in delivered_destinations(html_body)
+            )
+        )
         self.assertIn("<a href=", html_body)
         self.assertIn("View this announcement on the platform", html_body)
         self.assertNotIn("Read full announcement", html_body)
