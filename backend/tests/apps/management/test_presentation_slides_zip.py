@@ -134,7 +134,10 @@ class FinalistSlidesZipTests(_GradingFixture):
         azure = mock.Mock(is_remote=True)
         azure.exists.return_value = True
         azure.backend.url.return_value = signed
-        with mock.patch("apps.management.views.presentation.get_slides_storage", return_value=azure):
+        with (
+            mock.patch("apps.management.views.presentation.get_slides_storage", return_value=azure),
+            mock.patch("apps.submissions.slides_download.get_slides_storage", return_value=azure),
+        ):
             response = self._fetch()
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
