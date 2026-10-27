@@ -63,6 +63,7 @@ from .returning import bring_back_for_this_year
 from .profile_images import profile_image_url, remove_profile_image, save_profile_image
 from apps.common.rbac import is_admin, user_has_role
 from apps.common.pii import email_log_tag
+from apps.common.client_ip import client_ip as _client_ip
 from config.errors import (
     AccountInactive,
     InvalidCredentials,
@@ -93,17 +94,6 @@ PWD_LOGIN_PER_EMAIL_LIMIT = 5
 PWD_LOGIN_PER_IP_LIMIT = 20
 PWD_LOGIN_WINDOW_SECONDS = 300  # 5 min — matches the existing per-email window
 
-
-def _client_ip(request) -> str:
-    # Only honor X-Forwarded-For when the deployment sits behind a trusted
-    # reverse proxy / CDN (Azure Front Door, App Service ingress, ALB). Direct
-    # exposure means the header is attacker-controlled. Same policy as
-    # apps/services/views.py::_client_ip.
-    if getattr(settings, "TRUST_FORWARDED_FOR", False):
-        xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
-        if xff:
-            return xff.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR", "") or ""
 
 class PasswordLoginBodySerializer(serializers.Serializer):
     email = serializers.EmailField()
