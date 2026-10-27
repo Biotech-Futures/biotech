@@ -207,3 +207,66 @@ describe('Finalist Submissions', () => {
     expect(buttonNamed(wrapper, 'Download All').attributes('disabled')).toBeDefined()
   })
 })
+
+describe('searching the finalist teams', () => {
+  const team = (group_id: number, group_name: string, submitted_at: string) => ({
+    group_id, group_name, submitted: true, file_name: `${group_name}.pdf`, submitted_by: null, submitted_at
+  })
+
+  it('finds a team however it is typed, the closest first, not the newest', async () => {
+    // Newest first, as the page lists them: BTF111 handed in last.
+    slidesMock.mockResolvedValue({
+      slides_due: null,
+      teams: [
+        team(111, 'BTF111', '2026-10-12T00:00:00Z'),
+        team(21, 'BTF21', '2026-10-11T00:00:00Z'),
+        team(10, 'BTF10', '2026-10-10T00:00:00Z'),
+        team(1, 'BTF01', '2026-10-09T00:00:00Z')
+      ]
+    })
+    const wrapper = await mountPage()
+    const table = wrapper.find('.finalist-presentation__submissions')
+    const groups = () => table.findAll('tbody tr td:first-child').map((cell) => cell.text())
+
+    for (const typed of ['btf 1', 'BTF1', 'btf-01']) {
+      await table.find('input[type="search"]').setValue(typed)
+      expect(groups()).toEqual(['BTF01', 'BTF10', 'BTF111'])
+    }
+    await table.find('input[type="search"]').setValue('BTF 21')
+    expect(groups()).toEqual(['BTF21'])
+    // Only the group is searched: every row's date has a 10 in it.
+    await table.find('input[type="search"]').setValue('10')
+    expect(groups()).toEqual(['BTF10'])
+  })
+})
+
+describe('sorting the finalist teams', () => {
+  const order = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+    wrapper.find('.finalist-presentation__submissions').findAll('tbody tr td:first-child').map((cell) => cell.text())
+  const sortBy = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
+    wrapper.findAll('.data-table-sort-btn').find((button) => button.text() === label)!.trigger('click')
+
+  beforeEach(() => {
+    slidesMock.mockResolvedValue({
+      slides_due: null,
+      teams: [
+        { group_id: 5, group_name: 'BTF5', submitted: true, file_name: 'deck.pdf', submitted_by: null, submitted_at: '2026-10-12T00:00:00Z' },
+        { group_id: 2, group_name: 'BTF2', submitted: true, file_name: 'deck.pptx', submitted_by: null, submitted_at: '2026-10-10T00:00:00Z' },
+        { group_id: 10, group_name: 'BTF10', submitted: false, file_name: '', submitted_by: null, submitted_at: null }
+      ]
+    })
+  })
+
+  it('lists the newest first, then sorts by any heading, those yet to hand in last', async () => {
+    const wrapper = await mountPage()
+    expect(order(wrapper)).toEqual(['BTF5', 'BTF2', 'BTF10'])
+    await sortBy(wrapper, 'Submitted')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF5', 'BTF10'])
+    await sortBy(wrapper, 'Type')
+    expect(order(wrapper)).toEqual(['BTF5', 'BTF2', 'BTF10'])
+    await sortBy(wrapper, 'Type')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF5', 'BTF10'])
+    await sortBy(wrapper, 'Group')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF5', 'BTF10'])
+  })
+})
