@@ -207,7 +207,12 @@
               :options="mentorBackgroundOptions"
               :searchable="false"
               placeholder="Choose a background"
+              :aria-describedby="legacyMentorBackground ? 'f-mbg-legacy' : undefined"
             />
+            <p v-if="legacyMentorBackground" id="f-mbg-legacy" class="admin-users-form__hint">
+              This background isn't one of the five categories. It's kept as it is
+              unless you choose a category.
+            </p>
           </div>
           <div v-if="form.mentorBackground === 'industry'" class="form-field">
             <label class="form-label" for="f-mcompany">Company</label>
@@ -476,6 +481,17 @@
         <p class="admin-users-form__hint">PNG, JPEG or WebP, smaller than 5 MB.</p>
       </template>
 
+      <div class="form-field form-field--full" data-test="admin-notes-field">
+        <label class="form-label">Internal admin notes (visible only to admins)</label>
+        <RichEditor
+          :key="editorKey"
+          v-model="form.adminNotes"
+          placeholder="Add private context or notes about this user..."
+          compact
+          data-test="form-admin-notes"
+        />
+      </div>
+
       <div class="admin-users-form__footer">
         <!-- What stopped saving: under the line, just above the buttons. -->
         <p v-if="formError" class="admin-users-form__error admin-users-form__error--save" role="alert">
@@ -505,7 +521,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/RichEditor.vue')
+)
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import AppTimePicker from '@/components/AppTimePicker.vue'
@@ -576,6 +596,7 @@ interface UserForm {
   mediaGiven: boolean
   pendingConsentGiven: boolean
   active: boolean
+  adminNotes: string
   /** The group a new student joins once added; null for none. */
   groupId: number | null
   /** A student's pronouns, as registering takes them. */
@@ -640,6 +661,7 @@ const defaultForm = (): UserForm => ({
   mediaGiven: false,
   pendingConsentGiven: false,
   active: true,
+  adminNotes: '',
   groupId: null,
   pronounsChoice: '',
   pronounsOther: ''
@@ -655,6 +677,13 @@ const form = reactive<UserForm>(defaultForm())
 const formError = ref('')
 const saving = ref(false)
 const editingOriginalActive = ref(false)
+// Remounts the editor whenever the form opens on a different user, so a
+// draft can never carry over from the last one.
+const editorSessionKey = ref(0)
+const editorKey = computed(() => {
+  const userId = props.user?.id ? `edit-user-${props.user.id}` : 'new-user'
+  return `${userId}-${editorSessionKey.value}`
+})
 // What the guardian fields held when the form opened; only changes are sent,
 // so saving a student's year level can't discard a pending guardian change
 // or revoke consent.
@@ -821,6 +850,7 @@ const emailChecksBlockSaving = async () => {
 
 const initForm = (editingUser: AdminUser | null) => {
   formError.value = ''
+  editorSessionKey.value++
   delete emailCheckStates.email
   delete emailCheckStates.guardianEmail
   delete emailCheckStates.schoolName
@@ -874,7 +904,8 @@ const initForm = (editingUser: AdminUser | null) => {
     consentGiven: isStudent && Boolean(editingUser.joinPermissionReceived),
     mediaGiven: isStudent && Boolean(editingUser.joinPermissionReceived) && editingUser.mediaConsent === true,
     pendingConsentGiven: false,
-    active: editingUser.isActive
+    active: editingUser.isActive,
+    adminNotes: editingUser.adminNotes || ''
   })
 }
 
@@ -983,11 +1014,33 @@ const choosePhoto = (event: Event) => {
 
 const mentorStudying = computed(() => isStudyingBackground(form.mentorBackground))
 // Registering's backgrounds, and one typed before that, as written.
-const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
+/** The background as the form loaded it, '' when there is none. */
+const originalMentorBackground = computed(() =>
+  props.user?.role === 'mentor' ? props.user.mentorBackground || '' : ''
+)
+
+/** A stored background from before the five categories, kept until replaced. */
+const legacyMentorBackground = computed(() => {
   const current = form.mentorBackground
-  return typeof current === 'string' && current && !MENTOR_BACKGROUNDS.some((option) => option.value === current)
-    ? [...MENTOR_BACKGROUNDS, { value: current, label: current }]
-    : MENTOR_BACKGROUNDS
+  return typeof current === 'string' &&
+    current &&
+    !MENTOR_BACKGROUNDS.some((option) => option.value === current)
+    ? current
+    : ''
+})
+
+// "Not set" first, so a background can be cleared. An older free-text value
+// stays selectable and is named as not being one of the categories, rather
+// than sitting among them as though it were.
+const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
+  const options: AppSelectOption[] = [{ value: null, label: 'Not set' }]
+  if (legacyMentorBackground.value) {
+    options.push({
+      value: legacyMentorBackground.value,
+      label: `${legacyMentorBackground.value} (not a category)`
+    })
+  }
+  return [...options, ...MENTOR_BACKGROUNDS]
 })
 // 1 to 5 groups as registering offers, and whatever they have now.
 const capacityOptions = computed<AppSelectOption[]>(() => {
@@ -1011,7 +1064,12 @@ const mentorPayload = (): Record<string, unknown> => {
   const industry = form.mentorBackground === 'industry'
   const times = availabilityTimes(form.mentorAvailability)
   return {
-    mentorBackground: form.mentorBackground,
+    // Omitted when untouched, so an unrelated edit leaves the stored
+    // background alone - including an older free-text one, which the server
+    // accepts only while it is unchanged.
+    ...(form.mentorBackground === originalMentorBackground.value
+      ? {}
+      : { mentorBackground: form.mentorBackground }),
     mentorCompany: industry ? form.mentorCompany : '',
     mentorInstitution: industry ? '' : form.mentorInstitution,
     mentorUniversityYear: mentorStudying.value ? form.mentorUniversityYear : '',
@@ -1158,7 +1216,8 @@ const submitForm = async () => {
         lastName: form.lastName,
         role,
         countryId: role === 'admin' ? null : form.countryId,
-        stateId: role === 'admin' ? null : form.stateId
+        stateId: role === 'admin' ? null : form.stateId,
+        adminNotes: form.adminNotes.trim()
       }
       // A typed state, for a country with no list of states.
       if (role !== 'admin' && form.countryId !== undefined && !formStates.value.length) {
@@ -1193,7 +1252,8 @@ const submitForm = async () => {
         firstName: form.firstName,
         lastName: form.lastName,
         role,
-        active: form.active
+        active: form.active,
+        adminNotes: form.adminNotes.trim()
       }
       const countryName = resolveCountryName(form.countryId)
       const stateName =

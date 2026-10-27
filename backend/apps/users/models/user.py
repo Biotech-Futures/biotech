@@ -88,6 +88,8 @@ class User(AbstractUser):
     # only when serializing the authenticated user's profile.
     profile_image_key = models.CharField(max_length=512, blank=True, default="")
     profile_image_content_type = models.CharField(max_length=64, blank=True, default="")
+    # Private notes recorded by administrators, never exposed to non-admin users.
+    admin_notes = models.TextField(blank=True, default="")
     # When they agreed to the BIOTech Futures policies, ticking them as they
     # registered (themselves, or the students they registered). None for
     # anyone who hasn't: added by someone else, or before the box was there.

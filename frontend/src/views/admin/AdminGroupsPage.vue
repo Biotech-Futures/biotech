@@ -118,7 +118,7 @@
       :page-size="limit"
       :total-count="totalCount"
       v-model:search="searchInput"
-      search-placeholder="Search by group name..."
+      search-placeholder="Group or member name"
       empty-message="No groups found."
       :action-columns="2"
       clickable-rows
@@ -328,7 +328,7 @@ const loadGroups = async () => {
     const data = await fetchAdminGroupList({
       page: page.value,
       limit: serverPageLimit(limit.value),
-      searchGroup: searchInput.value || undefined,
+      search: searchInput.value || undefined,
       mentorStatus: mentorStatus.value || undefined,
       sortBy: sortState.value.key,
       sortOrder: sortState.value.direction
@@ -446,7 +446,7 @@ const selectAllMatchingNow = () => {
 const BULK_DELETE_CHUNK = 25
 
 const bulkFilters = computed<GroupListDetailParams>(() => ({
-  searchGroup: searchInput.value || undefined,
+  search: searchInput.value || undefined,
   mentorStatus: mentorStatus.value || undefined
 }))
 

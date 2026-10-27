@@ -71,6 +71,19 @@ describe('admin router guard', () => {
     }
   }, 15000)
 
+  // Its own test, so the every-route test above doesn't grow slower.
+  it('keeps System Logs to admins', async () => {
+    const auth = useAuthStore()
+    auth.loginWithUser(memberUser)
+    await router.push('/admin/logs')
+    expect(router.currentRoute.value.path).toBe('/dashboard')
+
+    auth.loginWithUser(adminUser)
+    await router.push('/admin/logs')
+    expect(router.currentRoute.value.path).toBe('/admin/logs')
+    expect(router.currentRoute.value.name).toBe('admin-logs')
+  })
+
   it('sends authenticated admins who visit /login to the admin dashboard', async () => {
     const auth = useAuthStore()
     auth.loginWithUser(adminUser)

@@ -5,7 +5,7 @@
     :description="isEditing ? `Update details for announcement #${announcement?.id}` : 'Create a new announcement for students, mentors, or all users.'"
     width="min(100vw, 760px)"
   >
-    <form class="admin-ann-form" novalidate @submit.prevent>
+    <form class="admin-ann-form" novalidate :aria-busy="saving" @submit.prevent>
       <p v-if="formError" class="admin-ann-form__error" role="alert">
         <i class="fas fa-triangle-exclamation mr-1.5"></i>
         {{ formError }}
@@ -149,6 +149,20 @@
         </div>
       </div>
 
+      <!-- Sending progress. The request only returns once every email has
+           been attempted (the server sends synchronously), so this stays up
+           for exactly as long as sending takes. Kept mounted so screen
+           readers hear it change. -->
+      <p class="admin-ann-form__progress" role="status" aria-live="polite">
+        <template v-if="saving">
+          <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+          <span v-if="pendingEmail">
+            Sending emails… This can take a moment for a large audience. Please keep this open.
+          </span>
+          <span v-else>Saving…</span>
+        </template>
+      </p>
+
       <!-- Footer Actions -->
       <div class="admin-ann-form__footer">
         <button
@@ -183,7 +197,7 @@
           >
             <i v-if="saving && pendingEmail" class="fas fa-spinner fa-spin"></i>
             <i v-else class="fas fa-paper-plane"></i>
-            <span>Publish & Notify</span>
+            <span>{{ saving && pendingEmail ? 'Sending…' : 'Publish & Notify' }}</span>
           </button>
         </template>
 
@@ -196,7 +210,7 @@
             @click="handleSubmit(false)"
           >
             <i v-if="saving && !pendingEmail" class="fas fa-spinner fa-spin"></i>
-            <span>Save</span>
+            <span>{{ saving && !pendingEmail ? 'Saving…' : 'Save' }}</span>
           </button>
           <button
             type="button"
@@ -206,7 +220,7 @@
           >
             <i v-if="saving && pendingEmail" class="fas fa-spinner fa-spin"></i>
             <i v-else class="fas fa-paper-plane"></i>
-            <span>Save & Re-notify</span>
+            <span>{{ saving && pendingEmail ? 'Sending…' : 'Save & Re-notify' }}</span>
           </button>
         </template>
       </div>
@@ -263,14 +277,21 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
-  (e: 'saved', announcement: AdminAnnouncementDetail): void
+  /** `emailed`: notification emails were requested and sending has finished. */
+  (e: 'saved', announcement: AdminAnnouncementDetail, emailed: boolean): void
   (e: 'delete', announcement: AdminAnnouncement): void
   (e: 'close'): void
 }>()
 
 const open = computed({
   get: () => props.modelValue,
-  set: (val: boolean) => emit('update:modelValue', val)
+  // Escape, the backdrop and the close button all land here. While a save
+  // (and any email send) is in flight the sheet stays open, so the progress
+  // indicator can't vanish before sending has finished.
+  set: (val: boolean) => {
+    if (!val && saving.value) return
+    emit('update:modelValue', val)
+  }
 })
 
 const isEditing = computed(() => Boolean(props.announcement && props.announcement.id))
@@ -420,6 +441,7 @@ function toggleGroup(id: number) {
 }
 
 function onDismiss() {
+  if (saving.value) return
   confirmNotifyOpen.value = false
   emit('close')
   open.value = false
@@ -450,12 +472,15 @@ async function confirmPublishAndNotify() {
 }
 
 async function handleSubmit(sendEmail: boolean) {
+  // One save (and one batch of emails) at a time, whatever triggered it.
+  if (saving.value) return
   if (!validateForm()) return
 
   saving.value = true
   pendingEmail.value = sendEmail
   formError.value = null
 
+  let result: AdminAnnouncementDetail | null = null
   try {
     const payload = {
       title: title.value.trim(),
@@ -465,22 +490,24 @@ async function handleSubmit(sendEmail: boolean) {
       send_email: sendEmail
     }
 
-    let result: AdminAnnouncementDetail
     if (isEditing.value && props.announcement?.id) {
       result = await updateAdminAnnouncement(props.announcement.id, payload)
     } else {
       result = await createAdminAnnouncement(payload)
     }
-
-    emit('saved', result)
-    confirmNotifyOpen.value = false
-    open.value = false
   } catch (err: unknown) {
     console.error('Failed to save announcement:', err)
     formError.value = err instanceof Error ? err.message : 'Failed to save announcement. Please try again.'
   } finally {
     saving.value = false
     pendingEmail.value = false
+  }
+
+  // Closed only once saving has cleared, so the close guard lets it through.
+  if (result) {
+    emit('saved', result, sendEmail)
+    confirmNotifyOpen.value = false
+    open.value = false
   }
 }
 </script>
@@ -634,6 +661,20 @@ async function handleSubmit(sendEmail: boolean) {
   font-size: 1rem;
   color: var(--dark-green);
   flex-shrink: 0;
+}
+
+.admin-ann-form__progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+/* Collapses while idle; the live region itself stays mounted. */
+.admin-ann-form__progress:empty {
+  display: none;
 }
 
 .admin-ann-form__footer {

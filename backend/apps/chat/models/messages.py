@@ -41,6 +41,10 @@ class Messages(models.Model):
         choices=MessageType.choices,
         default=MessageType.TEXT,
     )
+    # Set only by the admin interface's send endpoint, never from chat input.
+    # Non-admin viewers then see the sender as "Administrator" with no id; an
+    # admin posting through the ordinary group chat is shown as themselves.
+    sent_as_admin = models.BooleanField(default=False)
     # Self-referential FK enables "quoted reply" threading. SET_NULL keeps
     # a reply visible if its parent is hard-deleted; soft-deletion of the
     # parent is handled at the serializer layer (text nulled, deleted=True)

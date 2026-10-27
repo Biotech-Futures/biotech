@@ -31,6 +31,10 @@
         />
         <p v-if="fileName" class="mentor-import__hint">{{ fileName }}</p>
         <p v-else-if="!result" class="mentor-import__hint">Select a CSV file to continue.</p>
+        <p class="mentor-import__hint">
+          Background must be {{ backgroundCategories }}, or left blank. Anything else is imported
+          without a background.
+        </p>
       </section>
 
       <p v-if="fileError" class="mentor-import__error" role="alert">
@@ -81,7 +85,7 @@
             </div>
             <div class="mentor-import__chips">
               <span>{{ row.state ? `${row.country} / ${row.state}` : row.country }}</span>
-              <span>{{ row.mentorBackground ?? 'No background' }}</span>
+              <span>{{ row.mentorBackground ? mentorBackgroundLabel(row.mentorBackground) : 'No background' }}</span>
               <span>Cap {{ row.mentorMaxGroupCount }}</span>
               <span>{{ row.interests.length }} interest{{ row.interests.length === 1 ? '' : 's' }}</span>
             </div>
@@ -188,7 +192,11 @@ import {
 } from '@/utils/adminMentorCsv'
 import type { ImportRowError } from '@/utils/adminStudentCsv'
 import { logApiError } from '@/utils/apiError'
+import { mentorBackgroundLabel } from '@/utils/userFormat'
+import { MENTOR_BACKGROUND_OPTIONS } from '@/utils/userOptions'
 import { applyImportCheck, useImportEmailCheck, type ImportRowWarning } from '@/utils/importEmailCheck'
+
+const backgroundCategories = MENTOR_BACKGROUND_OPTIONS.map((option) => option.label).join(', ')
 
 const PREVIEW_LIMIT = 10
 

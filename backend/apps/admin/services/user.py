@@ -19,6 +19,7 @@ from apps.users.models import (
 )
 from apps.tickets.models import SupportScope
 from apps.users.models.admin_scope import AdminScope
+from apps.users.models.mentor_profile import normalize_mentor_background
 from apps.users.models.mentor_availability import MentorAvailability
 from apps.users.profile_images import delete_profile_image_file, profile_image_url
 from apps.submissions.services import current_cohort
@@ -802,6 +803,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "supervisorName": supervisor_name,
         "supervisorEmail": supervisor_email_val,
         "supervisees": supervisees or [],
+        "adminNotes": user.admin_notes or "",
         **last_edits([user.id]).get(user.id, _NO_EDIT),
     }
 
@@ -888,22 +890,26 @@ def get_admin_user_ids(user_ids: List[int]) -> set:
 
 def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str] = None,
                                 state: Optional[str] = None, active: Optional[bool] = None,
-                                in_group: Optional[str] = None, country: Optional[str] = None):
+                                in_group: Optional[str] = None, country: Optional[str] = None,
+                                include_admin_notes: bool = False):
     """Filtered (unpaginated) user queryset shared by the list view and
-    filter-based bulk actions, so 'select all matching' hits exactly the rows
-    the list would show for the same filters."""
+    filter-based bulk actions. Admin notes are included only for the list view;
+    filter-based bulk actions must not select users based on private notes."""
     now = timezone.now()
     filters = Q()
 
     if search:
         normalized_search = search.strip()
-        filters &= (
+        search_filters = (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
             Q(search_full_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
             Q(groupmembership__group__group_name__icontains=normalized_search)
         )
+        if include_admin_notes:
+            search_filters |= Q(admin_notes__icontains=normalized_search)
+        filters &= search_filters
 
     if role:
         filters &= Q(roleassignmenthistory__role__role_name=role) & (
@@ -939,7 +945,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     queryset = _build_user_filter_queryset(
         search=search, role=role, state=state, active=active, in_group=in_group,
-        country=country,
+        country=country, include_admin_notes=True,
     )
 
     # Get total count
@@ -1124,6 +1130,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "supervisorName": supervisor_name,
             "supervisorEmail": supervisor_email_val,
             "supervisees": supervisees_for_user,
+            "adminNotes": user.admin_notes or "",
             **last_edit_map.get(uid, _NO_EDIT),
         })
 
@@ -1232,6 +1239,7 @@ def add_users_by_role(
         role = input_data.get("role", "student")
         country_name = (input_data.get("country") or "").strip()
         state_name = (input_data.get("state") or "").strip()
+        mentor_background = None
 
         refusal = role_rejection_message(role, allowed)
         if refusal is not None:
@@ -1327,6 +1335,16 @@ def add_users_by_role(
                     "data": None
                 })
                 continue
+            # Single create and CSV bulk import both arrive here.
+            try:
+                mentor_background = normalize_mentor_background(input_data.get("mentorBackground"))
+            except ValueError as exc:
+                results.append({
+                    "input": input_data,
+                    "msg": str(exc),
+                    "data": None
+                })
+                continue
 
         # Interests are optional: an admin may add someone before they're known.
         
@@ -1406,6 +1424,10 @@ def add_users_by_role(
                 is_active = input_data.get("active", True)
                 account_status = STATUS_ACTIVE if is_active else STATUS_INVITED
                 
+                admin_notes = (
+                    (input_data.get("adminNotes") if "adminNotes" in input_data else input_data.get("admin_notes")) or ""
+                ).strip()
+
                 # Create user
                 user = User.objects.create_user(
                     email=email,
@@ -1421,6 +1443,7 @@ def add_users_by_role(
                     is_superuser=role == "admin",
                     invited_at=now,
                     activated_at=now if is_active else None,
+                    admin_notes=admin_notes,
                 )
                 
                 new_user_id = user.id
@@ -1467,7 +1490,7 @@ def add_users_by_role(
                 elif role == "mentor":
                     upsert_mentor_profile(
                         new_user_id,
-                        background=input_data.get("mentorBackground"),
+                        background=mentor_background,
                         institution=input_data.get("mentorInstitution"),
                         mentor_reason=input_data.get("mentorReason"),
                         max_group_count=input_data.get("mentorMaxGroupCount")
@@ -1898,6 +1921,25 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             if slots_error:
                 return {"msg": slots_error, "data": None}
 
+        # Omitted keeps the stored background. A value outside the five
+        # categories is rejected unless it is the one already stored: older
+        # free-text backgrounds are preserved until an admin picks a category.
+        next_background = MentorProfile.objects.filter(user_id=user_id).values_list(
+            'background', flat=True
+        ).first()
+        if "mentorBackground" in input_data:
+            sent_background = input_data["mentorBackground"]
+            try:
+                next_background = normalize_mentor_background(sent_background)
+            except ValueError as exc:
+                unchanged = (
+                    isinstance(sent_background, str)
+                    and next_background is not None
+                    and sent_background.strip() == next_background.strip()
+                )
+                if not unchanged:
+                    return {"msg": str(exc), "data": None}
+
     role_changed = "role" in input_data and input_data["role"] != current_role
     before_user = fetch_user_by_id(user_id)
     before_guardian = _guardian_audit_state(user_id) if next_role == "student" else None
@@ -1975,14 +2017,17 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
 
     try:
         with transaction.atomic():
-            # Update basic user fields
             if "email" in input_data:
                 user.email = new_email
             if "firstName" in input_data:
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "pronouns", "email"]):
+            if "adminNotes" in input_data:
+                user.admin_notes = (input_data["adminNotes"] or "").strip()
+            elif "admin_notes" in input_data:
+                user.admin_notes = (input_data["admin_notes"] or "").strip()
+            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "pronouns", "email", "adminNotes", "admin_notes"]):
                 user.save()
 
             if email_changed:
@@ -2064,6 +2109,10 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 SupervisorProfile.objects.filter(user_id=user_id).delete()
             
             if next_role == "mentor":
+                # AM2 stores the canonical key. ``_next_mentor_values`` keeps
+                # the background as it was sent, which may differ in case or
+                # spacing, so the normalised value wins here.
+                mentor_values["background"] = next_background
                 MentorProfile.objects.update_or_create(user_id=user_id, defaults=mentor_values)
                 if mentor_slots is not None:
                     MentorAvailability.objects.filter(mentor_user_id=user_id).delete()

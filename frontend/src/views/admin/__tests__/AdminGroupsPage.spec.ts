@@ -98,7 +98,7 @@ describe('AdminGroupsPage', () => {
     expect(wrapper.get('[aria-label="Mentor status"]').element).toHaveProperty('value', 'Unmatched')
     const url = String(listCall(fetchMock)?.[0] ?? '')
     expect(url).toContain('mentorStatus=unmatched')
-    expect(url).toContain('searchGroup=BTF2')
+    expect(url).toContain('search=BTF2')
   })
 
   it('loads and renders group rows', async () => {
@@ -151,7 +151,7 @@ describe('AdminGroupsPage', () => {
     expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))).toBeDefined()
   })
 
-  it('searches by group name after the debounce', async () => {
+  it('searches by group or member name after the debounce', async () => {
     vi.useFakeTimers()
     const fetchMock = fetchMockFor([groupA])
     vi.stubGlobal('fetch', fetchMock)
@@ -162,7 +162,20 @@ describe('AdminGroupsPage', () => {
     vi.advanceTimersByTime(300)
     await flushPromises()
 
-    expect(String(listCall(fetchMock)?.[0])).toContain('searchGroup=BTF1')
+    // One term, sent as `search`: the backend matches it against the group's
+    // own name or any of its members', so the box needs no mode (AM11).
+    expect(String(listCall(fetchMock)?.[0])).toContain('search=BTF1')
+    expect(String(listCall(fetchMock)?.[0])).not.toContain('searchGroup=')
+  })
+
+  it('says both sides are searchable in the placeholder', async () => {
+    vi.stubGlobal('fetch', fetchMockFor([groupA]))
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    const placeholder = wrapper.find('input[type="search"]').attributes('placeholder') ?? ''
+    expect(placeholder).toMatch(/group/i)
+    expect(placeholder).toMatch(/member/i)
   })
 
   it('filters by mentor status', async () => {

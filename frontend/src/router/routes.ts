@@ -152,6 +152,7 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/admin/views/:id(\\d+)', name: 'admin-view-detail', component: () => import('@/views/admin/AdminViewExecutedPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/emails', name: 'admin-emails', component: () => import('@/views/admin/AdminEmailsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/logs', name: 'admin-logs', component: () => import('@/views/admin/AdminSystemLogsPage.vue'), meta: { requiresAdmin: true } },
   {
     // Support tickets, the agent side. meta.requiresSupport is merged into
     // every child's meta like adminOnly on /grading below, and the guard

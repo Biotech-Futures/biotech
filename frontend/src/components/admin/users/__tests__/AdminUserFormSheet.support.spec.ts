@@ -101,6 +101,18 @@ async function submit() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The sheet makes its own requests on open and submit. Without a stub the
+  // spec only passed when another file happened to leave one behind, so it
+  // failed whenever it ran first.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      new Response(JSON.stringify({ msg: 'ok', data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ),
+  )
   vi.mocked(createAdminUser).mockResolvedValue({ msg: 'ok', data: agentRow() })
   vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: agentRow() })
   vi.mocked(setAdminUserActive).mockResolvedValue(undefined as never)

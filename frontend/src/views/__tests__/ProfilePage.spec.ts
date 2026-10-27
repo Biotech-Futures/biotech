@@ -321,7 +321,7 @@ describe('Mentor profile', () => {
     await flushPromises()
     await wrapper.get('[data-test="mentor-details-edit"]').trigger('click')
     // An old typed background picks the list's choice it means.
-    expect(appSelectText(wrapper, '[data-test="mentor-background"]')).toBe('University Student – Undergraduate')
+    expect(appSelectText(wrapper, '[data-test="mentor-background"]')).toBe('Undergraduate')
 
     // Their name first, edited here too.
     expect((wrapper.get('[data-test="mentor-first-name"]').element as HTMLInputElement).value).toBe('Mia')
@@ -382,7 +382,7 @@ describe('Mentor profile', () => {
     const details = wrapper.get('[data-test="mentor-details"]').text()
     expect(wrapper.get('[data-test="mentor-name"]').text()).toContain('Mia Ng')
     // An old typed background, read as the list's choice: so its year shows.
-    expect(details).toContain('University Student – Undergraduate')
+    expect(details).toContain('Undergraduate')
     expect(details).toContain('Year 2')
     expect(details).toContain('2 groups')
     expect(details).not.toContain('Hours per week')

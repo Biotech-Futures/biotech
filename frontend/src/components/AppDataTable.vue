@@ -371,6 +371,8 @@ const props = withDefaults(
     defaultSort?: DataTableSort
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
+    // Off: no "All" in rows per page, for a server that caps how many rows
+    // one page can hold (System Logs).
     // A row to bring into view (its rowKey's value), as a page asks on
     // coming back to it: the Resources page, back from a resource's page.
     focusRow?: RowKey
