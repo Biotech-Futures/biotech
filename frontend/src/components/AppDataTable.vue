@@ -289,8 +289,9 @@ export type DataTableColumn = {
   key: string
   label: string
   type?: 'string' | 'number'
-  // What the column sorts by, when not its shown text, like a date's time.
-  sortValue?: (row: Record<string, unknown>) => string | number
+  // What the column sorts by, when not its shown text, like a date's time;
+  // null for a row with none, which sorts last whichever way.
+  sortValue?: (row: Record<string, unknown>) => string | number | null
   // Long text that may wrap; every other cell stays on one line.
   wrap?: boolean
   // Off by default when the server sorts; on by default otherwise.
@@ -496,7 +497,12 @@ const filteredRows = computed(() => {
   const source = [...props.rows]
   if (!pageSorts.value) {
     const column = props.columns.find((item) => item.key === sortKey.value)
-    source.sort((left, right) => compare(left, right, column) * (sortDir.value === 'asc' ? 1 : -1))
+    const sign = sortDir.value === 'asc' ? 1 : -1
+    source.sort((left, right) => {
+      const [a, b] = column?.sortValue ? [column.sortValue(left), column.sortValue(right)] : [0, 0]
+      if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1
+      return compare(left, right, column) * sign
+    })
   }
   if (pageSearches.value) return source
   // Most relevant first; equally relevant rows keep the order above.

@@ -239,3 +239,34 @@ describe('searching the finalist teams', () => {
     expect(groups()).toEqual(['BTF10'])
   })
 })
+
+describe('sorting the finalist teams', () => {
+  const order = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+    wrapper.find('.finalist-presentation__submissions').findAll('tbody tr td:first-child').map((cell) => cell.text())
+  const sortBy = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
+    wrapper.findAll('.data-table-sort-btn').find((button) => button.text() === label)!.trigger('click')
+
+  beforeEach(() => {
+    slidesMock.mockResolvedValue({
+      slides_due: null,
+      teams: [
+        { group_id: 5, group_name: 'BTF5', submitted: true, file_name: 'deck.pdf', submitted_by: null, submitted_at: '2026-10-12T00:00:00Z' },
+        { group_id: 2, group_name: 'BTF2', submitted: true, file_name: 'deck.pptx', submitted_by: null, submitted_at: '2026-10-10T00:00:00Z' },
+        { group_id: 10, group_name: 'BTF10', submitted: false, file_name: '', submitted_by: null, submitted_at: null }
+      ]
+    })
+  })
+
+  it('lists the newest first, then sorts by any heading, those yet to hand in last', async () => {
+    const wrapper = await mountPage()
+    expect(order(wrapper)).toEqual(['BTF5', 'BTF2', 'BTF10'])
+    await sortBy(wrapper, 'Submitted')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF5', 'BTF10'])
+    await sortBy(wrapper, 'Type')
+    expect(order(wrapper)).toEqual(['BTF5', 'BTF2', 'BTF10'])
+    await sortBy(wrapper, 'Type')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF5', 'BTF10'])
+    await sortBy(wrapper, 'Group')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF5', 'BTF10'])
+  })
+})

@@ -332,3 +332,60 @@ describe('Finalist Presentation', () => {
     expect(rows(wrapper)).toHaveLength(2)
   })
 })
+
+describe('sorting Allocate Slots', () => {
+  // By number from the server: BTF2 has the morning and can make both times;
+  // BTF3 hasn't answered; BTF10 answered later, has the afternoon.
+  const SORTING: PresentationResponseTeam[] = [
+    { group_id: 2, group_name: 'BTF2', allocated_slot_id: 1, slot_ids: [1, 2], answered_at: '2026-09-29T05:10:00Z', answered_by: null },
+    { group_id: 3, group_name: 'BTF3', allocated_slot_id: null, slot_ids: [], answered_at: null, answered_by: null },
+    { group_id: 10, group_name: 'BTF10', allocated_slot_id: 2, slot_ids: [2], answered_at: '2026-09-30T05:10:00Z', answered_by: null }
+  ]
+  const order = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
+    allocation(wrapper).findAll('tbody tr').map((row) => row.find('td').text())
+  const sortBy = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
+    allocation(wrapper).findAll('.data-table-sort-btn').find((button) => button.text() === label)!.trigger('click')
+
+  beforeEach(() => {
+    responsesMock.mockImplementation(async () => ({ teams: structuredClone(SORTING) }))
+  })
+
+  it('lists teams by number until a heading is clicked', async () => {
+    const wrapper = await mountPage()
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF3', 'BTF10'])
+    await sortBy(wrapper, 'Group')
+    expect(order(wrapper)).toEqual(['BTF10', 'BTF3', 'BTF2'])
+  })
+
+  it('sorts by when each team answered and by its time, those with neither last both ways', async () => {
+    const wrapper = await mountPage()
+    await sortBy(wrapper, 'Answered')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF10', 'BTF3'])
+    await sortBy(wrapper, 'Answered')
+    expect(order(wrapper)).toEqual(['BTF10', 'BTF2', 'BTF3'])
+
+    await sortBy(wrapper, 'Allocate')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF10', 'BTF3'])
+    await sortBy(wrapper, 'Allocate')
+    expect(order(wrapper)).toEqual(['BTF10', 'BTF2', 'BTF3'])
+  })
+
+  it('puts the teams that can make a time first', async () => {
+    const wrapper = await mountPage()
+    await sortBy(wrapper, '13:00 - 13:30 AEDT')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF10', 'BTF3'])
+    await sortBy(wrapper, '09:30 - 10:00 AEDT')
+    expect(order(wrapper)).toEqual(['BTF2', 'BTF3', 'BTF10'])
+  })
+
+  it('keeps the CSV in number order whatever the table is sorted by', async () => {
+    const wrapper = await mountPage()
+    await sortBy(wrapper, 'Answered')
+    await sortBy(wrapper, 'Answered')
+    await buttonNamed(wrapper, 'Download CSV').trigger('click')
+    await flushPromises()
+    const [, csv] = csvMock.mock.calls[0]!
+    const groups = csv.replace(/^﻿/, '').trim().split('\r\n').slice(1).map((line) => line.split(',')[0])
+    expect(groups).toEqual(['BTF2', 'BTF3', 'BTF10'])
+  })
+})

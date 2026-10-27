@@ -104,7 +104,7 @@
         row-key="id"
         :selectable="false"
         :page-size="DATA_TABLE_ALL"
-        :sort="NO_SORT"
+        :default-sort="NEWEST_FIRST"
         :search-columns="[submissionColumns[0]!]"
         search-placeholder="Group name"
         empty-message="No finalist teams yet."
@@ -251,14 +251,23 @@ const loadSlides = async () => {
   }
 }
 
-// The teams in the order they come; nothing sorts them.
-const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
+// Newest first until a heading is clicked.
+const NEWEST_FIRST: DataTableSort = { key: 'submitted', direction: 'desc' }
 
-// Each team as a row, with plain text for search.
+// Each team as a row, with plain text for search. Teams yet to hand theirs
+// in sort last.
 const submissionColumns: DataTableColumn[] = [
-  { key: 'group', label: 'Group', sortable: false },
-  { key: 'submitted', label: 'Submitted', sortable: false },
-  { key: 'type', label: 'Type', sortable: false }
+  { key: 'group', label: 'Group' },
+  {
+    key: 'submitted',
+    label: 'Submitted',
+    sortValue: (row) => (slidesOf(row).submitted ? Date.parse(slidesOf(row).submitted_at!) : null)
+  },
+  {
+    key: 'type',
+    label: 'Type',
+    sortValue: (row) => (slidesOf(row).submitted ? fileType(slidesOf(row).file_name) : null)
+  }
 ]
 
 const submissionRows = computed(() =>

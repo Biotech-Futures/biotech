@@ -248,3 +248,40 @@ describe('rows per page', () => {
     expect(options.length).toBeGreaterThan(0)
   })
 })
+
+describe('sorting and searching together', () => {
+  const groups = [
+    { id: 1, group: 'BTF111', handed: 30 },
+    { id: 2, group: 'BTF02', handed: null },
+    { id: 3, group: 'BTF10', handed: 10 },
+    { id: 4, group: 'BTF01', handed: 20 }
+  ]
+  const groupColumns: DataTableColumn[] = [
+    { key: 'group', label: 'Group' },
+    { key: 'handed', label: 'Handed in', sortValue: (row) => row.handed as number | null }
+  ]
+  const mountGroups = () =>
+    mount(AppDataTable, {
+      props: { columns: groupColumns, rows: groups, selectable: false, pageSize: DATA_TABLE_ALL }
+    })
+  const names = (wrapper: ReturnType<typeof mountGroups>) =>
+    wrapper.findAll('tr.data-table-row').map((row) => row.find('td').text())
+  const heading = (wrapper: ReturnType<typeof mountGroups>, label: string) =>
+    wrapper.findAll('.data-table-sort-btn').find((button) => button.text() === label)!
+
+  it('keeps a row with nothing to sort by last, whichever way', async () => {
+    const wrapper = mountGroups()
+    await heading(wrapper, 'Handed in').trigger('click')
+    expect(names(wrapper)).toEqual(['BTF10', 'BTF01', 'BTF111', 'BTF02'])
+    await heading(wrapper, 'Handed in').trigger('click')
+    expect(names(wrapper)).toEqual(['BTF111', 'BTF01', 'BTF10', 'BTF02'])
+  })
+
+  it('lists a search most relevant first, the sort ordering only equal matches', async () => {
+    const wrapper = mountGroups()
+    await heading(wrapper, 'Handed in').trigger('click')
+    await heading(wrapper, 'Handed in').trigger('click')
+    await wrapper.find('.data-table-search-input').setValue('BTF 1')
+    expect(names(wrapper)).toEqual(['BTF01', 'BTF10', 'BTF111'])
+  })
+})
