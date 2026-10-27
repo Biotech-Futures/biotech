@@ -408,6 +408,103 @@ describe('registration gateway UI integration', () => {
     wrapper.unmount()
   })
 
+  it("takes back only the edited person's warnings, keeping everyone else's ticks", async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Please check.',
+      warnings: [
+        {
+          code: 'school_requires_confirmation',
+          field: 'studentIndividual.student.school',
+          overrideField: 'students.0.overrides.ConfirmSchoolOverride',
+          message: 'Confirm this school.',
+        },
+        {
+          code: 'email_unverified',
+          field: 'studentIndividual.supervisor.email',
+          overrideField: 'ConfirmSupervisorEmailInvalidOverride',
+          message: 'Confirm this address.',
+        },
+      ],
+    })
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+    await flushPromises()
+    for (const tick of wrapper.findAll('.registration-warnings input')) await tick.setValue(true)
+
+    setupOf(wrapper).forms.studentIndividual.supervisor.email = 'sam.teacher@example.edu.au'
+    await wrapper.vm.$nextTick()
+
+    const left = wrapper.findAll('.registration-warnings label')
+    expect(left.map((label) => label.text())).toEqual(['School: Confirm this school.'])
+    expect((left[0]!.get('input').element as HTMLInputElement).checked).toBe(true)
+    await submit(wrapper)
+    expect(send.mock.calls[1]![1]?.overrides).toEqual({ 'students.0.overrides.ConfirmSchoolOverride': true })
+    wrapper.unmount()
+  })
+
+  it("keeps a mentor's ticked warning when they sign", async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check this.',
+      warnings: [
+        {
+          code: 'name_email_mismatch',
+          field: 'mentor.email',
+          overrideField: 'mentor.overrides.ConfirmNameEmailOverride',
+          message: 'Check this email.',
+        },
+      ],
+    })
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareMentor(wrapper)
+    await submit(wrapper)
+    await flushPromises()
+    await wrapper.get('.registration-warnings input').setValue(true)
+
+    setupOf(wrapper).forms.mentor.signature = 'data:image/png;base64,c2lnbmVkIGFnYWlu'
+    await wrapper.vm.$nextTick()
+
+    expect((wrapper.get('.registration-warnings input').element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
+
+  it("takes back an edited CSV row's warnings only", async () => {
+    const warning = (row: number, override: string, field: string) => ({
+      code: 'check',
+      field: `supervisorCsv.rows.${row}.${field}`,
+      overrideField: `students.${row}.overrides.${override}`,
+      message: `Row ${row}: check ${field}.`,
+    })
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check these.',
+      warnings: [warning(0, 'ConfirmEmailInvalidOverride', 'email'), warning(1, 'ConfirmSchoolOverride', 'school')],
+    })
+    const wrapper = mountSupervisorWithGateway({ submit: send })
+    const setup = setupOf(wrapper)
+    setup.journey = 'supervisor_csv'
+    setup.currentStep = 2
+    setup.maxReachedStep = 2
+    setup.forms.supervisorCsv.fileName = 'students.csv'
+    const second = studentCsv().split('\r\n').at(-2)!.replace('alex@example.test', 'jo@example.test')
+    setup.forms.supervisorCsv.rows = parseRegistrationCsv(`${studentCsv()}${second}\r\n`).rows
+    await wrapper.vm.$nextTick()
+    await submitForm(wrapper)
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    await flushPromises()
+    for (const tick of wrapper.findAll('.registration-warnings input')) await tick.setValue(true)
+
+    setup.forms.supervisorCsv.rows[1]!.values.school = 'Another School'
+    await wrapper.vm.$nextTick()
+
+    const left = wrapper.findAll('.registration-warnings label')
+    expect(left.map((label) => label.text())).toEqual(['CSV row 2 - Student email: Row 0: check email.'])
+    expect((left[0]!.get('input').element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
+
   it('edits an invalid uploaded row and submits only the corrected, included values', async () => {
     const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
       ok: true,

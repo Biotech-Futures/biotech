@@ -3772,15 +3772,71 @@ if (!isSupervisorMode.value) {
     { deep: true },
   )
 }
+// Who each warning is about (its person's place in the forms, or a CSV row by
+// its number), and how their details stood when it was given. Kept while its
+// confirmation is, so either goes once those details change.
+const warnedAbout = new Map<string, { about: string; state: string }>()
+
+// A warning's person: its field's owner (a guardian's student, so a student's
+// own warnings go too), or the CSV row its index names among those included.
+const warningAbout = (field: string) => {
+  const csv = /^supervisorCsv\.rows\.(\d+)\./.exec(field)
+  if (csv) return `csv:${includedCsvRows.value[Number(csv[1])]?.rowNumber ?? ''}`
+  const parts = field.split('.').slice(0, -1)
+  if (parts[parts.length - 1] === 'guardian') parts.pop()
+  return parts.join('.')
+}
+
+// That person's details now: a CSV row's values (or that it's left out), or
+// their part of the forms, a mentor's signature aside.
+const stateOf = (about: string) => {
+  if (about.startsWith('csv:')) {
+    const rowNumber = Number(about.slice(4))
+    if (forms.supervisorCsv.excludedRowNumbers.includes(rowNumber)) return 'excluded'
+    return JSON.stringify(forms.supervisorCsv.rows.find((row) => row.rowNumber === rowNumber)?.values ?? null)
+  }
+  const found = about
+    .split('.')
+    .reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], forms)
+  const { signature: _signature, ...details } = (found ?? {}) as Record<string, unknown>
+  return JSON.stringify(details)
+}
+
+watch(
+  registrationWarnings,
+  (warnings) => {
+    for (const warning of warnings) {
+      const about = warningAbout(warning.field)
+      warnedAbout.set(warning.overrideField, { about, state: stateOf(about) })
+    }
+  },
+  { flush: 'sync' },
+)
+
+// Editing someone's details takes back only their warnings and confirmations,
+// so the server checks them again; everyone else's ticks stay.
 watch(
   forms,
   () => {
-    registrationWarnings.value = []
-    warningOverrides.value = {}
-    Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
+    const changed = [...warnedAbout].filter(([, { about, state }]) => stateOf(about) !== state).map(([key]) => key)
+    if (!changed.length) return
+    for (const key of changed) {
+      warnedAbout.delete(key)
+      delete warningAcknowledgements[key]
+      delete warningOverrides.value[key]
+    }
+    registrationWarnings.value = registrationWarnings.value.filter((warning) => !changed.includes(warning.overrideField))
   },
   { deep: true },
 )
+
+// Another journey: none of this one's warnings apply.
+watch(journey, () => {
+  warnedAbout.clear()
+  registrationWarnings.value = []
+  warningOverrides.value = {}
+  Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
+})
 </script>
 
 <style scoped>
