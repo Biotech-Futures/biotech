@@ -330,7 +330,8 @@ def _verify(address: str):
     """Check one address, backing off while QEV answers 429."""
     for attempt, delay in enumerate((*RATE_LIMIT_DELAYS, None)):
         _wait_out_pause()
-        result = email_verification.verify_email(address)
+        with email_verification.lookups_for("precheck"):
+            result = email_verification.verify_email(address)
         if result.reason != "http_429" or delay is None:
             return result
         logger.warning("email_precheck.rate_limited attempt=%s pause_seconds=%s", attempt + 1, delay)

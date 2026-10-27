@@ -137,7 +137,8 @@ def _check(item, answers):
         problem = guardian_email_problem(email, item["accountEmail"])
     if problem:
         return {"ok": False, "severity": "hard", "code": "email_refused", "message": problem}
-    answers[email] = email_verification.verify_email(email)
+    with email_verification.lookups_for("admin_box_check"):
+        answers[email] = email_verification.verify_email(email)
     if item["kind"] == "account":
         found = [
             mailbox_warning(answers, email, "Title"),
