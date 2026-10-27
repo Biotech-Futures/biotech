@@ -105,6 +105,7 @@
         :selectable="false"
         :page-size="DATA_TABLE_ALL"
         :sort="NO_SORT"
+        :search-columns="[submissionColumns[0]!]"
         search-placeholder="Group name"
         empty-message="No finalist teams yet."
         :action-columns="2"

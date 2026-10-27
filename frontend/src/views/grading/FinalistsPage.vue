@@ -294,6 +294,7 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { formatShortDateTime } from '@/utils/date'
+import { rankBySearch } from '@/utils/searchRank'
 
 const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
@@ -387,18 +388,19 @@ const byName = (a: FinalistCandidateRow, b: FinalistCandidateRow) =>
 // matching the other marking tables.
 const candidates = computed(() => {
   const all = candidatesResp.value?.rows ?? []
-  const q = groupQuery.value.trim().toLowerCase()
-  const rows = q ? all.filter((r) => r.group_name.toLowerCase().includes(q)) : all
   const order = sort.value
-  if (!order) return rows
-  const sign = order.direction === 'asc' ? 1 : -1
-  return [...rows].sort((a, b) => {
-    if (order.key === 'group') return sign * byName(a, b)
-    const x = markOf(a, order.key)
-    const y = markOf(b, order.key)
-    if (x == null || y == null) return x == null && y == null ? byName(a, b) : x == null ? 1 : -1
-    return sign * (Number(x) - Number(y)) || byName(a, b)
-  })
+  const sign = order?.direction === 'asc' ? 1 : -1
+  const sorted = !order
+    ? all
+    : [...all].sort((a, b) => {
+        if (order.key === 'group') return sign * byName(a, b)
+        const x = markOf(a, order.key)
+        const y = markOf(b, order.key)
+        if (x == null || y == null) return x == null && y == null ? byName(a, b) : x == null ? 1 : -1
+        return sign * (Number(x) - Number(y)) || byName(a, b)
+      })
+  // Most relevant first; equally relevant groups keep the sort above.
+  return rankBySearch(sorted, groupQuery.value, (r) => [r.group_name])
 })
 
 // Group Marks' columns: the group, late, a column per mark, the total and

@@ -122,6 +122,7 @@ import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { formatShortDateTime } from '@/utils/date'
 import { fetchComponentRows } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { rankBySearch, searchForm } from '@/utils/searchRank'
 
 const router = useRouter()
 const query = ref('')
@@ -130,11 +131,11 @@ const error = ref('')
 // The one group the search names: an exact name first, else the only
 // partial match.
 const resolveId = (): number | null => {
-  const lower = query.value.trim().toLowerCase()
-  if (!lower) return null
-  const exact = rows.value.filter((r) => r.group_name.toLowerCase() === lower)
+  const wanted = searchForm(query.value)
+  if (!wanted) return null
+  const exact = rows.value.filter((r) => searchForm(r.group_name) === wanted)
   if (exact.length === 1) return exact[0].group_id
-  const partial = rows.value.filter((r) => r.group_name.toLowerCase().includes(lower))
+  const partial = rankBySearch(rows.value, query.value, (r) => [r.group_name])
   return partial.length === 1 ? partial[0].group_id : null
 }
 
@@ -215,13 +216,7 @@ const sortValue = (r: GroupRow): number | string | null => {
 const displayRows = computed(() => {
   // Live-filter the table by the search text (group name), matching the
   // By Component page; Enter still jumps to the group it names.
-  const q = query.value.trim().toLowerCase()
   let sorted = [...rows.value]
-  if (q) {
-    sorted = sorted.filter(
-      (r) => r.group_name.toLowerCase().includes(q)
-    )
-  }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   sorted.sort((a, b) => {
     if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
@@ -238,12 +233,13 @@ const displayRows = computed(() => {
   // Sorting by progress: keep unsubmitted rows pinned at the bottom regardless
   // of direction, so admins never mistake "0/N" for a legitimate low score.
   if (sortKey.value === 'progress') {
-    return [
+    sorted = [
       ...sorted.filter((r) => r.submission_id != null),
       ...sorted.filter((r) => r.submission_id == null)
     ]
   }
-  return sorted
+  // Most relevant first; equally relevant groups keep the sort above.
+  return rankBySearch(sorted, query.value, (r) => [r.group_name])
 })
 
 const tableRows = computed(() => displayRows.value as unknown as Record<string, unknown>[])

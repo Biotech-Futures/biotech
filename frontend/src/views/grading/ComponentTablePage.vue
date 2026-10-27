@@ -180,6 +180,7 @@ import {
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { formatShortDateTime } from '@/utils/date'
+import { rankBySearch } from '@/utils/searchRank'
 
 const route = useRoute()
 const router = useRouter()
@@ -330,11 +331,7 @@ const sortValue = (r: ComponentRow): number | string | null => {
 }
 
 const displayRows = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase()
   let rows = [...(payload.value?.rows ?? [])]
-  if (query) {
-    rows = rows.filter((r) => r.group_name.toLowerCase().includes(query))
-  }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {
     if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
@@ -351,12 +348,13 @@ const displayRows = computed(() => {
   // Sorting by progress: keep unsubmitted rows pinned at the bottom regardless
   // of direction, so admins never mistake "0/N" for a legitimate low score.
   if (sortKey.value === 'progress') {
-    return [
+    rows = [
       ...rows.filter((r) => r.submission_id != null),
       ...rows.filter((r) => r.submission_id == null)
     ]
   }
-  return rows
+  // Most relevant first; equally relevant groups keep the sort above.
+  return rankBySearch(rows, searchQuery.value, (r) => [r.group_name])
 })
 
 const tableRows = computed(() => displayRows.value as unknown as Record<string, unknown>[])

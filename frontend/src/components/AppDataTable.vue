@@ -283,6 +283,7 @@ import {
   fitPageSize,
   tableRowRoom,
 } from '@/utils/dataTable'
+import { rankBySearch } from '@/utils/searchRank'
 
 export type DataTableColumn = {
   key: string
@@ -492,19 +493,15 @@ const compare = (
 
 const filteredRows = computed(() => {
   if (isServer.value) return props.rows
-  const query = pageSearches.value ? '' : search.value.trim().toLowerCase()
-  const source = !query
-    ? [...props.rows]
-    : props.rows.filter((row) =>
-        (props.searchColumns ?? props.columns).some((column) =>
-          displayCell(row, column).toLowerCase().includes(query),
-        ),
-      )
-
-  if (pageSorts.value) return source
-  const column = props.columns.find((item) => item.key === sortKey.value)
-  source.sort((left, right) => compare(left, right, column) * (sortDir.value === 'asc' ? 1 : -1))
-  return source
+  const source = [...props.rows]
+  if (!pageSorts.value) {
+    const column = props.columns.find((item) => item.key === sortKey.value)
+    source.sort((left, right) => compare(left, right, column) * (sortDir.value === 'asc' ? 1 : -1))
+  }
+  if (pageSearches.value) return source
+  // Most relevant first; equally relevant rows keep the order above.
+  const searched = props.searchColumns ?? props.columns
+  return rankBySearch(source, search.value, (row) => searched.map((column) => displayCell(row, column)))
 })
 
 const total = computed(() => (isServer.value ? props.totalCount ?? 0 : filteredRows.value.length))
