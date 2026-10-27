@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 CLICK_SALT = "services.email-engagement.click.v1"
 PRIVACY_POLICY_URL = "https://www.biotechfutures.org/s/Privacy_Policy.pdf"
 LINK_RE = re.compile(
-    r"(?P<prefix><a\b[^>]*?\bhref\s*=\s*)(?P<quote>['\"])(?P<url>.*?)(?P=quote)",
+    r"(?P<prefix><(?:a|v:roundrect)\b[^>]*?\bhref\s*=\s*)"
+    r"(?P<quote>['\"])(?P<url>.*?)(?P=quote)",
     flags=re.IGNORECASE | re.DOTALL,
 )
 

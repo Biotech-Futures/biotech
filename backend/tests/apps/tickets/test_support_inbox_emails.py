@@ -41,6 +41,7 @@ from apps.tickets.models import (
 )
 from apps.tickets.services import emails, lifecycle
 from apps.tickets.services.handoff import create_ticket_from_screening
+from tests.email_helpers import delivered_destination
 
 User = get_user_model()
 
@@ -156,7 +157,8 @@ class NewEnquiryEmailTests(TestCase):
         tags = re.findall(r'<(?:a\b[^>]*class="cta-link"|v:roundrect\b)[^>]*>', html)
         self.assertEqual(len(tags), 2)
         for tag in tags:
-            self.assertIn(f'href="{expected}"', tag)
+            href = re.search(r'href="([^"]+)"', tag).group(1)
+            self.assertEqual(delivered_destination(href), expected)
         self.assertIn("Open in the support queue", plain(html))
         self.assertNotIn("/#/support/tickets/", html)
 
@@ -245,7 +247,8 @@ class FlaggedMessageEmailTests(TestCase):
         tags = re.findall(r'<(?:a\b[^>]*class="cta-link"|v:roundrect\b)[^>]*>', html)
         self.assertEqual(len(tags), 2)
         for tag in tags:
-            self.assertIn(f'href="{expected}"', tag)
+            href = re.search(r'href="([^"]+)"', tag).group(1)
+            self.assertEqual(delivered_destination(href), expected)
         self.assertIn("Open in the support queue", plain(html))
 
     def test_it_waits_for_the_screening_batch_to_commit(self):
@@ -358,7 +361,8 @@ class OpenEnquiriesDigestTests(TestCase):
         tags = re.findall(r'<(?:a\b[^>]*class="cta-link"|v:roundrect\b)[^>]*>', html)
         self.assertEqual(len(tags), 2)
         for tag in tags:
-            self.assertIn(f'href="{expected}"', tag)
+            href = re.search(r'href="([^"]+)"', tag).group(1)
+            self.assertEqual(delivered_destination(href), expected)
         self.assertIn("Open the support queue", plain(html))
 
 

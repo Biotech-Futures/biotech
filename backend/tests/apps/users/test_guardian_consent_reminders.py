@@ -15,6 +15,7 @@ from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.services.models import SystemEmailTemplate
 from apps.users.guardian_reminders import guardians_due, send_due
 from apps.users.models import GuardianConsentRequest, StudentProfile, User
+from tests.email_helpers import delivered_destinations
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 FRONTEND = "https://connect.example.com"
@@ -57,7 +58,12 @@ class GuardianConsentReminderTests(TestCase):
 
         [request] = self._to("pat@example.com")
         self.assertEqual(request.subject, "Action Required: Sign parent/guardian permission form")
-        self.assertIn(f"{FRONTEND}/#/consent/", request.alternatives[0][0])
+        self.assertTrue(
+            any(
+                destination.startswith(f"{FRONTEND}/#/consent/")
+                for destination in delivered_destinations(request.alternatives[0][0])
+            )
+        )
         # The student hears that it went, and is asked to remind them.
         [notice] = self._to("amy@example.com")
         self.assertEqual(notice.subject, "Parent/Guardian Action Required - Permission Form")

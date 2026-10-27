@@ -20,6 +20,7 @@ from apps.services.models import SystemEmailTemplate
 from apps.services.system_email import FAILED
 from apps.users.guardian_details import send_due
 from apps.users.models import StudentProfile, User
+from tests.email_helpers import delivered_destinations
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 FRONTEND = "https://connect.example.com"
@@ -58,7 +59,10 @@ class GuardianDetailsEmailTests(TestCase):
         self.assertIn("Your parent/guardian information is required for", html)
         self.assertIn("without your parent/guardian contact information", html)
         self.assertIn("Provide parent/guardian details", html)
-        self.assertIn(f"{FRONTEND}/#/profile?guardian=edit", html)
+        self.assertIn(
+            f"{FRONTEND}/#/profile?guardian=edit",
+            delivered_destinations(html),
+        )
         self.assertIn("mailto:info@biotechfutures.org", html)
 
     def test_a_blank_guardian_email_counts_as_missing(self):

@@ -13,6 +13,7 @@ from apps.services.system_email import render_system_email
 from apps.submissions.services import current_cohort
 from apps.users.models import StudentProfile, SupervisorProfile, User
 from apps.users.supervisor_status import send_due, status_context, status_counts, supervisors_due
+from tests.email_helpers import delivered_destinations
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 FRONTEND = "https://connect.example.com"
@@ -60,8 +61,9 @@ class SupervisorRegistrationStatusTests(TestCase):
         self.assertEqual(message.to, ["sam@school.test"])
         self.assertEqual(message.subject, "BIOTech Futures: Student Registration Status")
         html = message.alternatives[0][0]
-        for text in ("Hi Sam,", "Pending Signature", "Pending Contact", f"{FRONTEND}/#/my-students"):
+        for text in ("Hi Sam,", "Pending Signature", "Pending Contact"):
             self.assertIn(text, html)
+        self.assertIn(f"{FRONTEND}/#/my-students", delivered_destinations(html))
         # Already emailed today: the next run sends nothing.
         self.assertEqual(send_due(), {"sent": 0, "failed": 0})
         self.assertEqual(len(mail.outbox), 1)

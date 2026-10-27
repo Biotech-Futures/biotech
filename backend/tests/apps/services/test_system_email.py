@@ -23,6 +23,7 @@ from apps.services.system_email import (
     send_system_email,
     sender_for,
 )
+from tests.email_helpers import delivered_destinations
 
 RESET_CONTEXT = {
     "First_Name": "Alex",
@@ -244,7 +245,10 @@ class SendTests(TestCase):
         self.assertEqual(message.body, "plain")
         html, mimetype = message.alternatives[0]
         self.assertEqual(mimetype, "text/html")
-        self.assertIn("https://example.test/reset?token=abc", html)
+        self.assertIn(
+            "https://example.test/reset?token=abc",
+            delivered_destinations(html),
+        )
         self.assertEqual(message.mixed_subtype, "related")
 
     def test_skips_when_switched_off(self):

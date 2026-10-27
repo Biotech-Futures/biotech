@@ -28,6 +28,7 @@ from apps.admin.services.system_email import (
 from apps.services.email_registry import EMAIL_REGISTRY
 from apps.services.models import SystemEmailSettings, SystemEmailTemplate
 from apps.users.models import User
+from tests.email_helpers import delivered_destinations
 from apps.users.models.admin_scope import AdminScope
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
@@ -393,7 +394,12 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertIn("Grace", html)
         self.assertNotIn("Alex", html)
         self.assertNotIn("{{", html)
-        self.assertIn("reset-password?token=", html)
+        self.assertTrue(
+            any(
+                "reset-password?token=" in destination
+                for destination in delivered_destinations(html)
+            )
+        )
         # Layout appears once, not duplicated from the pre-fill.
         self.assertEqual(html.lower().count("<!doctype"), 1)
 

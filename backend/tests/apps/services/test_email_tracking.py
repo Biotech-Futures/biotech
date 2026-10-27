@@ -104,3 +104,26 @@ class EmailTrackingTests(TestCase):
         self.assertIn('href="mailto:hello@example.org"', body)
         self.assertIn('href="#top"', body)
 
+    def test_outlook_vml_button_links_are_rewritten_too(self):
+        message = build_message(
+            RenderedEmail(
+                subject="Open the portal",
+                html=(
+                    '<v:roundrect href="https://example.org/portal"></v:roundrect>'
+                    '<a class="cta-link" href="https://example.org/portal">Open</a>'
+                ),
+                text="Open https://example.org/portal",
+            ),
+            "reader@example.com",
+            tracking_key="portal",
+        )
+        body = self._html(message)
+        hrefs = [html.unescape(value) for value in re.findall(r'href="([^"]+)"', body)]
+
+        self.assertGreaterEqual(len(hrefs), 2)
+        for href in hrefs[:2]:
+            self.assertIn("/api/v1/services/email/track/click/", href)
+            response = self.client.get(urlparse(href).path)
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response["Location"], "https://example.org/portal")
+
