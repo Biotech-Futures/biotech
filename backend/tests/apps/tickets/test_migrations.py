@@ -377,11 +377,22 @@ class BackfillAwaitingSupportSinceTests(TestCase):
             + list(product(names, repeat=3))
         )
 
+        def next_tick():
+            # Each action's rows get a time of their own, as they do in
+            # production, where the clock counts microseconds. Python 3.12 on
+            # Windows ticks only every 15.6 ms, so two actions in a row could
+            # share one, and the replay could not tell which came first.
+            # Elsewhere the clock has already moved, so this returns at once.
+            start = timezone.now()
+            while timezone.now() == start:
+                pass
+
         built = []
         for history in histories:
             ticket = self.make()
             try:
                 for name in history:
+                    next_tick()
                     self.CLOCK_ACTIONS[name](self, ticket)
                     ticket.refresh_from_db()
             except Exception:

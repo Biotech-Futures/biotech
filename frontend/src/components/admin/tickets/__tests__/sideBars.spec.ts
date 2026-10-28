@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, posix, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -33,7 +33,8 @@ function styleFiles(path: string): string[] {
   return readdirSync(resolve(SRC, path))
     .filter((name) => name !== '__tests__')
     .flatMap((name) => {
-      const child = join(path, name)
+      // With "/" on every system, as the paths the test names are written.
+      const child = posix.join(path, name)
       if (statSync(resolve(SRC, child)).isDirectory()) return styleFiles(child)
       return /\.(vue|css)$/.test(name) ? [child] : []
     })

@@ -720,7 +720,9 @@ class OnlyTheTicketEndpointsOptInTests(SimpleTestCase):
         self.assertTrue(root.is_dir(), root)
         found = []
         for path in sorted(root.rglob("*.py")):
-            tree = ast.parse(path.read_text(), filename=str(path))
+            # UTF-8 as the source is written, not the system's own encoding
+            # (cp1252 on Windows, which stops at a UTF-8 character).
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
@@ -732,8 +734,9 @@ class OnlyTheTicketEndpointsOptInTests(SimpleTestCase):
                     (kw for kw in node.keywords if kw.arg == "prefer_stream"), None
                 )
                 streams = bool(flag) and getattr(flag.value, "value", None) is True
+                # With "/" on every system, as STREAMING is written.
                 found.append(
-                    (str(path.relative_to(root.parent)), node.lineno, streams)
+                    (path.relative_to(root.parent).as_posix(), node.lineno, streams)
                 )
         return found
 
