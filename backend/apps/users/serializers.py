@@ -36,6 +36,28 @@ def is_placeholder_email(address) -> bool:
     return domain == "invalid" or domain.endswith(".invalid")
 
 
+# The same, where an address is typed into a form rather than a sheet's row.
+PLACEHOLDER_ADDRESS = "This is a placeholder address (.invalid), which can't receive email. Enter a real one."
+
+
+def is_student_email(email) -> bool:
+    """Whether ``email`` is a student's account, which can't be a guardian's."""
+    existing = User.objects.filter(email__iexact=str(email or "").strip()).first()
+    return existing is not None and _has_role(existing, StudentProfile, ROLE_STUDENT)
+
+
+def new_guardian_email_problem(email) -> str | None:
+    """Why a guardian's address given after registering (an admin's,
+    supervisor's or student's edit, the guardian details form, a guardian
+    upload sheet) is refused, beyond its format and not being the student's
+    own: a placeholder, or a student's account, as registering refuses."""
+    if is_placeholder_email(email):
+        return PLACEHOLDER_ADDRESS
+    if is_student_email(email):
+        return GUARDIAN_IS_STUDENT
+    return None
+
+
 def refuse_placeholder(value):
     if is_placeholder_email(value):
         raise serializers.ValidationError(PLACEHOLDER_EMAIL, code="placeholder_email")
@@ -43,6 +65,7 @@ REGISTRATION_OVERRIDES = {
     "ConfirmSchoolOverride", "ConfirmNameEmailOverride",
     "ConfirmEmailInvalidOverride", "ConfirmGuardianEmailInvalidOverride",
     "ConfirmSupervisorEmailInvalidOverride", "ConfirmGuardianEmailHasAccountOverride",
+    "ConfirmSupervisorNameEmailOverride",
 }
 GUARDIAN_IS_STUDENT = "This email address belongs to a student account, so it can't be used as a guardian's email."
 UNKNOWN_OVERRIDE = "Unknown registration override."
@@ -144,17 +167,30 @@ def school_warning(school, known_schools=None):
     }
 
 
-def name_email_warning(first_name, surname, email, whose="the student's"):
+def name_email_warning(
+    first_name, surname, email, whose="the student's", *, field="Title", override="ConfirmNameEmailOverride",
+):
+    """An address a letter or two off its owner's name (a typo, perhaps).
+    ``field`` and ``override``: the student's own address by default, or the
+    supervisor a student names (SupervisorEmail)."""
     name = ((first_name or "").strip() + (surname or "").strip()).lower().replace(" ", "")
     local = (email or "").strip().lower().split("@")[0].replace(".", "").replace("_", "")
     if not 1 <= _edit_distance(name, local) <= 2:
         return None
     return {
         "code": "name_email_mismatch",
-        "field": "Title",
-        "override_field": "ConfirmNameEmailOverride",
+        "field": field,
+        "override_field": override,
         "message": f"This email looks like it might have a typo compared to {whose} name. Please confirm.",
     }
+
+
+def supervisor_name_email_warning(first_name, surname, email):
+    """The name check for the supervisor a student names."""
+    return name_email_warning(
+        first_name, surname, email, "the supervisor's",
+        field="SupervisorEmail", override="ConfirmSupervisorNameEmailOverride",
+    )
 
 
 def guardian_account_warning(email, guardian_accounts=None):
@@ -204,6 +240,9 @@ def registration_warnings(
         school_warning(data.get("SchoolName"), known_schools),
         name_email_warning(data.get("FirstName"), data.get("Surname"), data.get("Title")),
         guardian_account_warning(data.get("GuardianEmail"), guardian_accounts),
+        check_supervisor and supervisor_name_email_warning(
+            data.get("SupervisorFirstName"), data.get("SupervisorSurname"), data.get("SupervisorEmail"),
+        ),
     ]
     if email_answers:
         warnings += [
@@ -240,10 +279,10 @@ class UserRegisterBodySerializer(serializers.Serializer):
     Surname = serializers.CharField(max_length=255)
     Country = serializers.CharField(max_length=255)
     Region = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    # A nominated supervisor is optional (a supervisor registering is one).
-    SupervisorEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
-    SupervisorFirstName = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    SupervisorSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    # Every student needs supervisor contact details at registration.
+    SupervisorEmail = serializers.EmailField(max_length=254)
+    SupervisorFirstName = serializers.CharField(max_length=255)
+    SupervisorSurname = serializers.CharField(max_length=255)
     # Required unless a peer or supervisor is registering the student; see validate().
     GuardianEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
     GuardianName = serializers.CharField(max_length=255, required=False, allow_blank=True)
@@ -261,6 +300,8 @@ class UserRegisterBodySerializer(serializers.Serializer):
     ConfirmEmailInvalidOverride = StrictBooleanField(required=False, default=False)
     ConfirmGuardianEmailInvalidOverride = StrictBooleanField(required=False, default=False)
     ConfirmSupervisorEmailInvalidOverride = StrictBooleanField(required=False, default=False)
+    # Confirm a named supervisor's address that looks like a typo of their name.
+    ConfirmSupervisorNameEmailOverride = StrictBooleanField(required=False, default=False)
     # Confirm a guardian address that already has a (non-student) account.
     ConfirmGuardianEmailHasAccountOverride = StrictBooleanField(required=False, default=False)
 
@@ -432,9 +473,6 @@ class StudentSelfProfileUpdateSerializer(serializers.Serializer):
         choices=[str(level) for level in range(9, 13)],
         required=False,
     )
-    pg_firstname = serializers.CharField(max_length=255, required=False)
-    pg_lastname = serializers.CharField(max_length=255, required=False)
-    pg_email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
     country_id = serializers.PrimaryKeyRelatedField(queryset=Countries.objects.all(), required=False, allow_null=True)
     state_id = serializers.PrimaryKeyRelatedField(queryset=CountryStates.objects.all(), required=False, allow_null=True)
     interest_ids = serializers.PrimaryKeyRelatedField(queryset=AreasOfInterest.objects.all(), many=True, required=False)
@@ -527,11 +565,15 @@ class UserSerializer(serializers.ModelSerializer):
             "details_locked",
             "guardian_locked",
             "must_change_password",
+            # When they agreed to the BIOTech Futures policies: the Set password
+            # page asks someone registered by others who hasn't yet.
+            "policies_agreed_at",
             "timezone",
             "pronouns",
         ]
         read_only_fields = [
             "id",
+            "policies_agreed_at",
             "pronouns",
             "interests",
             "supervisor_name",
@@ -949,7 +991,8 @@ class StudentGuardianUpdateSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         value = value.strip().lower()
-        user = self.context["request"].user
+        # The student giving it: context["user"] (save_own_guardian).
+        user = self.context["user"]
         if value == (user.email or "").strip().lower():
             raise serializers.ValidationError(
                 "Enter your parent or guardian's email, not your own."

@@ -13,6 +13,7 @@ from apps.management.models import EmailDelivery, FinalistEmailSettings
 from apps.users.models import User
 
 from tests.apps.grading.fixtures import _GradingFixture, just_closed
+from tests.email_helpers import delivered_destinations
 
 
 def _days_ahead(days: int):
@@ -283,10 +284,13 @@ class FinalistEmailTests(_GradingFixture):
             _long(details.symposium_date),
             _long(details.confirm_by),
             _long(details.slides_due),
-            'href="https://events.example.com/symposium"',
             "cid:btf-logo",
         ):
             self.assertIn(text, html)
+        self.assertIn(
+            "https://events.example.com/symposium",
+            delivered_destinations(html),
+        )
         self.assertIn(f"Please confirm by {_long(details.confirm_by)}.", message.body)
         flag = FinalistFlag.objects.get(group=self.group)
         self.assertTrue(flag.notified)

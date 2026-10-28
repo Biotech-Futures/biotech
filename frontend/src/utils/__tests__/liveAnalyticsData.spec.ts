@@ -141,6 +141,127 @@ describe('buildGroupsAnalytics', () => {
   })
 })
 
+describe('buildRegistrationAnalytics', () => {
+  const user = (id: number, role: string | null, registered: string | null, overrides: Partial<api.AdminUser> = {}): api.AdminUser => ({
+    id, firstName: 'User', lastName: String(id), email: `user${id}@example.test`, role,
+    country: null, state: null, groupId: null, groupName: null, schoolName: null,
+    mentorBackground: null, mentorInstitution: null, mentorReason: null, mentorMaxGroupCount: null,
+    yearLevel: null, joinPermissionReceived: true, guardianEmail: `guardian${id}@example.test`, interests: [],
+    isAdmin: false, isActive: true, hasLoggedIn: false, lastLogin: null,
+    // The API's createdAt (date_joined) is the only registration date.
+    accountStatus: 'active', createdAt: registered, invitedAt: null, activatedAt: null,
+    supervisorName: null, supervisorEmail: null,
+    ...overrides,
+  })
+  const bundle = (users: api.AdminUser[], messageDays: string[] = []): data.ParticipantAnalyticsBundle => ({
+    users,
+    groupActivity: { ...fullActivity, messages_by_day: messageDays.map((date) => ({ date, message_count: 1 })) },
+  })
+
+  it('counts student and mentor registrations per UTC day in every year, leaving out other roles', () => {
+    const result = data.buildRegistrationAnalytics(bundle([
+      user(1, 'student', '2025-09-01T03:00:00Z'),
+      user(2, 'Student', '2026-03-31T23:30:00Z'),
+      user(3, 'mentor', '2026-03-31T08:00:00Z'),
+      // 1 April in Sydney is still 31 March in UTC.
+      user(4, 'mentor', '2026-04-01T00:00:00+10:00'),
+      user(5, 'supervisor', '2026-03-31T09:00:00Z'),
+      user(6, 'student', '2026-03-31T10:00:00Z', { isAdmin: true }),
+      user(7, 'teacher', '2026-03-31T10:00:00Z'),
+      user(8, null, '2026-03-31T10:00:00Z'),
+    ]))
+
+    // No year filter: the Registration page narrows the trend by date range.
+    expect(result.trend).toEqual([
+      { date: '2025-09-01', students: 1, mentors: 0 },
+      { date: '2026-03-31', students: 1, mentors: 2 },
+    ])
+    expect(result.completion.registered).toBe(2)
+    expect(result.sources).toEqual([])
+  })
+
+  it('leaves accounts without a valid creation time out of the trend but still counts those students', () => {
+    const result = data.buildRegistrationAnalytics(bundle([
+      user(1, 'student', '2026-05-02T00:00:00Z'),
+      user(2, 'student', null, { invitedAt: '2026-06-01T00:00:00Z', activatedAt: '2026-06-03T00:00:00Z' }),
+      user(3, 'mentor', 'not a date'),
+    ]))
+
+    expect(result.trend).toEqual([{ date: '2026-05-02', students: 1, mentors: 0 }])
+    expect(result.completion.registered).toBe(2)
+  })
+
+  it('lists students missing guardian details or approval, counting days from the latest recorded date', () => {
+    const result = data.buildRegistrationAnalytics(bundle([
+      user(1, 'student', '2026-10-01T00:00:00Z'),
+      user(2, 'student', '2026-10-06T00:00:00Z', {
+        guardianEmail: null, supervisorName: 'Sam Supervisor', firstName: 'Missing', lastName: 'Guardian',
+      }),
+      user(3, 'student', '2026-09-20T00:00:00Z', { joinPermissionReceived: false }),
+      user(4, 'student', '2026-09-20T00:00:00Z', { guardianEmail: null, joinPermissionReceived: false }),
+      user(5, 'student', '2026-10-20T00:00:00Z', { guardianEmail: null, firstName: '', lastName: '' }),
+      user(6, 'mentor', '2026-10-01T00:00:00Z', { guardianEmail: null }),
+      // Counted, but not listed: there is no registration date to count days from.
+      user(7, 'student', null, { guardianEmail: null }),
+    ], ['2026-10-20']))
+
+    expect(result.completion).toEqual({ registered: 6, guardianDetails: 2, guardianApproved: 1 })
+    // The latest message day (20 Oct) is the latest recorded date.
+    expect(result.followUps.map((row) => [
+      row.id, row.issue, row.student, row.supervisor, row.registrationDate, row.daysOutstanding, row.source,
+    ])).toEqual([
+      [2, 'missing_guardian', 'Missing Guardian', 'Sam Supervisor', '2026-10-06', 14, null],
+      [3, 'awaiting_approval', 'User 3', '—', '2026-09-20', 30, null],
+      [4, 'missing_guardian', 'User 4', '—', '2026-09-20', 30, null],
+      [5, 'missing_guardian', 'user5@example.test', '—', '2026-10-20', 0, null],
+    ])
+  })
+
+  it('uses account creation time instead of invitation or activation time', () => {
+    const user = (overrides: Partial<api.AdminUser>) => ({
+      id: 1,
+      firstName: 'Sample',
+      lastName: 'Participant',
+      email: 'participant@example.test',
+      role: 'student',
+      isAdmin: false,
+      guardianEmail: 'guardian@example.test',
+      joinPermissionReceived: true,
+      createdAt: '2025-03-04T05:06:00Z',
+      invitedAt: '2026-02-01T00:00:00Z',
+      activatedAt: '2026-02-02T00:00:00Z',
+      ...overrides,
+    } as api.AdminUser)
+
+    const result = data.buildRegistrationAnalytics({
+      users: [
+        user({}),
+        user({
+          id: 2,
+          role: 'mentor',
+          createdAt: null,
+          invitedAt: '2024-01-01T00:00:00Z',
+          activatedAt: '2024-01-02T00:00:00Z',
+        }),
+        user({
+          id: 3,
+          createdAt: null,
+          guardianEmail: null,
+          invitedAt: '2024-02-01T00:00:00Z',
+          activatedAt: '2024-02-02T00:00:00Z',
+        }),
+      ],
+      groupActivity: fullActivity,
+    })
+
+    expect(result.trend).toEqual([
+      { date: '2025-03-04', students: 1, mentors: 0 },
+    ])
+    expect(result.followUps).toEqual([])
+    expect(data.registeredByYear(user({ createdAt: null }), 2026)).toBe(false)
+  })
+})
+
 describe('buildRecipientEmailLogs', () => {
   it('turns each recipient search result into that recipient\'s copy of the email', () => {
     const base = {
@@ -179,6 +300,27 @@ describe('buildEmailMonitoring', () => {
     emailAnalytics,
   })
 
+  it('maps unique first-party engagement totals and per-run averages', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      totals: { attempted: 20, delivered: 18, failed: 2, delivery_runs: 4 },
+      engagement: {
+        tracked_messages: 18,
+        opened: 10,
+        clicked: 6,
+        open_events: 24,
+        click_events: 9,
+      },
+    }))
+
+    expect(result.overallStats).toMatchObject({
+      opened: 10,
+      clicked: 6,
+      averageOpenedPerUser: 2.5,
+      averageClickedPerUser: 1.5,
+    })
+  })
+
   it('uses completed counts instead of a stale failed status', () => {
     const result = data.buildEmailMonitoring(bundle({
       ...baseEmailAnalytics,
@@ -200,6 +342,52 @@ describe('buildEmailMonitoring', () => {
     }))
 
     expect(result.logs[0]).toMatchObject({ status: 'Delivered', senderEmail: '—' })
+  })
+
+  it('shows partial when a completed send has unaccounted or failed recipients', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_sends: [{
+        id: 2,
+        email_type: 'registration_student',
+        email_type_label: 'Student registration',
+        title: null,
+        announcement_id: null,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-20T00:00:00Z',
+        status: 'success',
+        attempted: 3,
+        delivered: 2,
+        failed: 0,
+        initiated_by_name: 'System',
+        initiated_by_email: '',
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Partial', attempted: 3, delivered: 2 })
+  })
+
+  it('shows failed when no recipient server accepted a completed send', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_sends: [{
+        id: 3,
+        email_type: 'registration_student',
+        email_type_label: 'Student registration',
+        title: null,
+        announcement_id: null,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-20T00:00:00Z',
+        status: 'success',
+        attempted: 1,
+        delivered: 0,
+        failed: 0,
+        initiated_by_name: 'System',
+        initiated_by_email: '',
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Failed', attempted: 1, delivered: 0 })
   })
 
   it('shows an announcement send still going as sending, with no recipients to export yet', () => {

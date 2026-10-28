@@ -324,6 +324,13 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
                 "totals": self.zero_totals,
                 "hourly": [],
                 "daily": [],
+                "engagement": {
+                    "tracked_messages": 0,
+                    "opened": 0,
+                    "clicked": 0,
+                    "open_events": 0,
+                    "click_events": 0,
+                },
                 "status_by_role": self.empty_status_by_role(),
                 "role_attribution": {
                     "basis": "current_single_role_audience",

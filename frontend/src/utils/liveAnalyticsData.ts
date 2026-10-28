@@ -365,7 +365,10 @@ function percent(value: number, total: number) {
 }
 
 function registrationDate(user: AdminUser) {
-  return safeDate(user.createdAt ?? user.invitedAt ?? user.activatedAt)
+  // The admin users API exposes Django's User.date_joined as createdAt.
+  // Invitation and activation timestamps describe later lifecycle events and
+  // must not be used as substitutes for the account registration date.
+  return safeDate(user.createdAt)
 }
 
 export type ParticipantYearCounts = {
@@ -385,11 +388,10 @@ function participantCounts(users: AdminUser[]): ParticipantYearCounts {
   }
 }
 
-/** Registered by the end of `year`. Undated legacy accounts can only be
- *  represented safely in the live year. */
+/** Registered by the end of `year`, using Django User.date_joined only. */
 export function registeredByYear(user: AdminUser, year: number) {
   const joined = registrationDate(user)
-  return joined ? joined.getUTCFullYear() <= year : year === new Date().getUTCFullYear()
+  return joined !== null && joined.getUTCFullYear() <= year
 }
 
 export function participantYearComparison(users: AdminUser[], year: number) {
@@ -683,7 +685,11 @@ export function buildRegistrationAnalytics(bundle: ParticipantAnalyticsBundle) {
 
   const followUps: RegistrationFollowUp[] = []
   for (const user of students) {
-    const registered = registrationDate(user) ?? asOf
+    const registered = registrationDate(user)
+    // The API contract supplies Django's non-null date_joined value. If an
+    // older or malformed response omits it, do not fabricate a registration
+    // date from invitation, activation or the analytics snapshot date.
+    if (!registered) continue
     const base = {
       id: user.id,
       student: `${user.firstName} ${user.lastName}`.trim() || user.email,
@@ -730,6 +736,7 @@ export function analyticsYears(bundle: Pick<LiveBundle, 'users' | 'groupActivity
   const years = new Set<number>([new Date().getUTCFullYear()])
   for (const row of bundle.groupActivity.messages_by_day) years.add(Number(row.date.slice(0, 4)))
   for (const row of bundle.loginActivity?.by_day ?? []) years.add(Number(row.date.slice(0, 4)))
+  for (const row of bundle.loginActivity?.by_year ?? []) years.add(row.year)
   for (const user of bundle.users) {
     const date = registrationDate(user)
     if (date) years.add(date.getUTCFullYear())
@@ -1114,6 +1121,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
     }))
 
   const totalDeliveryRuns = email.totals.delivery_runs
+  const engagement = email.engagement
   const maxMailboxQuota = Math.max(...mailboxRows.map((mailbox) => mailbox.quota_limit), fallbackQuota)
   const roleStatusRows = email.status_by_role ?? []
   const roleAttribution = email.role_attribution ?? {
@@ -1190,17 +1198,20 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
       delivered: email.totals.delivered,
       sent: email.totals.attempted,
       failed: email.totals.failed,
-      // The current delivery schema records attempts, successes and failures
-      // only. Engagement/provider metrics must remain unavailable
-      // until an authorised event source is connected.
-      clicked: null,
-      opened: null,
-      spam: null,
+      // Headline engagement uses unique tracked message copies. Raw repeat
+      // events remain available in the backend for auditing but do not inflate
+      // these figures when a message is reopened or scanned more than once.
+      clicked: engagement?.clicked ?? null,
+      opened: engagement?.opened ?? null,
       averageSentPerUser: totalDeliveryRuns
         ? Number((email.totals.attempted / totalDeliveryRuns).toFixed(1))
         : null,
-      averageOpenedPerUser: null,
-      averageClickedPerUser: null,
+      averageOpenedPerUser: engagement && totalDeliveryRuns
+        ? Number((engagement.opened / totalDeliveryRuns).toFixed(1))
+        : null,
+      averageClickedPerUser: engagement && totalDeliveryRuns
+        ? Number((engagement.clicked / totalDeliveryRuns).toFixed(1))
+        : null,
     },
     logs: email.recent_sends
       ? email.recent_sends.map((row) => ({
@@ -1215,7 +1226,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           type: row.email_type_label,
           sentAt: formatLogTime(row.started_at),
           sentAtIso: row.started_at,
-          status: logStatus(row.status, row.delivered, row.failed, row.status === 'sending'),
+          status: logStatus(row.status, row.attempted, row.delivered, row.failed, row.status === 'sending'),
           attempted: row.attempted,
           delivered: row.delivered,
           failed: row.failed,
@@ -1234,6 +1245,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           sentAtIso: row.started_at,
           status: logStatus(
             row.status,
+            row.recipient_count,
             row.success_count,
             row.failure_count,
             isRecentIncompleteAnnouncement(row, email.snapshot_at),
@@ -1269,13 +1281,19 @@ export function buildRecipientEmailLogs(rows: EmailSendToRecipient[]): EmailLog[
   }))
 }
 
-function logStatus(status: string, delivered: number, failed: number, sending = false): EmailLog['status'] {
+function logStatus(
+  status: string,
+  attempted: number,
+  delivered: number,
+  failed: number,
+  sending = false,
+): EmailLog['status'] {
   if (sending) return 'Sending'
   // Counts describe the completed result more reliably than a stale status
   // value left behind by an interrupted or older delivery workflow.
-  if (delivered > 0 && failed > 0) return 'Partial'
-  if (delivered > 0) return 'Delivered'
-  if (failed > 0) return 'Failed'
+  if (delivered <= 0) return 'Failed'
+  if (failed > 0 || delivered < attempted) return 'Partial'
+  if (attempted > 0 && delivered >= attempted) return 'Delivered'
   if (status === 'partial') return 'Partial'
   if (status === 'failed') return 'Failed'
   return 'Delivered'

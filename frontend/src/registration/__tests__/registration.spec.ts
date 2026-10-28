@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   CSV_HEADERS,
   CSV_HEADER_LABELS,
+  GUARDIAN_INCOMPLETE,
+  GUARDIAN_TOGETHER,
   createPendingPeer,
   createRegistrationForms,
   findCrossRoleEmailConflicts,
@@ -245,6 +247,45 @@ describe('parseRegistrationCsv', () => {
     expect(result.rows[0].issues[0]).toContain('Guardian details are deferred')
   })
 
+  it("refuses a half-filled guardian on each missing field, as the server does", () => {
+    const base = Object.fromEntries(CSV_HEADERS.map((header) => [header, ''])) as Record<
+      (typeof CSV_HEADERS)[number],
+      string
+    >
+    const student = {
+      ...base,
+      first_name: 'Sam',
+      last_name: 'Lee',
+      email: 'sam@example.edu.au',
+      school: 'Example School',
+      year_level: '11',
+      country: 'Australia',
+      state: 'NSW',
+    }
+    const encode = (row: typeof student) => CSV_HEADERS.map((header) => row[header]).join(',')
+    const rows = [
+      { ...student, guardian_email: 'parent@example.com' },
+      {
+        ...student,
+        email: 'jo@example.edu.au',
+        guardian_first_name: 'Pat',
+        guardian_last_name: 'Lee',
+        guardian_email: 'parent@example.com',
+      },
+    ]
+    const result = parseRegistrationCsv([CSV_HEADERS.join(','), ...rows.map(encode)].join('\n'))
+
+    const [halfFilled, complete] = result.rows
+    expect(halfFilled!.category).toBe('invalid')
+    expect(halfFilled!.fieldErrors).toEqual({
+      guardian_first_name: GUARDIAN_TOGETHER,
+      guardian_last_name: GUARDIAN_TOGETHER,
+    })
+    // Once, and short, in the table's Status column.
+    expect(halfFilled!.issues).toEqual([GUARDIAN_INCOMPLETE])
+    expect(complete!.category).toBe('valid')
+  })
+
   it('rejects files that do not use the prescribed headers', () => {
     const result = parseRegistrationCsv('first_name,email\nAlex,alex@example.com')
 
@@ -300,49 +341,28 @@ describe('registration payload and email rules', () => {
     ])
   })
 
-  it('normalizes emails and persists photo metadata without confirmation fields', () => {
+  it('normalizes emails without confirmation fields, pronouns or a photo', () => {
     const forms = createRegistrationForms()
     forms.studentIndividual.student.email = ' Student@Example.com '
     forms.studentIndividual.student.emailConfirm = 'Student@Example.com'
-    forms.studentIndividual.student.profilePhoto = {
-      name: 'profile.png',
-      type: 'image/png',
-      size: 2048,
-    }
 
     const request = buildRegistrationRequest('student_individual', forms)
-    const payload = request.payload as {
-      student: {
-        email: string
-        emailConfirm?: string
-        profilePhoto: { name: string; type: string; size: number }
-      }
-    }
+    const payload = request.payload as { student: { email: string; emailConfirm?: string } }
 
     expect(payload.student.email).toBe('student@example.com')
     expect(payload.student.emailConfirm).toBeUndefined()
-    expect(payload.student.profilePhoto).toEqual({
-      name: 'profile.png',
-      type: 'image/png',
-      size: 2048,
-    })
-    expect(JSON.stringify(request)).not.toContain('data:image')
+    expect(payload.student).not.toHaveProperty('pronouns')
+    expect(payload.student).not.toHaveProperty('profilePhoto')
   })
 
   it('removes client-only payload values through the shared sanitizer', () => {
     const forms = createRegistrationForms()
     forms.studentIndividual.student.email = ' Student@Example.com '
     forms.studentIndividual.student.emailConfirm = ' Student@Example.com '
-    forms.studentIndividual.student.profilePhoto = {
-      name: ' profile.png ',
-      type: ' image/png ',
-      size: 2048,
+    Object.assign(forms.studentIndividual.student, {
       file: new File(['photo'], 'profile.png', { type: 'image/png' }),
       previewUrl: 'blob:preview',
-    } as typeof forms.studentIndividual.student.profilePhoto & {
-      file: File
-      previewUrl: string
-    }
+    })
 
     const gatewayRequest = buildRegistrationRequest('student_individual', forms)
 

@@ -283,13 +283,15 @@ import {
   fitPageSize,
   tableRowRoom,
 } from '@/utils/dataTable'
+import { rankBySearch } from '@/utils/searchRank'
 
 export type DataTableColumn = {
   key: string
   label: string
   type?: 'string' | 'number'
-  // What the column sorts by, when not its shown text, like a date's time.
-  sortValue?: (row: Record<string, unknown>) => string | number
+  // What the column sorts by, when not its shown text, like a date's time;
+  // null for a row with none, which sorts last whichever way.
+  sortValue?: (row: Record<string, unknown>) => string | number | null
   // Long text that may wrap; every other cell stays on one line.
   wrap?: boolean
   // Off by default when the server sorts; on by default otherwise.
@@ -371,8 +373,10 @@ const props = withDefaults(
     defaultSort?: DataTableSort
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
+    // Off: no "All" in rows per page, for a server that caps how many rows
+    // one page can hold (System Logs).
     // A row to bring into view (its rowKey's value), as a page asks on
-    // coming back to it: Release Resources, back from a resource's page.
+    // coming back to it: the Resources page, back from a resource's page.
     focusRow?: RowKey
   }>(),
   {
@@ -490,19 +494,20 @@ const compare = (
 
 const filteredRows = computed(() => {
   if (isServer.value) return props.rows
-  const query = pageSearches.value ? '' : search.value.trim().toLowerCase()
-  const source = !query
-    ? [...props.rows]
-    : props.rows.filter((row) =>
-        (props.searchColumns ?? props.columns).some((column) =>
-          displayCell(row, column).toLowerCase().includes(query),
-        ),
-      )
-
-  if (pageSorts.value) return source
-  const column = props.columns.find((item) => item.key === sortKey.value)
-  source.sort((left, right) => compare(left, right, column) * (sortDir.value === 'asc' ? 1 : -1))
-  return source
+  const source = [...props.rows]
+  if (!pageSorts.value) {
+    const column = props.columns.find((item) => item.key === sortKey.value)
+    const sign = sortDir.value === 'asc' ? 1 : -1
+    source.sort((left, right) => {
+      const [a, b] = column?.sortValue ? [column.sortValue(left), column.sortValue(right)] : [0, 0]
+      if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1
+      return compare(left, right, column) * sign
+    })
+  }
+  if (pageSearches.value) return source
+  // Most relevant first; equally relevant rows keep the order above.
+  const searched = props.searchColumns ?? props.columns
+  return rankBySearch(source, search.value, (row) => searched.map((column) => displayCell(row, column)))
 })
 
 const total = computed(() => (isServer.value ? props.totalCount ?? 0 : filteredRows.value.length))

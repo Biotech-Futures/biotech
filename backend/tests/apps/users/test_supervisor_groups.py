@@ -236,6 +236,22 @@ class SupervisedGroupsViewTests(TestCase):
         response = self.client.put("/api/v1/users/supervised-groups/order/", {"group_ids": []}, format="json")
         self.assertEqual(response.status_code, 403)
 
+    def test_supervisor_answers_how_students_without_a_group_are_matched(self):
+        self.client.force_login(self.supervisor)
+        url = "/api/v1/users/supervised-groups/grouping-preference/"
+        self.assertEqual(self.client.get(url).json(), {"grouping_preference": "", "school_name": "Test High"})
+
+        saved = self.client.put(url, {"grouping_preference": "school_only"}, format="json")
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["grouping_preference"], "school_only")
+        self.client.put(url, {"grouping_preference": "cross_school"}, format="json")
+        self.sup_profile.refresh_from_db()
+        self.assertEqual(self.sup_profile.grouping_preference, "cross_school")
+
+        self.assertEqual(self.client.put(url, {"grouping_preference": ""}, format="json").status_code, 400)
+        self.client.force_login(self.outsider)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
     def test_supervisor_can_tag_multiple_group_interests(self):
         self.client.force_login(self.supervisor)
         created = self.client.post(

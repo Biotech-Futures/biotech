@@ -1,6 +1,9 @@
 import { parseInterestList, type CsvTemplate, type ImportRowError } from './adminStudentCsv'
+import { type MentorBackground } from './userOptions'
 
 export interface MentorImportRow {
+  /** Its row in the file (the header is row 1). */
+  rowNumber: number
   firstName: string
   lastName: string
   email: string
@@ -10,7 +13,7 @@ export interface MentorImportRow {
   interests: string[]
   mentorReason: string
   mentorInstitution: string
-  mentorBackground: string | null
+  mentorBackground: MentorBackground | null
   mentorMaxGroupCount: number
   /** Set when the raw Background value could not be mapped to the backend enum. */
   backgroundNote?: string
@@ -89,7 +92,7 @@ function parseCsvRows(text: string): string[][] {
   return rows
 }
 
-function mapMentorBackground(raw: string): string | null {
+function mapMentorBackground(raw: string): MentorBackground | null {
   const value = raw.trim().toLowerCase()
   if (!value) return null
   if (value === 'industry') return 'industry'
@@ -183,6 +186,7 @@ export function parseMentorCsv(text: string): {
 
       const mentorBackground = mapMentorBackground(backgroundRaw)
       valid.push({
+        rowNumber,
         firstName,
         lastName,
         email,
@@ -236,7 +240,7 @@ export const MENTOR_CSV_TEMPLATE = buildCsvTemplate(
     ['mentorReason', 'Mentor Reason', 'I want to support students exploring biotech careers.'],
     ['capacity', 'Capacity', '2'],
     ['interests', 'Expertise', 'Genetics, Bioinformatics'],
-    ['background', 'Background', 'University Student – Postgraduate'],
+    ['background', 'Background', 'Postgraduate'],
     ['institution', 'Institution or Company', 'University of Sydney']
   ]
 )

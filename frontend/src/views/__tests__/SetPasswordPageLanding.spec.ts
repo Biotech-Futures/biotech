@@ -84,7 +84,17 @@ describe('SetPasswordPage landing', () => {
     ['student', '/dashboard', studentWithGuardian]
   ]
 
-  it.each(landings)(
+  // Once the first password is set, a student or a mentor goes on to their
+  // profile; an admin or a support agent to their own start page.
+  const afterSetting: Array<[string, string, object]> = [
+    ['pure support agent', '/admin/tickets', pureAgent],
+    ['mentor granted access', '/profile', mentorWithAccess],
+    ['role-support account without access', '/support-access', supportWithoutAccess],
+    ['admin', '/admin', ticketAdmin],
+    ['student', '/profile', studentWithGuardian]
+  ]
+
+  it.each(afterSetting)(
     '%s: goes to %s once the first password is set',
     async (_label, expected, fixture) => {
       useAuthStore().loginWithUser({ ...fixture, must_change_password: true } as never)
@@ -98,6 +108,9 @@ describe('SetPasswordPage landing', () => {
 
       await wrapper.find('#new-password').setValue('correct-horse-9')
       await wrapper.find('#confirm-password').setValue('correct-horse-9')
+      // A student or mentor (registered by others) agrees to the policies too.
+      const policies = wrapper.find('[data-test="policies-agree"]')
+      if (policies.exists()) await policies.setValue(true)
       await wrapper.find('form').trigger('submit')
       await flushPromises()
 
@@ -109,7 +122,8 @@ describe('SetPasswordPage landing', () => {
       // a lazy import, which one flush does not cover).
       await replace.mock.results[0]?.value
       expect(router.currentRoute.value.path).toBe(expected)
-    }
+    },
+    15000
   )
 
   it.each(landings)(

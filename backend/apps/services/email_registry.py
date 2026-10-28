@@ -86,6 +86,14 @@ _SAMPLE_REMINDER = section_html(
 )
 
 _FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Name")
+# A student someone else registered: their link to set a password, for 14
+# days (registration_password.emailed_password_url). Empty for anyone else.
+_SET_PASSWORD_URL = MergeTag(
+    "set_password_url",
+    "Their link to set a password (students registered by someone else, without one)",
+    "https://mentoring.biotechfutures.org/#/register/password?token=sample",
+    "SET_PASSWORD_URL",
+)
 
 # The ticket emails' tags (apps.tickets.services.emails). Everything they
 # say about an enquiry is a tag, the "is it assigned" sentence included, so
@@ -207,6 +215,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
             MergeTag("group_code", "The group's code, for teammates to join", "482913", "GROUP_CODE"),
+            _SET_PASSWORD_URL,
             *_BRAND_TAGS,
         ),
     ),
@@ -267,6 +276,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("supervisor_name", "The supervisor who registered them", "Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            _SET_PASSWORD_URL,
             *_BRAND_TAGS,
         ),
     ),
@@ -334,6 +344,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            _SET_PASSWORD_URL,
             *_BRAND_TAGS,
         ),
     ),
@@ -824,6 +835,32 @@ EMAIL_TYPES = (
                 "queue_link", "Link to the support queue",
                 "https://mentoring.biotechfutures.org/#/admin/tickets", "CTA_URL",
             ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="mentor_unassigned",
+        delivery="Sent to the departing mentor only.",
+        name="Mentor removed from a group",
+        description="Sent to a mentor when an admin replaces them on a group.",
+        default_subject="Change to your mentoring group {{ group_name }}",
+        default_template="emails/mentor_unassigned.html",
+        merge_tags=(
+            MergeTag("mentor_first_name", "Departing mentor's first name", "Helen", "MENTOR_FIRST_NAME"),
+            MergeTag("group_name", "Group name", "BTF01", "GROUP_NAME"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="mentor_assigned",
+        delivery="Sent to the incoming mentor only.",
+        name="Mentor assigned to a group",
+        description="Sent to a mentor when an admin assigns them to a group.",
+        default_subject="Your new mentoring group {{ group_name }}",
+        default_template="emails/mentor_assigned.html",
+        merge_tags=(
+            MergeTag("mentor_first_name", "Incoming mentor's first name", "Samuel", "MENTOR_FIRST_NAME"),
+            MergeTag("group_name", "Group name", "BTF01", "GROUP_NAME"),
             *_BRAND_TAGS,
         ),
     ),

@@ -194,6 +194,23 @@ class ConsentPageTests(TestCase):
         self.assertIn("Thank you for signing the permission form for Wren Ward", html)
         self.assertEqual(email.attachments[1:], [])  # [0] is the inline logo
 
+    @override_settings(TRUST_FORWARDED_FOR=True)
+    def test_signing_behind_azure_records_the_ip_without_its_port(self):
+        # Azure App Service forwards `IP:PORT`, which the IP field rejects.
+        body = {
+            "guardianFullName": "Pat Parent",
+            "mediaConsent": True,
+            "signature": png_data_url(),
+            "agreed": True,
+            "consentVersion": CURRENT_VERSION,
+        }
+        response = self.client.post(
+            self.url(), body, format="json", HTTP_X_FORWARDED_FOR="172.225.60.188:38927, 10.0.0.1",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(GuardianConsent.objects.get().signed_ip, "172.225.60.188")
+
     def test_signing_still_works_with_the_thank_you_switched_off(self):
         from apps.services.models import SystemEmailTemplate
 

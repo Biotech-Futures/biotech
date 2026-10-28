@@ -29,6 +29,8 @@
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
 
+    <EmailVerificationUsage :refresh-token="verificationRefreshToken" />
+
     <AnalyticsDataState
       :loading="isLoading"
       :error="loadError"
@@ -44,7 +46,7 @@
       >
         <span class="kpi-icon"><i class="fas fa-envelope"></i></span>
         <div>
-          <span class="kpi-label">{{ mailbox.email }}</span>
+          <span class="kpi-label kpi-label--compact">{{ mailbox.email }}</span>
           <strong><AnalyticsNumber :value="mailbox.currentUsage" /></strong>
           <small>{{ mailbox.percent }}% of {{ mailbox.quotaLimit.toLocaleString() }} rolling 24-hour quota</small>
         </div>
@@ -53,7 +55,7 @@
       <article class="kpi-card">
         <span class="kpi-icon"><i class="fas fa-envelope-open-text"></i></span>
         <div>
-          <span class="kpi-label">Combined 24-Hour Usage</span>
+          <span class="kpi-label kpi-label--compact">Combined 24-Hour Usage</span>
           <strong><AnalyticsNumber :value="combinedUsage" /></strong>
           <small>Across tracked sending mailboxes</small>
         </div>
@@ -62,7 +64,7 @@
       <article class="kpi-card">
         <span class="kpi-icon"><i class="fas fa-clock"></i></span>
         <div>
-          <span class="kpi-label">Latest Recorded UTC Hour</span>
+          <span class="kpi-label kpi-label--compact">Latest Recorded UTC Hour</span>
           <strong><AnalyticsNumber :value="data.sentLastHour" /></strong>
           <small>{{ latestRecordedHourLabel }} · attempted recipients</small>
         </div>
@@ -82,7 +84,7 @@
       <div class="section-heading-row">
         <div>
           <h2>Overall Email Stats</h2>
-          <p>Delivery totals from the rolling 24-hour backend window only. Provider engagement metrics are shown only when recorded.</p>
+          <p>Delivery and first-party engagement totals from the rolling 24-hour backend window.</p>
         </div>
       </div>
 
@@ -115,14 +117,10 @@
               <strong><AnalyticsNumber :value="data.overallStats.clicked ?? 'Unavailable'" /></strong>
             </div>
           </div>
-          <div class="overall-stat-meta two-col">
+          <div class="overall-stat-meta">
             <div>
               <span>Opened</span>
               <strong><AnalyticsNumber :value="data.overallStats.opened ?? 'Unavailable'" /></strong>
-            </div>
-            <div>
-              <span>Marked as Spam</span>
-              <strong>{{ optionalMetric(data.overallStats.spam) }}</strong>
             </div>
           </div>
         </article>
@@ -271,14 +269,14 @@
         <div>
           <dt><span class="log-status partial">Partial</span></dt>
           <dd>
-            Some recipients received the email and some could not be reached, so it did not go to everyone.
+            Some recipients' mail servers accepted the email and some could not be reached.
             This happens when a mail server refuses an address (for example a mistyped or closed mailbox)
             or the send stopped part-way.
           </dd>
         </div>
         <div>
           <dt><span class="log-status failed">Failed</span></dt>
-          <dd>No recipient received the email.</dd>
+          <dd>No recipient's mail server accepted the email.</dd>
         </div>
         <p>
           Who was missed and why is listed in
@@ -431,7 +429,7 @@
         <div class="status-role-legend" aria-label="Email role delivery legend">
           <span><i class="status-role-dot delivered"></i>Delivered</span>
           <span><i class="status-role-dot failed"></i>Failed</span>
-          <span class="unavailable-metric">Opened: Unavailable</span>
+          <span class="unavailable-metric">Opens are reported in the overall totals</span>
         </div>
 
         <div class="status-role-chart">
@@ -634,6 +632,7 @@
 
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
+import EmailVerificationUsage from '@/components/analytics/EmailVerificationUsage.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -691,7 +690,7 @@ const data = ref<EmailMonitoringData>({
   categories: [],
   alerts: [],
   overallStats: {
-    delivered: 0, sent: 0, failed: 0, clicked: null, opened: null, spam: null,
+    delivered: 0, sent: 0, failed: 0, clicked: null, opened: null,
     averageSentPerUser: null, averageOpenedPerUser: null, averageClickedPerUser: null,
   },
   logs: [],
@@ -952,10 +951,12 @@ function emailBundleIsEmpty(bundle: EmailAnalyticsBundle) {
 }
 
 const analyticsRefreshBusy = ref(false)
+const verificationRefreshToken = ref(0)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await loadAnalytics(true, true) })
 
 async function loadAnalytics(force = false, preserveFilters = false) {
   if (analyticsRefreshBusy.value) return
+  if (force) verificationRefreshToken.value += 1
   analyticsRefreshBusy.value = true
   if (!preserveFilters || !lastUpdated.value) isLoading.value = true
   loadError.value = ''
@@ -1239,7 +1240,12 @@ h1 {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns:
+    minmax(0, 1.15fr)
+    minmax(0, 1.2fr)
+    minmax(0, 1.15fr)
+    minmax(0, 1.2fr)
+    minmax(0, 1.05fr) !important;
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -1253,10 +1259,10 @@ h1 {
 
 .kpi-card {
   min-width: 0;
-  min-height: 122px;
+  min-height: 0;
   display: flex;
   gap: 12px;
-  padding: 16px;
+  padding: 9px 16px 5px;
 }
 
 .kpi-icon {
@@ -1273,7 +1279,8 @@ h1 {
 .kpi-card > div {
   min-width: 0;
   display: grid;
-  grid-template-rows: 34px 38px 34px;
+  grid-template-rows: auto 38px 34px;
+  align-content: start;
 }
 
 .kpi-label {
@@ -1282,11 +1289,28 @@ h1 {
   font-weight: 700;
 }
 
+.kpi-label--compact {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The shared analytics theme reserves room for two-line KPI titles. These
+   titles are deliberately single-line, so keep the value directly beneath. */
+.email-monitoring-page .kpi-grid .kpi-card > div:not(.kpi-icon) > .kpi-label {
+  min-height: 0 !important;
+}
+
 .kpi-card strong {
   margin: 0;
   color: var(--analytics-ui-text, #174243);
   font-size: 30px;
   line-height: 38px;
+}
+
+.email-monitoring-page .kpi-grid .kpi-card > div:not(.kpi-icon) > strong {
+  min-height: 0 !important;
+  line-height: 1.1;
+  align-items: flex-start !important;
 }
 
 .kpi-card strong.text-value {
@@ -1732,11 +1756,19 @@ th {
   align-items: center;
 }
 
+.logs-heading > div:first-child {
+  width: 250px;
+  flex: 0 0 auto;
+}
+
 .log-actions {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .log-search,
@@ -1752,12 +1784,20 @@ th {
 }
 
 .log-search {
-  width: 210px;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 180px;
   padding: 0 11px;
 }
 
+.status-filter {
+  min-width: 0;
+  flex: 0 1 150px;
+}
+
 .status-filter select {
-  min-width: 125px;
+  width: 100%;
+  min-width: 0;
   padding: 0 10px;
 }
 
@@ -1768,6 +1808,8 @@ th {
   padding: 0 11px;
   color: var(--analytics-ui-accent, #017151);
   font-weight: 700;
+  white-space: nowrap;
+  flex: 0 0 auto;
   cursor: pointer;
 }
 
@@ -1814,7 +1856,8 @@ th {
 
 /* Recipient search and per-email recipient export. */
 .recipient-search {
-  min-width: 220px;
+  min-width: 0;
+  flex-basis: 220px;
 }
 
 .recipient-export-button {
@@ -2054,8 +2097,16 @@ th {
     flex-direction: column;
   }
 
-  .kpi-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .logs-heading > div:first-child {
+    width: auto;
+  }
+
+  .log-actions {
+    width: 100%;
+  }
+
+  .email-monitoring-page .kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
   .top-grid,
@@ -2091,8 +2142,12 @@ th {
     flex-wrap: wrap;
   }
 
-  .kpi-grid {
-    grid-template-columns: 1fr;
+  .email-monitoring-page .kpi-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .log-actions {
+    flex-wrap: wrap;
   }
 
   .quota-layout {

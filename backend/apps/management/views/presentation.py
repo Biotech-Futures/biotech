@@ -11,21 +11,20 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from django.core.files import File
-from django.http import FileResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.common.filenames import safe_name
 from apps.common.rbac import IsStaffOrAdmin
-from apps.common.storage import get_slides_storage, serve_managed_file
+from apps.common.storage import get_slides_storage
 from apps.grading.models import FinalistFlag
 from apps.grading.services.text import natural_key
 from apps.groups.models.groups import Groups
 from apps.submissions.services import current_cohort
 from apps.submissions.finalist import finalist_deadline, finalist_round_open
 from apps.submissions.models import FinalistDeadline
+from apps.submissions.slides_download import serve_slides, slides_download_name
 from apps.submissions.storage import FINALIST_SLIDES_FILES
 
 from ..models import (
@@ -263,13 +262,10 @@ class PresentationSlidesFileView(APIView):
         if not stored.get("storage_key"):
             return Response({"detail": "No slides handed in yet."}, status=status.HTTP_404_NOT_FOUND)
         mime = stored.get("mime")
-        return serve_managed_file(
-            resolve_url=SLIDES_FILES.resolve_url,
-            open_file=SLIDES_FILES.open,
-            storage_key=stored["storage_key"],
-            filename=stored.get("name") or "slides",
-            mime_type=mime,
-            size=stored.get("size"),
+        return serve_slides(
+            stored["storage_key"],
+            slides_download_name(team, stored),
+            mime=mime,
             as_attachment=mime != "application/pdf" or request.query_params.get("download") == "1",
         )
 
@@ -342,19 +338,17 @@ class PresentationSlidesZipView(APIView):
         if not handed_in:
             return Response({"detail": "No slides handed in yet."}, status=status.HTTP_404_NOT_FOUND)
 
-        year = current_cohort()
         # On disk, not in memory: each team's slides can be up to 25 MB.
         with tempfile.TemporaryFile() as output:
             with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
                 for (team, stored), payload in _read_slides(handed_in):
-                    name = f"{year}_{safe_name(team.group_name)}_Slides"
+                    name, extension = os.path.splitext(slides_download_name(team, stored))
                     if payload is None:
                         logger.warning(
                             "presentation_slides_zip.missing group=%s key=%s", team.id, stored["storage_key"]
                         )
                         archive.writestr(f"{name}_MISSING.txt", MISSING_NOTE)
                         continue
-                    extension = os.path.splitext(stored.get("name") or stored["storage_key"])[1].lower()
                     compress = zipfile.ZIP_STORED if extension in _STORED_TYPES else zipfile.ZIP_DEFLATED
                     archive.writestr(name + extension, payload, compress_type=compress)
             output.seek(0)
@@ -377,18 +371,9 @@ class PresentationSlidesZipFileView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
-        storage = get_slides_storage()
-        if not storage.exists(_zip_key()):
+        if not get_slides_storage().exists(_zip_key()):
             return Response({"detail": "The slides zip hasn't been made yet."}, status=status.HTTP_404_NOT_FOUND)
-        # Named here, as Grading's are: the shared helpers would lower-case it.
-        if storage.is_remote:
-            return HttpResponseRedirect(storage.backend.url(_zip_key(), parameters={
-                "content_disposition": f'attachment; filename="{_zip_name()}"',
-                "content_type": "application/zip",
-            }))
-        return FileResponse(
-            storage.open(_zip_key()), as_attachment=True, filename=_zip_name(), content_type="application/zip"
-        )
+        return serve_slides(_zip_key(), _zip_name(), mime="application/zip", as_attachment=True)
 
 
 class PresentationAllocationView(APIView):

@@ -1,11 +1,19 @@
 import type { AdminUser, AdminUserCountry, AdminUserState } from '@/utils/adminAPI'
 import { formatExactTime } from '@/utils/date'
+import { MENTOR_BACKGROUND_OPTIONS } from '@/utils/userOptions'
 
 /** Capitalized role name (e.g. 'student' -> 'Student'); '—' for nothing. */
 export const roleLabel = (role: string | null | undefined) =>
   role ? role.charAt(0).toUpperCase() + role.slice(1) : '—'
 
-export const labelizeCountry = (country: AdminUserCountry | null | undefined) =>
+/**
+ * Label for a stored mentor background ('hdr' -> 'HDR'). An older free-text
+ * value outside the five categories is shown as stored; '—' for nothing.
+ */
+export const mentorBackgroundLabel = (value: string | null | undefined) =>
+  MENTOR_BACKGROUND_OPTIONS.find((option) => option.value === value)?.label ?? (value || '—')
+
+export const labelizeCountry =(country: AdminUserCountry | null | undefined) =>
   country?.countryName ?? 'Unassigned'
 
 export const labelizeState = (state: AdminUserState | null | undefined) =>

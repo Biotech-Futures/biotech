@@ -54,7 +54,7 @@
           :max="minuteBeside(order.deadlineThisYear.value, -1)"
         />
         <div class="registration-dates__actions">
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Dates</button>
+          <button type="submit" class="btn btn-primary btn-field" :disabled="isSaving">Save Dates</button>
         </div>
       </form>
 

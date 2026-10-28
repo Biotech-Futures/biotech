@@ -819,7 +819,13 @@ def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None, 
         {**ctx, "REMINDER_SUBJECT": subject},
         default_text=plain_body,
     )
-    msg = build_message(rendered, recipient, from_email=from_email, connection=connection)
+    msg = build_message(
+        rendered,
+        recipient,
+        from_email=from_email,
+        connection=connection,
+        tracking_key="rsvp_reminder",
+    )
     # A dropped connection is opened again and the email sent once more; when
     # the server can't be reached, it's kept to send later, until the event
     # starts (``WAITING``).

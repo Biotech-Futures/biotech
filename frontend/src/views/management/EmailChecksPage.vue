@@ -6,7 +6,7 @@
       <h3 class="card-title">Email Checks</h3>
       <button
         type="button"
-        class="btn btn-outline btn-sm"
+        class="btn btn-outline btn-field"
         :disabled="isLoading"
         data-test="email-checks-refresh"
         @click="load"

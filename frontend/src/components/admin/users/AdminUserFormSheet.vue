@@ -6,7 +6,6 @@
     width="min(100vw, 680px)"
   >
     <form class="admin-users-form" novalidate @submit.prevent="submitForm">
-      <p v-if="formError" class="admin-users-form__error" role="alert">{{ formError }}</p>
 
       <div class="admin-users-form__grid">
         <div class="form-field form-field--full">
@@ -18,7 +17,16 @@
             class="form-input app-input"
             :disabled="isEditing && isSupervisorMode"
             :readonly="isEditing && isSupervisorMode"
+            :aria-invalid="Boolean(emailProblem('email'))"
             :aria-describedby="isEditing && !isSupervisorMode ? 'f-email-hint' : undefined"
+            @blur="checkEmailBox('email')"
+          />
+          <!-- Checked as it's left: what saving refuses, or a warning to confirm. -->
+          <p v-if="emailProblem('email')" class="admin-users-form__field-error" role="alert">
+            {{ emailProblem('email') }}
+          </p>
+          <EmailCheckNote
+            :state="emailNote('email')"
           />
           <p v-if="isEditing && !isSupervisorMode" id="f-email-hint" class="admin-users-form__hint">
             Changing this address updates the user's login and future emails. They will need to
@@ -133,7 +141,17 @@
         <template v-if="form.role === 'student'">
           <div class="form-field">
             <label class="form-label" for="f-school">School</label>
-            <input id="f-school" v-model.trim="form.schoolName" class="form-input app-input" />
+            <input
+              id="f-school"
+              v-model.trim="form.schoolName"
+              class="form-input app-input"
+              @blur="checkEmailBox('schoolName')"
+            />
+            <!-- Checked as it's left too: a university gets a warning to confirm. -->
+            <EmailCheckNote
+              subject="school"
+              :state="emailNote('schoolName')"
+            />
           </div>
           <div class="form-field">
             <label class="form-label" for="f-year">Year level</label>
@@ -189,7 +207,12 @@
               :options="mentorBackgroundOptions"
               :searchable="false"
               placeholder="Choose a background"
+              :aria-describedby="legacyMentorBackground ? 'f-mbg-legacy' : undefined"
             />
+            <p v-if="legacyMentorBackground" id="f-mbg-legacy" class="admin-users-form__hint">
+              This background isn't one of the five categories. It's kept as it is
+              unless you choose a category.
+            </p>
           </div>
           <div v-if="form.mentorBackground === 'industry'" class="form-field">
             <label class="form-label" for="f-mcompany">Company</label>
@@ -323,7 +346,20 @@
           </div>
           <div class="form-field form-field--full">
             <label class="form-label" for="f-gemail">Guardian email</label>
-            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input app-input" />
+            <input
+              id="f-gemail"
+              v-model.trim="form.guardianEmail"
+              type="email"
+              class="form-input app-input"
+              :aria-invalid="Boolean(emailProblem('guardianEmail'))"
+              @blur="checkEmailBox('guardianEmail')"
+            />
+            <p v-if="emailProblem('guardianEmail')" class="admin-users-form__field-error" role="alert">
+              {{ emailProblem('guardianEmail') }}
+            </p>
+            <EmailCheckNote
+              :state="emailNote('guardianEmail')"
+            />
           </div>
           <!-- Ticked when given: ticking records it, unticking records a withdrawal. -->
           <div class="form-field form-field--full admin-users-form__consents" data-test="form-consent">
@@ -445,7 +481,22 @@
         <p class="admin-users-form__hint">PNG, JPEG or WebP, smaller than 5 MB.</p>
       </template>
 
+      <div class="form-field form-field--full" data-test="admin-notes-field">
+        <label class="form-label">Internal admin notes (visible only to admins)</label>
+        <RichEditor
+          :key="editorKey"
+          v-model="form.adminNotes"
+          placeholder="Add private context or notes about this user..."
+          compact
+          data-test="form-admin-notes"
+        />
+      </div>
+
       <div class="admin-users-form__footer">
+        <!-- What stopped saving: under the line, just above the buttons. -->
+        <p v-if="formError" class="admin-users-form__error admin-users-form__error--save" role="alert">
+          {{ formError }}
+        </p>
         <button
           v-if="isEditing && !isSupervisorMode"
           type="button"
@@ -470,12 +521,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/RichEditor.vue')
+)
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import AppTimePicker from '@/components/AppTimePicker.vue'
 import type { AdminGroupDetail, AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
+import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
+import type { EmailBoxState } from '@/registration/emailFieldCheck'
 import {
+  checkAdminUserEmails,
   confirmStudentAssignments,
   createAdminUser,
   fetchAdminGroupList,
@@ -538,6 +596,7 @@ interface UserForm {
   mediaGiven: boolean
   pendingConsentGiven: boolean
   active: boolean
+  adminNotes: string
   /** The group a new student joins once added; null for none. */
   groupId: number | null
   /** A student's pronouns, as registering takes them. */
@@ -602,6 +661,7 @@ const defaultForm = (): UserForm => ({
   mediaGiven: false,
   pendingConsentGiven: false,
   active: true,
+  adminNotes: '',
   groupId: null,
   pronounsChoice: '',
   pronounsOther: ''
@@ -617,6 +677,13 @@ const form = reactive<UserForm>(defaultForm())
 const formError = ref('')
 const saving = ref(false)
 const editingOriginalActive = ref(false)
+// Remounts the editor whenever the form opens on a different user, so a
+// draft can never carry over from the last one.
+const editorSessionKey = ref(0)
+const editorKey = computed(() => {
+  const userId = props.user?.id ? `edit-user-${props.user.id}` : 'new-user'
+  return `${userId}-${editorSessionKey.value}`
+})
 // What the guardian fields held when the form opened; only changes are sent,
 // so saving a student's year level can't discard a pending guardian change
 // or revoke consent.
@@ -703,8 +770,90 @@ const onInterestToggle = (option: string, event: Event) => {
   form.interests = [...next]
 }
 
+// The email boxes, checked as each is left (user/email-check/, as the
+// registration page's are): a hard problem is refused at saving too; a
+// warning (a mailbox that doesn't exist, a likely typo, a guardian address
+// with an account) is only shown under the box, and saving goes ahead. A
+// student's School too: a university is a warning.
+type EmailField = 'email' | 'guardianEmail' | 'schoolName'
+interface EmailCheckState {
+  email: string
+  status: 'checking' | 'ok' | 'hard' | 'soft'
+  message: string
+}
+const emailCheckStates = reactive<Partial<Record<EmailField, EmailCheckState>>>({})
+const pendingEmailChecks = new Set<Promise<void>>()
+// The state for the address there now, if it's been checked.
+const emailCheckFor = (field: EmailField) => {
+  const state = emailCheckStates[field]
+  return state && state.email === form[field].trim().toLowerCase() ? state : undefined
+}
+const emailProblem = (field: EmailField) => {
+  const state = emailCheckFor(field)
+  return state?.status === 'hard' ? state.message : ''
+}
+// As the registration page's note shows it: checking, or a warning.
+const emailNote = (field: EmailField): EmailBoxState | undefined => {
+  const state = emailCheckFor(field)
+  return state && (state.status === 'checking' || state.status === 'soft')
+    ? { email: state.email, status: state.status, message: state.message }
+    : undefined
+}
+const checkEmailBox = (field: EmailField) => {
+  const email = form[field].trim().toLowerCase()
+  // Unchanged on an edit, or not a student's guardian or school: nothing to check.
+  const saved = field === 'email' ? props.user?.email : field === 'schoolName' ? props.user?.schoolName : undefined
+  const own = field !== 'guardianEmail' && isEditing.value && email === (saved || '').trim().toLowerCase()
+  if (!email || own || (field !== 'email' && form.role !== 'student')) {
+    delete emailCheckStates[field]
+    return
+  }
+  if (emailCheckFor(field)) return
+  emailCheckStates[field] = { email, status: 'checking', message: '' }
+  const job = checkAdminUserEmails([
+    field === 'email'
+      ? { field, kind: 'account', email, firstName: form.firstName, lastName: form.lastName, userId: props.user?.id }
+      : field === 'schoolName'
+        ? { field, kind: 'school', email: '', school: form.schoolName }
+        : { field, kind: 'guardian', email, accountEmail: form.email },
+  ])
+    .then((results) => {
+      if (emailCheckStates[field]?.email !== email) return
+      const result = results[field]
+      if (!result) delete emailCheckStates[field]
+      else if (result.ok) emailCheckStates[field] = { email, status: 'ok', message: '' }
+      else if (result.severity === 'hard')
+        emailCheckStates[field] = { email, status: 'hard', message: result.message }
+      else
+        emailCheckStates[field] = {
+          email, status: 'soft', message: result.warnings.map((warning) => warning.message).join(' '),
+        }
+    })
+    // A check that can't be done says nothing: saving still refuses what's wrong.
+    .catch(() => {
+      if (emailCheckStates[field]?.email === email) delete emailCheckStates[field]
+    })
+    .finally(() => pendingEmailChecks.delete(job))
+  pendingEmailChecks.add(job)
+}
+// Before saving: the checks under way done (clicking Save leaves a box, which
+// starts its check), then none refused. A warning doesn't stop it. Saving
+// refuses what's wrong in any case.
+const emailChecksBlockSaving = async () => {
+  await Promise.allSettled([...pendingEmailChecks])
+  for (const field of ['email', 'guardianEmail', 'schoolName'] as const) {
+    const state = emailCheckFor(field)
+    if (state?.status === 'hard') return state.message
+  }
+  return ''
+}
+
 const initForm = (editingUser: AdminUser | null) => {
   formError.value = ''
+  editorSessionKey.value++
+  delete emailCheckStates.email
+  delete emailCheckStates.guardianEmail
+  delete emailCheckStates.schoolName
   createdUserId.value = null
   clearPhoto()
   if (!editingUser) {
@@ -755,7 +904,8 @@ const initForm = (editingUser: AdminUser | null) => {
     consentGiven: isStudent && Boolean(editingUser.joinPermissionReceived),
     mediaGiven: isStudent && Boolean(editingUser.joinPermissionReceived) && editingUser.mediaConsent === true,
     pendingConsentGiven: false,
-    active: editingUser.isActive
+    active: editingUser.isActive,
+    adminNotes: editingUser.adminNotes || ''
   })
 }
 
@@ -864,11 +1014,33 @@ const choosePhoto = (event: Event) => {
 
 const mentorStudying = computed(() => isStudyingBackground(form.mentorBackground))
 // Registering's backgrounds, and one typed before that, as written.
-const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
+/** The background as the form loaded it, '' when there is none. */
+const originalMentorBackground = computed(() =>
+  props.user?.role === 'mentor' ? props.user.mentorBackground || '' : ''
+)
+
+/** A stored background from before the five categories, kept until replaced. */
+const legacyMentorBackground = computed(() => {
   const current = form.mentorBackground
-  return typeof current === 'string' && current && !MENTOR_BACKGROUNDS.some((option) => option.value === current)
-    ? [...MENTOR_BACKGROUNDS, { value: current, label: current }]
-    : MENTOR_BACKGROUNDS
+  return typeof current === 'string' &&
+    current &&
+    !MENTOR_BACKGROUNDS.some((option) => option.value === current)
+    ? current
+    : ''
+})
+
+// "Not set" first, so a background can be cleared. An older free-text value
+// stays selectable and is named as not being one of the categories, rather
+// than sitting among them as though it were.
+const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
+  const options: AppSelectOption[] = [{ value: null, label: 'Not set' }]
+  if (legacyMentorBackground.value) {
+    options.push({
+      value: legacyMentorBackground.value,
+      label: `${legacyMentorBackground.value} (not a category)`
+    })
+  }
+  return [...options, ...MENTOR_BACKGROUNDS]
 })
 // 1 to 5 groups as registering offers, and whatever they have now.
 const capacityOptions = computed<AppSelectOption[]>(() => {
@@ -892,7 +1064,12 @@ const mentorPayload = (): Record<string, unknown> => {
   const industry = form.mentorBackground === 'industry'
   const times = availabilityTimes(form.mentorAvailability)
   return {
-    mentorBackground: form.mentorBackground,
+    // Omitted when untouched, so an unrelated edit leaves the stored
+    // background alone - including an older free-text one, which the server
+    // accepts only while it is unchanged.
+    ...(form.mentorBackground === originalMentorBackground.value
+      ? {}
+      : { mentorBackground: form.mentorBackground }),
     mentorCompany: industry ? form.mentorCompany : '',
     mentorInstitution: industry ? '' : form.mentorInstitution,
     mentorUniversityYear: mentorStudying.value ? form.mentorUniversityYear : '',
@@ -979,7 +1156,7 @@ const validateForm = (): boolean => {
       return false
     }
   }
-  if (chosenPronouns() === null) {
+  if (form.pronounsChoice === 'Other' && chosenPronouns() === null) {
     formError.value = 'Enter their pronouns.'
     return false
   }
@@ -1015,6 +1192,11 @@ const guardianPayload = (): Record<string, unknown> => {
 const submitForm = async () => {
   formError.value = ''
   if (!validateForm()) return
+  const emailBlock = await emailChecksBlockSaving()
+  if (emailBlock) {
+    formError.value = emailBlock
+    return
+  }
 
   const role = form.role
   const resolveCountryName = (id?: number) => {
@@ -1034,7 +1216,8 @@ const submitForm = async () => {
         lastName: form.lastName,
         role,
         countryId: role === 'admin' ? null : form.countryId,
-        stateId: role === 'admin' ? null : form.stateId
+        stateId: role === 'admin' ? null : form.stateId,
+        adminNotes: form.adminNotes.trim()
       }
       // A typed state, for a country with no list of states.
       if (role !== 'admin' && form.countryId !== undefined && !formStates.value.length) {
@@ -1069,7 +1252,8 @@ const submitForm = async () => {
         firstName: form.firstName,
         lastName: form.lastName,
         role,
-        active: form.active
+        active: form.active,
+        adminNotes: form.adminNotes.trim()
       }
       const countryName = resolveCountryName(form.countryId)
       const stateName =
@@ -1277,6 +1461,13 @@ const submitForm = async () => {
   font-size: 0.85rem;
 }
 
+/* An email box's check: what saving refuses, under it. */
+.admin-users-form__field-error {
+  margin: 0.35rem 0 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
 .admin-users-form__hint {
   margin-top: 0.35rem;
   color: var(--text-muted);
@@ -1401,8 +1592,15 @@ const submitForm = async () => {
   color: var(--danger);
 }
 
+/* A row of its own, the buttons under it. */
+.admin-users-form__error--save {
+  flex: 0 0 100%;
+  margin: 0 0 0.4rem;
+}
+
 .admin-users-form__footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 1.5rem;

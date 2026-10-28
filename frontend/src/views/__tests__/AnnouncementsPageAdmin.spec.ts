@@ -484,5 +484,105 @@ describe('AnnouncementsPage - Admin Integration', () => {
       expect(adminApi.archiveAdminAnnouncement).toHaveBeenCalledWith(201)
       expect(adminApi.archiveAdminAnnouncement).toHaveBeenCalledWith(202)
     })
+    describe('sending progress (AM7)', () => {
+      const mountPage = async () => {
+        wrapper = mount(AnnouncementsPage, {
+          global: { stubs: { RouterLink: true, AdminAnnouncementFormSheet: true, BulkActionsBar: true } }
+        })
+        await flushPromises()
+      }
+
+      const openMenuItem = async (label: string) => {
+        await wrapper!.find('.announcement__more-btn').trigger('click')
+        await flushPromises()
+        await wrapper!.findAll('.announcement__dropdown-item').find((b) => b.text().includes(label))!.trigger('click')
+        await flushPromises()
+        return wrapper!.findComponent({ name: 'ConfirmDialog' })
+      }
+
+      const pendingNotify = () => {
+        let settle!: { resolve: (v: adminApi.AdminAnnouncementNotifyResult) => void; reject: (e: Error) => void }
+        const promise = new Promise<adminApi.AdminAnnouncementNotifyResult>((resolve, reject) => {
+          settle = { resolve, reject }
+        })
+        vi.mocked(adminApi.notifyAdminAnnouncement).mockReturnValue(promise)
+        return settle
+      }
+
+      it('shows "Sending emails…" while Send Notification is in flight, then clears', async () => {
+        const settle = pendingNotify()
+        await mountPage()
+        const dialog = await openMenuItem('Send Notification')
+
+        dialog.vm.$emit('confirm')
+        await flushPromises()
+        expect(dialog.props('busy')).toBe(true)
+        expect(dialog.props('busyLabel')).toBe('Sending emails…')
+
+        settle.resolve({ msg: 'ok', status: 'success', attempted: 3, succeeded: 3, failed: 0 })
+        await flushPromises()
+        expect(dialog.props('busy')).toBe(false)
+        expect(dialog.props('modelValue')).toBe(false)
+        expect(wrapper!.text()).toContain('Email notification sent successfully (3 delivered)')
+      })
+
+      it('sends one notification when Send Notification is confirmed twice in the same tick', async () => {
+        const settle = pendingNotify()
+        await mountPage()
+        await openMenuItem('Send Notification')
+
+        // The real dialog button; both clicks land before Vue re-renders it busy.
+        const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.admin-modal button')).find(
+          (b) => b.textContent?.trim() === 'Send Notification'
+        )!
+        confirm.click()
+        confirm.click()
+        await flushPromises()
+
+        expect(adminApi.notifyAdminAnnouncement).toHaveBeenCalledTimes(1)
+
+        settle.resolve({ msg: 'ok', status: 'success', attempted: 1, succeeded: 1, failed: 0 })
+        await flushPromises()
+      })
+
+      it('clears the indicator and reports the error when sending fails', async () => {
+        const settle = pendingNotify()
+        await mountPage()
+        const dialog = await openMenuItem('Send Notification')
+
+        dialog.vm.$emit('confirm')
+        await flushPromises()
+        settle.reject(new Error('Mail server unavailable'))
+        await flushPromises()
+
+        expect(dialog.props('busy')).toBe(false)
+        expect(wrapper!.text()).toContain('Mail server unavailable')
+      })
+
+      it('keeps the default busy label for other actions', async () => {
+        await mountPage()
+        const notify = await openMenuItem('Send Notification')
+        notify.vm.$emit('confirm')
+        await flushPromises()
+
+        const archive = await openMenuItem('Archive')
+        expect(archive.props('busyLabel')).toBe('Working...')
+      })
+
+      it('says email sending finished after a save that sent emails, without claiming delivery', async () => {
+        await mountPage()
+        const sheet = wrapper!.findComponent(AdminAnnouncementFormSheet)
+        const saved = { id: 201, title: 'Term dates' } as adminApi.AdminAnnouncementDetail
+
+        sheet.vm.$emit('saved', saved, true)
+        await flushPromises()
+        expect(wrapper!.text()).toContain('Announcement "Term dates" saved. Notification emails have finished sending.')
+        expect(wrapper!.text()).not.toMatch(/delivered|sent successfully/)
+
+        sheet.vm.$emit('saved', saved, false)
+        await flushPromises()
+        expect(wrapper!.text()).toContain('Announcement "Term dates" saved successfully.')
+      })
+    })
   })
 })

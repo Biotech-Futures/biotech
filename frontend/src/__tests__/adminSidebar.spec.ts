@@ -55,6 +55,7 @@ const adminSubLinks = [
   '/admin/users',
   '/admin/groups',
   '/admin/tasks',
+  '/admin/logs',
   '/admin/plan',
 ]
 
@@ -130,6 +131,7 @@ describe('App sidebar admin section', () => {
 
     expect(wrapper!.find('a[href="#/admin"]').exists()).toBe(false)
     expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
+    expect(wrapper!.find('a[href="#/admin/logs"]').exists()).toBe(false)
     expect(wrapper!.find('a[href="#/analytics"]').exists()).toBe(false)
   })
 
@@ -360,6 +362,37 @@ describe('App sidebar support entries', () => {
     for (const path of hiddenPages) {
       expect(sidebarHas(path), `hidden page ${path}`).toBe(false)
     }
+  })
+
+  it('says below the menu when this year\'s challenge starts, while the pages are hidden and it is still to come', async () => {
+    // 00:01 on 27 July in Sydney (AEST, UTC+10).
+    const starts = { ...PAGES_HIDDEN, challenge_starts_at: '2099-07-26T14:01:00Z' }
+    const note = () => wrapper!.find('[data-test="challenge-start-note"]')
+
+    setSupervisorPages(starts)
+    useAuthStore().loginWithUser(student as never)
+    await mountApp({ viewport: 'desktop', start: '/support' })
+    expect(note().text()).toBe("This year's challenge will start on 27th July 2099.")
+    expect(note().get('strong').text()).toBe('27th July 2099')
+    // In its own box, below the menu's links.
+    const items = wrapper!.findAll('.sidebar-list > li')
+    expect(items.at(-1)!.attributes('data-test')).toBe('challenge-start-note')
+    wrapper!.unmount()
+
+    // Not once the pages are shown, nor before a date is set, nor for an admin.
+    for (const [state, user] of [
+      [{ ...PAGES_SHOWN, challenge_starts_at: starts.challenge_starts_at }, student],
+      [PAGES_HIDDEN, student],
+      [starts, ticketAdmin],
+    ] as const) {
+      setSupervisorPages(state)
+      setActivePinia((pinia = createPinia()))
+      useAuthStore().loginWithUser(user as never)
+      await mountApp({ viewport: 'desktop', start: '/support' })
+      expect(note().exists()).toBe(false)
+      wrapper!.unmount()
+    }
+    wrapper = null
   })
 
   it('a pure support agent while the pages are hidden: still the queue and nothing else', async () => {

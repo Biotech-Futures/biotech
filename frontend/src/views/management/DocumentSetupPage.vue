@@ -4,7 +4,7 @@
 
     <div v-else-if="loadError" class="card">
       <p class="grading-settings__load-error">Failed to load settings. {{ loadError }}</p>
-      <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+      <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
     </div>
 
     <template v-else-if="settings">
@@ -88,7 +88,7 @@
               <span>Marks summary template (.docx)</span>
               <button
                 type="button"
-                class="btn btn-outline btn-sm grading-settings__download"
+                class="btn btn-outline btn-field btn-field--small grading-settings__download"
                 :disabled="downloading !== '' || !settings.marks_summary_template"
                 @click="downloadCurrent('marks-summary')"
               >
@@ -123,7 +123,7 @@
             <div class="grading-settings__test-row">
               <button
                 type="button"
-                class="btn btn-outline btn-sm"
+                class="btn btn-outline btn-field btn-field--small"
                 :disabled="testing !== '' || !(summaryTpl || settings.marks_summary_template)"
                 @click="testRender('marks-summary')"
               >
@@ -132,7 +132,7 @@
               <div class="grading-settings__person-test">
                 <button
                   type="button"
-                  class="btn btn-outline btn-sm"
+                  class="btn btn-outline btn-field btn-field--small"
                   :disabled="testing !== '' || !person['marks-summary'] || !(summaryTpl || settings.marks_summary_template)"
                   @click="testRender('marks-summary', true)"
                 >
@@ -159,7 +159,7 @@
               <span>Student Certificate template (.docx)</span>
               <button
                 type="button"
-                class="btn btn-outline btn-sm grading-settings__download"
+                class="btn btn-outline btn-field btn-field--small grading-settings__download"
                 :disabled="downloading !== '' || !settings.certificate_template"
                 @click="downloadCurrent('certificate')"
               >
@@ -191,7 +191,7 @@
             <div class="grading-settings__test-row">
               <button
                 type="button"
-                class="btn btn-outline btn-sm"
+                class="btn btn-outline btn-field btn-field--small"
                 :disabled="testing !== '' || !(certTpl || settings.certificate_template)"
                 @click="testRender('certificate')"
               >
@@ -200,7 +200,7 @@
               <div class="grading-settings__person-test">
                 <button
                   type="button"
-                  class="btn btn-outline btn-sm"
+                  class="btn btn-outline btn-field btn-field--small"
                   :disabled="testing !== '' || !person['certificate'] || !(certTpl || settings.certificate_template)"
                   @click="testRender('certificate', true)"
                 >
@@ -227,7 +227,7 @@
               <span>Mentor Certificate template (.docx)</span>
               <button
                 type="button"
-                class="btn btn-outline btn-sm grading-settings__download"
+                class="btn btn-outline btn-field btn-field--small grading-settings__download"
                 :disabled="downloading !== '' || !settings.mentor_certificate_template"
                 @click="downloadCurrent('mentor-certificate')"
               >
@@ -259,7 +259,7 @@
             <div class="grading-settings__test-row">
               <button
                 type="button"
-                class="btn btn-outline btn-sm"
+                class="btn btn-outline btn-field btn-field--small"
                 :disabled="testing !== '' || !(mentorTpl || settings.mentor_certificate_template)"
                 @click="testRender('mentor-certificate')"
               >
@@ -268,7 +268,7 @@
               <div class="grading-settings__person-test">
                 <button
                   type="button"
-                  class="btn btn-outline btn-sm"
+                  class="btn btn-outline btn-field btn-field--small"
                   :disabled="testing !== '' || !person['mentor-certificate'] || !(mentorTpl || settings.mentor_certificate_template)"
                   @click="testRender('mentor-certificate', true)"
                 >
@@ -848,15 +848,14 @@ const save = async () => {
   margin-bottom: 1rem;
 }
 
-/* Match the restyled file-picker buttons above. */
+/* Match the restyled file-picker buttons above; sized as Management's
+   buttons are (.btn-field). */
 .grading-settings__template .btn {
   align-self: flex-start;
   background-color: transparent;
   color: var(--dark-green);
   border: 1px solid var(--border-light);
   border-radius: 4px;
-  padding: 0.3rem 0.7rem;
-  font-size: 0.84rem;
   font-weight: 500;
 }
 

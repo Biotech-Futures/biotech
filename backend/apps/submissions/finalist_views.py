@@ -10,7 +10,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.rbac import group_participant_qs, is_admin
-from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
 from config.errors import GroupAccessDenied
 
@@ -41,6 +40,7 @@ from .finalist import (
     times_shown,
 )
 from .models import FinalistEntry
+from .slides_download import serve_slides, slides_download_name
 from .storage import FINALIST_SLIDES_FILES, slides_file_name
 from .uploads import FINALIST_MAX_UPLOAD_SIZE, validate_presentation_file
 
@@ -215,14 +215,11 @@ def _serve_presentation(request, group_id: int, *, as_attachment: bool):
         raise FileNotUploadedYet()
     if not as_attachment and not (stored.get("name") or "").lower().endswith(".pdf"):
         raise Http404("Only a PDF presentation can be previewed in the browser.")
-    return serve_managed_file(
-        resolve_url=_storage.resolve_url,
-        open_file=_storage.open,
-        storage_key=stored["storage_key"],
-        filename=stored.get("name") or "presentation",
+    return serve_slides(
+        stored["storage_key"],
+        slides_download_name(group, stored),
         # Inline is always a PDF, whatever type an older upload recorded.
-        mime_type=stored.get("mime") if as_attachment else "application/pdf",
-        size=stored.get("size"),
+        mime=stored.get("mime") if as_attachment else "application/pdf",
         as_attachment=as_attachment,
     )
 

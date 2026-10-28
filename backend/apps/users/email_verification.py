@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone as dt_timezone
 from typing import Iterable, Optional
@@ -51,9 +53,26 @@ from apps.common.pii import email_log_tag
 
 # The two keys, by the names logs and the credit balance use (never the keys).
 from .email_credits import FREE, PAID, credits_in, record_remaining
-from .models import EmailVerification, EmailVerificationCredits
+from .models import EmailVerification, EmailVerificationCredits, EmailVerificationRequest
 
 logger = logging.getLogger(__name__)
+
+# The feature a lookup is for, recorded on its EmailVerificationRequest row:
+# the Submit progress bar, a registration box as it's left, Add user's or
+# Edit's boxes, an admin's edit saved, a user's own guardian saved, or a
+# batch on the background worker.
+CALLERS = ("precheck", "step_check", "admin_box_check", "admin_edit", "guardian_update", "background")
+_caller: ContextVar[str] = ContextVar("email_verification_caller", default="")
+
+
+@contextmanager
+def lookups_for(caller: str):
+    """Records the lookups made inside as ``caller``'s (one of CALLERS)."""
+    token = _caller.set(caller)
+    try:
+        yield
+    finally:
+        _caller.reset(token)
 
 VERIFY_URL = "https://api.quickemailverification.com/v1/verify"
 # Free; answers by the test address used (e.g. rejected-email@example.com).
@@ -202,7 +221,17 @@ def _lookup(email: str) -> tuple[VerificationResult, Optional[dict]]:
 
 
 def _ask(email: str, name: str, key: str):
-    """One request with one key: ``(result, answer)``, or ``OUT_OF_CREDIT``."""
+    """One request with one key: ``(result, answer)``, or ``OUT_OF_CREDIT``;
+    recorded for usage reporting (``EmailVerificationRequest``), sandbox aside."""
+    seen: dict = {}
+    outcome = _ask_once(email, name, key, seen)
+    if not _sandbox():
+        _record_request(name, outcome, seen.get("remaining"))
+    return outcome
+
+
+def _ask_once(email: str, name: str, key: str, seen: dict):
+    """The request itself; ``seen["remaining"]`` is the balance QEV reported."""
     try:
         response = requests.get(
             SANDBOX_URL if _sandbox() else VERIFY_URL,
@@ -220,6 +249,7 @@ def _ask(email: str, name: str, key: str):
         # Every real answer, error statuses included, may say how many credits
         # the key has left. Only the paid key's balance is alerted on.
         record_remaining(response.headers, key=name)
+        seen["remaining"] = credits_in(response.headers)
     if response.status_code == 402:
         return OUT_OF_CREDIT
     if response.status_code != 200:
@@ -250,6 +280,25 @@ def _ask(email: str, name: str, key: str):
         email_log_tag(email), name, result.status, result.reason,
     )
     return result, data
+
+
+def _record_request(name: str, outcome, remaining: Optional[int]) -> None:
+    """One row for one real request: what came of it and the credit it cost
+    (1 for an answer, 0 for a failure). Never stops the lookup it records."""
+    result = None if outcome == OUT_OF_CREDIT else outcome[0]
+    answered = result is not None and result.status != ERROR
+    what = OUT_OF_CREDIT if result is None else result.status if answered else result.reason
+    try:
+        with transaction.atomic():
+            EmailVerificationRequest.objects.create(
+                key=name,
+                outcome=(what or ERROR)[:32],
+                credits=1 if answered else 0,
+                remaining=remaining,
+                caller=_caller.get(),
+            )
+    except DatabaseError as exc:
+        logger.error("email_verification.request_log_failed key=%s error=%s", name, type(exc).__name__)
 
 
 def _reserve_lookup() -> bool:
@@ -371,9 +420,10 @@ def _stored_result(address: str) -> Optional[VerificationResult]:
     return VerificationResult(address, row.status, row.reason, row.did_you_mean, cached=True) if row else None
 
 
-def check_one_address(email, *, current=None) -> Optional[VerificationResult]:
+def check_one_address(email, *, current=None, caller: str = "") -> Optional[VerificationResult]:
     """The answer for an address being saved outside registration, when it's
-    INVALID (EMAIL_CHECK_ON_EDIT); otherwise None. Never raises."""
+    INVALID (EMAIL_CHECK_ON_EDIT); otherwise None. Never raises. A lookup it
+    makes is recorded as ``caller``'s (CALLERS)."""
     if not getattr(settings, "EMAIL_CHECK_ON_EDIT", False):
         return None
     address = EmailVerification.normalise(email)
@@ -390,7 +440,8 @@ def check_one_address(email, *, current=None) -> Optional[VerificationResult]:
             key = _busy_key(address)
             if cache.add(key, 1, BUSY_SECONDS):
                 try:
-                    result = verify_email(address)
+                    with lookups_for(caller):
+                        result = verify_email(address)
                 finally:
                     cache.delete(key)
             else:
@@ -411,7 +462,8 @@ def invalid_address_message(result: VerificationResult, whose: str = "This email
 
 def _run(batch: list) -> None:
     try:
-        results = verify_emails(batch)
+        with lookups_for("background"):
+            results = verify_emails(batch)
     except Exception as exc:  # noqa: BLE001 - verify_emails shouldn't raise; never let it escape
         logger.error("email_verification.batch_failed error=%s", type(exc).__name__)
         return

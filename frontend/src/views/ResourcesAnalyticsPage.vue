@@ -39,7 +39,7 @@
       <article v-if="sourceAvailable('resourceAnalytics')" class="kpi-card"><div class="kpi-icon"><i class="fas fa-chart-line"></i></div><div><span class="kpi-label">Clicks</span><div class="analytics-value-row"><strong><AnalyticsNumber :value="resourceYearComparison.current" /></strong><AnalyticsYearChange :current="resourceYearComparison.current" :previous="resourceYearComparison.previous" :label="`vs ${resourceYearComparison.previousYear}`" /></div><small>Recorded clicks during the year</small></div></article>
       <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-users"></i></div><div><span class="kpi-label">Unique Users</span><strong><AnalyticsNumber :value="sourceAvailable('resourceAnalytics') ? data.uniqueUsers : '—'" /></strong><small>Users who accessed resources</small></div></article>
       <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book"></i></div><div><span class="kpi-label">Active Resources</span><strong><AnalyticsNumber :value="sourceAvailable('resourceAnalytics') ? data.activeResources : '—'" /></strong><small>Resources with recorded access</small></div></article>
-      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book-open"></i></div><div><span class="kpi-label">Most Used Resource</span><strong class="resource-name">{{ data.mostUsedResource }}</strong><small>Highest click count</small></div></article>
+      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book-open"></i></div><div><span class="kpi-label">Most Used Resource</span><strong class="resource-name" :class="{ 'is-compact': data.mostUsedResource.length > 18 }">{{ data.mostUsedResource }}</strong><small>Highest click count</small></div></article>
     </section>
 
     <section v-if="sourceAvailable('resourceAnalytics')" class="analytics-grid top-grid">
@@ -814,6 +814,10 @@ h1 {
   margin-bottom: 18px;
 }
 
+.resource-trend-card {
+  margin-bottom: 18px;
+}
+
 .table-heading {
   display: flex;
   align-items: center;
@@ -1185,7 +1189,7 @@ tbody tr:hover td {
 .resources-analytics-page .kpi-card {
   min-width: 0;
   min-height: 0;
-  padding: 16px 14px;
+  padding: 9px 14px 5px;
   gap: 12px;
 }
 
@@ -1211,13 +1215,14 @@ tbody tr:hover td {
   min-width: 0 !important;
   flex: 1 1 0% !important;
   align-self: stretch;
-  grid-template-rows: 34px auto 34px !important;
+  grid-template-rows: auto auto 34px !important;
   align-content: start;
 }
 
 .resources-analytics-page .kpi-grid .kpi-card .kpi-label {
   display: flex !important;
   grid-row: 1;
+  min-height: 0 !important;
   align-items: flex-start;
   margin: 0 !important;
 }
@@ -1234,6 +1239,12 @@ tbody tr:hover td {
 }
 
 .resources-analytics-page .kpi-card .resource-name {
+  font-size: 28px !important;
+  line-height: 1.05 !important;
+  overflow-wrap: anywhere;
+}
+
+.resources-analytics-page .kpi-card .resource-name.is-compact {
   font-size: 14px !important;
   line-height: 16px !important;
   overflow-wrap: anywhere;

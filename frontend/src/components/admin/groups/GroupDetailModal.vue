@@ -19,7 +19,28 @@
 
         <section class="group-detail__section">
           <h3>Mentor</h3>
-          <p v-if="group.mentor" class="group-detail__mentor">{{ group.mentor.name }}</p>
+          <div
+            v-if="group.mentor"
+            class="group-detail__member"
+          >
+            <button
+              type="button"
+              class="group-detail__member-btn"
+              @click="openMentorDetail(group.mentor)"
+            >
+              <div class="group-detail__member-info">
+                <span class="group-detail__member-name">{{ group.mentor.name }}</span>
+                <span class="group-detail__member-email">{{ group.mentor.email }}</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              @click="requestRemoveMentor(group.mentor)"
+            >
+              Remove
+            </button>
+          </div>
           <p v-else class="group-detail__muted">Unassigned</p>
         </section>
 
@@ -59,18 +80,21 @@
                 class="group-detail__member-btn"
                 @click="openStudentDetail(member)"
               >
-                <div class="group-detail__member-info">
-                  <span class="group-detail__member-name">{{ member.name }}</span>
-                  <span class="group-detail__member-email">{{ member.email }}</span>
-                </div>
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-outline"
-                @click="requestRemoveMember(member)"
-              >
-                Remove
-              </button>
+              <div class="group-detail__member-info">
+                <span class="group-detail__member-name">{{ member.name }}</span>
+                <span class="group-detail__member-email">{{ member.email }}</span>
+                <span v-if="member.supervisorName" class="group-detail__member-supervisor">
+                  Supervisor: {{ member.supervisorName }}
+                </span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              @click="requestRemoveMember(member)"
+            >
+              Remove
+            </button>
             </li>
           </ul>
         </section>
@@ -128,16 +152,42 @@
           <p v-else-if="!messages.length" class="group-detail__muted">No messages in this group yet.</p>
 
           <ul v-else class="group-detail__messages">
-            <li v-for="message in messages" :key="message.id" class="group-detail__message">
+            <li
+              v-for="message in messages"
+              :key="message.id"
+              class="group-detail__message"
+              :class="{ 'group-detail__message--deleted': message.deleted_at }"
+            >
               <div class="group-detail__message-head">
                 <div class="group-detail__message-sender">
                   <span class="group-detail__member-name">{{ message.sender.name || message.sender.email }}</span>
                   <span class="group-detail__member-email">{{ message.sender.email }}</span>
                 </div>
                 <div class="group-detail__message-meta">
-                  <span v-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
+                  <!-- Admins still see who sent it (name and email above);
+                       group members see it from "Administrator". -->
+                  <span
+                    v-if="message.sent_as_admin"
+                    class="group-detail__role-badge group-detail__role-badge--admin"
+                    title="Group members see this message from Administrator"
+                  >
+                    Sent as Administrator
+                  </span>
+                  <span v-else-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
                   <span class="group-detail__muted">{{ formatShortDateTime(message.sent_at) }}</span>
+                  <!-- A deleted message is hidden from participants but kept in
+                       full here, so moderation can review it and put it back. -->
                   <button
+                    v-if="message.deleted_at"
+                    type="button"
+                    class="btn btn-sm btn-outline"
+                    :disabled="restoringMessageId === message.id"
+                    @click="restoreMessage(message)"
+                  >
+                    {{ restoringMessageId === message.id ? 'Restoring…' : 'Restore' }}
+                  </button>
+                  <button
+                    v-else
                     type="button"
                     class="group-detail__message-remove"
                     aria-label="Remove message"
@@ -148,7 +198,88 @@
                   </button>
                 </div>
               </div>
-              <p class="group-detail__message-text">{{ messageBody(message) }}</p>
+              <p v-if="messageBody(message)" class="group-detail__message-text">{{ messageBody(message) }}</p>
+
+              <!-- Images render inline so a moderator can see what was posted;
+                   anything else stays a named chip. Both open the same
+                   view / download / close popup. -->
+              <div v-if="message.attachments?.length" class="group-detail__attachments">
+                <div
+                  v-for="attachment in message.attachments"
+                  :key="attachment.id"
+                  class="group-detail__attachment"
+                >
+                  <button
+                    v-if="isImage(attachment) && imageUrls[attachment.id]"
+                    type="button"
+                    class="group-detail__thumb-btn"
+                    :title="attachment.filename"
+                    @click="toggleAttachment(message.id, attachment)"
+                  >
+                    <img
+                      :src="imageUrls[attachment.id]"
+                      :alt="attachment.filename"
+                      class="group-detail__thumb"
+                    />
+                  </button>
+                  <button
+                    v-else
+                    type="button"
+                    class="group-detail__attachment-chip"
+                    :title="attachment.filename"
+                    @click="toggleAttachment(message.id, attachment)"
+                  >
+                    <i
+                      :class="isImage(attachment) ? 'fas fa-image' : 'fas fa-paperclip'"
+                      aria-hidden="true"
+                    ></i>
+                    {{ attachment.filename }}
+                  </button>
+
+                  <div
+                    v-if="openAttachmentKey === attachmentKey(message.id, attachment)"
+                    class="group-detail__attachment-menu"
+                  >
+                    <p class="group-detail__attachment-name">{{ attachment.filename }}</p>
+                    <p v-if="attachmentError" class="group-detail__attachment-error">
+                      {{ attachmentError }}
+                    </p>
+                    <div class="group-detail__attachment-actions">
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline"
+                        :disabled="attachmentBusy"
+                        @click="attachmentAction(attachment, 'view')"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline"
+                        :disabled="attachmentBusy"
+                        @click="attachmentAction(attachment, 'download')"
+                      >
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline"
+                        :disabled="attachmentBusy"
+                        @click="closeAttachment"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <p v-if="message.deleted_at" class="group-detail__deleted-note">
+                <i class="fas fa-eye-slash" aria-hidden="true"></i>
+                Deleted by {{ message.deleted_by || 'unknown' }} on
+                {{ formatShortDateTime(message.deleted_at) }} — hidden from the group.
+              </p>
+              <p v-if="restoreMessageError" class="group-detail__deleted-error">{{ restoreMessageError }}</p>
               <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatShortDateTime(message.edited_at) }}</p>
             </li>
           </ul>
@@ -174,6 +305,30 @@
               Next
             </button>
           </div>
+
+          <form class="group-detail__composer" novalidate @submit.prevent="sendMessage">
+            <label class="form-label" for="group-detail-compose">Send a message as Administrator</label>
+            <textarea
+              id="group-detail-compose"
+              v-model="draft"
+              class="form-input"
+              rows="3"
+              placeholder="Write a message to this group"
+              :disabled="sending"
+              aria-describedby="group-detail-compose-hint"
+            ></textarea>
+            <p id="group-detail-compose-hint" class="group-detail__muted">
+              Group members see this from "Administrator". Other admins can see it was you.
+            </p>
+            <p v-if="sendError" class="group-detail__error" role="alert">{{ sendError }}</p>
+            <p v-if="sendNotice" class="group-detail__notice" role="status">{{ sendNotice }}</p>
+            <div class="group-detail__composer-actions">
+              <button type="submit" class="btn btn-sm btn-primary" :disabled="!canSend">
+                <i class="fas fa-paper-plane" aria-hidden="true"></i>
+                <span>{{ sending ? 'Sending...' : 'Send' }}</span>
+              </button>
+            </div>
+          </form>
         </section>
       </template>
     </div>
@@ -181,7 +336,7 @@
 
   <ConfirmDialog
     :model-value="memberToRemove !== null"
-    title="Remove student"
+    :title="memberToRemove && String(memberToRemove.role || '').toLowerCase() === 'mentor' ? 'Remove mentor' : 'Remove student'"
     :message="removeMemberMessage"
     confirm-label="Remove"
     busy-label="Removing..."
@@ -219,9 +374,14 @@ import {
   fetchGroupMessages,
   removeGroupMember,
   removeGroupMessage,
+  restoreGroupMessage,
+  sendGroupMessage,
+  downloadChatAttachment,
+  resolveChatAttachmentUrl,
   type AdminGroupDetail,
   type AdminGroupMember,
   type AdminGroupMessage,
+  type AdminGroupMessageAttachment,
   type AdminUser,
   type MutualInterestItem
 } from '@/utils/adminAPI'
@@ -285,6 +445,21 @@ const openStudentDetail = async (member: AdminGroupMember) => {
   }
 }
 
+const openMentorDetail = async (member: AdminGroupMember) => {
+  view.value = 'student'
+  selectedStudentMember.value = member
+  selectedStudent.value = null
+  studentError.value = ''
+  loadingStudent.value = true
+  try {
+    selectedStudent.value = await fetchAdminUser(member.id)
+  } catch (err) {
+    studentError.value = err instanceof Error ? err.message : 'Could not load mentor details.'
+  } finally {
+    loadingStudent.value = false
+  }
+}
+
 const onStudentUpdated = (updatedUser: AdminUser) => {
   selectedStudent.value = updatedUser
 }
@@ -319,10 +494,12 @@ watch(
 const memberToRemove = ref<AdminGroupMember | null>(null)
 const removingMember = ref(false)
 const removeMemberError = ref('')
+const removingMentor = ref(false)
 
 const removeMemberMessage = computed(() => {
   const member = memberToRemove.value
   if (!member) return ''
+  const roleLabel = String(member.role || '').toLowerCase() === 'mentor' ? 'mentor' : 'student'
   return `Remove ${member.name || member.email} from ${props.group?.name ?? 'this group'}?`
 })
 
@@ -331,8 +508,13 @@ const requestRemoveMember = (member: AdminGroupMember) => {
   memberToRemove.value = member
 }
 
+const requestRemoveMentor = (mentor: AdminGroupMember) => {
+  removeMemberError.value = ''
+  memberToRemove.value = mentor
+}
+
 const closeRemoveMember = () => {
-  if (removingMember.value) return
+  if (removingMember.value || removingMentor.value) return
   memberToRemove.value = null
   removeMemberError.value = ''
 }
@@ -345,11 +527,17 @@ const confirmRemoveMember = async () => {
   removeMemberError.value = ''
   try {
     await removeGroupMember(props.group.id, member.id)
-    members.value = members.value.filter((m) => m.id !== member.id)
-    emit('changed', props.group.id)
-    memberToRemove.value = null
+    const role = String(member.role || '').toLowerCase()
+    if (role === 'mentor') {
+      emit('changed', props.group.id)
+      memberToRemove.value = null
+    } else {
+      members.value = members.value.filter((m) => m.id !== member.id)
+      emit('changed', props.group.id)
+      memberToRemove.value = null
+    }
   } catch (err) {
-    removeMemberError.value = err instanceof Error ? err.message : 'Could not remove student. Please try again.'
+    removeMemberError.value = err instanceof Error ? err.message : 'Could not remove member. Please try again.'
   } finally {
     removingMember.value = false
   }
@@ -432,6 +620,51 @@ const changeMessagesPage = (page: number) => {
   loadMessages()
 }
 
+// --- Composer (sent as Administrator) ---------------------------------------
+
+const draft = ref('')
+const sending = ref(false)
+const sendError = ref('')
+const sendNotice = ref('')
+
+const canSend = computed(() => Boolean(props.group) && draft.value.trim().length > 0 && !sending.value)
+
+const resetComposer = () => {
+  draft.value = ''
+  sendError.value = ''
+  sendNotice.value = ''
+}
+
+// A new draft makes the last outcome stale.
+watch(draft, () => {
+  if (draft.value) sendNotice.value = ''
+})
+
+const sendMessage = async () => {
+  if (!canSend.value || !props.group) return
+  sending.value = true
+  sendError.value = ''
+  sendNotice.value = ''
+  try {
+    await sendGroupMessage(props.group.id, draft.value)
+    // Cleared only once the server has it, so a failure keeps the text.
+    draft.value = ''
+    sendNotice.value = 'Message sent.'
+    // History is oldest-first: show the last page, where the new message is.
+    // Re-fetched like a removal so items / total / has_more come from the server.
+    messagesPage.value = Math.max(1, Math.ceil(((messagesTotal.value ?? 0) + 1) / messagesLimit.value))
+    await loadMessages()
+    if (!messages.value.length && messagesPage.value > 1) {
+      messagesPage.value -= 1
+      await loadMessages()
+    }
+  } catch (err) {
+    sendError.value = err instanceof Error && err.message ? err.message : 'Could not send the message. Please try again.'
+  } finally {
+    sending.value = false
+  }
+}
+
 const showMessages = () => {
   view.value = 'messages'
   if (!messagesLoaded.value && !messagesLoading.value) loadMessages()
@@ -458,6 +691,8 @@ watch(
       messagesHasMore.value = false
       messagesError.value = ''
       messagesLoaded.value = false
+      // Never carry a draft over to a different group.
+      resetComposer()
       selectedStudent.value = null
       selectedStudentMember.value = null
       studentError.value = ''
@@ -468,10 +703,103 @@ watch(
 
 const messageBody = (message: AdminGroupMessage): string => {
   if (message.message_type === 'gif') return '[GIF]'
-  if (message.message_type === 'attachment' && message.attachments.length) {
-    return `[attachment: ${message.attachments.map((a) => a.filename).join(', ')}]${message.text ? ` ${message.text}` : ''}`
-  }
+  // Attachments used to be flattened into "[attachment: name]" here. They are
+  // rendered below the text instead, so moderation can see what was actually
+  // posted rather than a filename.
   return message.text
+}
+
+// --- Attachments ---------------------------------------------------------
+
+const isImage = (attachment: AdminGroupMessageAttachment): boolean =>
+  (attachment.mime_type || '').toLowerCase().startsWith('image/')
+
+/** Signed URLs, keyed by attachment id. Resolved lazily: a group's history can
+ *  hold far more images than are on screen, and each URL is short-lived. */
+const imageUrls = ref<Record<number, string>>({})
+const imageFailed = ref<Record<number, true>>({})
+
+const loadImage = async (attachment: AdminGroupMessageAttachment) => {
+  if (imageUrls.value[attachment.id] || imageFailed.value[attachment.id]) return
+  try {
+    const resolved = await resolveChatAttachmentUrl(attachment.download_url)
+    imageUrls.value = { ...imageUrls.value, [attachment.id]: resolved.url }
+  } catch {
+    imageFailed.value = { ...imageFailed.value, [attachment.id]: true }
+  }
+}
+
+watch(
+  messages,
+  (list) => {
+    for (const message of list) {
+      for (const attachment of message.attachments ?? []) {
+        if (isImage(attachment)) void loadImage(attachment)
+      }
+    }
+  },
+  { deep: false }
+)
+
+// Which attachment's action popup is open, as `${messageId}:${attachmentId}`.
+const openAttachmentKey = ref<string | null>(null)
+const attachmentBusy = ref(false)
+const attachmentError = ref('')
+
+const attachmentKey = (messageId: string, attachment: AdminGroupMessageAttachment) =>
+  `${messageId}:${attachment.id}`
+
+const toggleAttachment = (messageId: string, attachment: AdminGroupMessageAttachment) => {
+  const key = attachmentKey(messageId, attachment)
+  attachmentError.value = ''
+  openAttachmentKey.value = openAttachmentKey.value === key ? null : key
+}
+
+const closeAttachment = () => {
+  openAttachmentKey.value = null
+  attachmentError.value = ''
+  attachmentBusy.value = false
+}
+
+/** View opens the file inline in a new tab; download saves it. Both go through
+ *  a freshly signed URL rather than the cached one, which may have expired. */
+const attachmentAction = async (
+  attachment: AdminGroupMessageAttachment,
+  mode: 'view' | 'download'
+) => {
+  attachmentBusy.value = true
+  attachmentError.value = ''
+  try {
+    if (mode === 'view') {
+      const resolved = await resolveChatAttachmentUrl(attachment.download_url)
+      window.open(resolved.url, '_blank', 'noopener,noreferrer')
+    } else {
+      await downloadChatAttachment(attachment.download_url, attachment.filename)
+    }
+    closeAttachment()
+  } catch (error) {
+    attachmentError.value =
+      error instanceof Error ? error.message : 'The attachment could not be opened.'
+    attachmentBusy.value = false
+  }
+}
+
+const restoringMessageId = ref<string | null>(null)
+const restoreMessageError = ref('')
+
+const restoreMessage = async (message: AdminGroupMessage) => {
+  restoringMessageId.value = message.id
+  restoreMessageError.value = ''
+  try {
+    await restoreGroupMessage(message.group_id, message.id)
+    await loadMessages()
+    emit('changed', props.group!.id)
+  } catch (error) {
+    restoreMessageError.value =
+      error instanceof Error ? error.message : 'The message could not be restored.'
+  } finally {
+    restoringMessageId.value = null
+  }
 }
 
 const messageToRemove = ref<AdminGroupMessage | null>(null)
@@ -595,6 +923,28 @@ const confirmRemoveMessage = async () => {
   color: var(--text-muted);
 }
 
+.group-detail__member-supervisor {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.group-detail__mentor-card {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  background-color: var(--bg-light);
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  width: 100%;
+}
+
+.group-detail__mentor-card:hover .group-detail__member-name {
+  text-decoration: underline;
+}
+
 .group-detail__message {
   padding: 0.75rem;
   background-color: var(--bg-light);
@@ -677,6 +1027,36 @@ const confirmRemoveMessage = async () => {
   margin-top: 0.5rem;
 }
 
+/* Distinct from member roles: sent from the admin panel, not by a member. */
+.group-detail__role-badge--admin {
+  background-color: var(--teal);
+  color: var(--white);
+  text-transform: none;
+}
+
+.group-detail__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.group-detail__composer textarea {
+  resize: vertical;
+}
+
+.group-detail__composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.group-detail__notice {
+  color: var(--dark-green);
+  font-size: 0.875rem;
+}
+
 .group-detail__view-messages {
   display: inline-flex;
   align-items: center;
@@ -701,6 +1081,106 @@ const confirmRemoveMessage = async () => {
 
 .group-detail__back:hover {
   text-decoration: underline;
+}
+
+.group-detail__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.group-detail__attachment {
+  position: relative;
+}
+
+.group-detail__thumb-btn {
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.group-detail__thumb {
+  display: block;
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+}
+
+.group-detail__attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 16rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background-color: var(--bg-light);
+  color: var(--charcoal);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-detail__attachment-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 20;
+  min-width: 15rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--surface-elevated);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.group-detail__attachment-name {
+  margin: 0 0 0.45rem;
+  color: var(--charcoal);
+  font-size: 0.8rem;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.group-detail__attachment-error {
+  margin: 0 0 0.45rem;
+  color: var(--danger);
+  font-size: 0.75rem;
+}
+
+.group-detail__attachment-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.group-detail__message--deleted {
+  border-left: 3px solid var(--border-light);
+  background-color: var(--bg-light);
+  opacity: 0.85;
+}
+
+.group-detail__deleted-note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+.group-detail__deleted-error {
+  margin: 0.35rem 0 0;
+  color: var(--danger);
+  font-size: 0.75rem;
 }
 
 .group-detail__interests {

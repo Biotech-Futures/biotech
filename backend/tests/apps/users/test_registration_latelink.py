@@ -607,12 +607,21 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         self.assertNotIn("warnings", response.data)
         self.assert_not_consumed(invite)
 
-    def test_a_student_may_register_without_a_supervisor(self):
+    def test_a_student_must_name_a_supervisor(self):
         del self.body["payload"]["supervisor"]
         response = self.submit()
-        self.assertEqual(response.status_code, 201, response.data)
-        row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
-        self.assertEqual(row.supervisor_details, {})
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(
+            {field: response.data["fields"][field] for field in (
+                "supervisor.firstName", "supervisor.lastName", "supervisor.email",
+            )},
+            {
+                "supervisor.firstName": ["Enter the supervisor first name."],
+                "supervisor.lastName": ["Enter the supervisor last name."],
+                "supervisor.email": ["Enter the supervisor email."],
+            },
+        )
+        self.assertFalse(RegistrationSubmission.objects.exists())
         self.assertFalse(StudentSupervisor.objects.exists())
 
     def test_a_nominated_supervisor_is_only_their_name_and_email(self):
@@ -820,6 +829,29 @@ class LegacyTests(RegistrationSetup, TestCase):
         self.assertEqual(StudentProfile.objects.count(), 1)
         # The supervisor they named, who had no account, is created for them.
         self.assertTrue(SupervisorProfile.objects.filter(user__email="teacher@example.com").exists())
+
+    def test_legacy_requires_supervisor_details_without_consuming_a_late_link(self):
+        self.close_window()
+        invite = self.mint()
+        fields = ("SupervisorEmail", "SupervisorFirstName", "SupervisorSurname")
+        cases = [{field: None for field in fields}]
+        cases.extend({field: value} for field in fields for value in (None, "", "   "))
+        for changes in cases:
+            with self.subTest(changes=changes):
+                body = self.legacy()
+                for field, value in changes.items():
+                    if value is None:
+                        body["body"].pop(field)
+                    else:
+                        body["body"][field] = value
+                response = self.client.post(
+                    INTAKE, body, format="json", HTTP_X_REGISTRATION_INVITATION=invite["token"],
+                )
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertTrue(any(key.startswith("supervisor") for key in response.data["fields"]))
+                self.assertFalse(StudentProfile.objects.exists())
+                self.assertFalse(RegistrationSubmission.objects.exists())
+                self.assert_not_consumed(invite)
 
     def test_legacy_cannot_bypass_window_or_self_guardian_validation(self):
         self.close_window()

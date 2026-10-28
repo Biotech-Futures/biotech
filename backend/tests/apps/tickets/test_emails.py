@@ -21,6 +21,7 @@ from apps.tickets.models import (
     TicketStatus,
 )
 from apps.tickets.services import emails, lifecycle
+from tests.email_helpers import delivered_destination
 
 User = get_user_model()
 
@@ -207,7 +208,7 @@ class NoEmailLeaksItsSourceTests(TicketEmailTestCase):
         template_dir = Path(settings.BASE_DIR) / "apps" / "tickets" / "templates"
         offenders = []
         for path in sorted(template_dir.rglob("*.html")):
-            for number, line in enumerate(path.read_text().splitlines(), 1):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 for match in re.finditer(r"\{#", line):
                     if "#}" not in line[match.end():]:
                         offenders.append(f"{path.name}:{number}")
@@ -330,7 +331,7 @@ class EveryEmailAddressesAPersonTests(TicketEmailTestCase):
                     f"the link, found {hrefs}",
                 )
                 for href in hrefs:
-                    self.assertEqual(href, expected)
+                    self.assertEqual(delivered_destination(href), expected)
 
     def test_the_plain_text_half_still_spells_the_link_out(self):
         """A text-only client renders no button. The URL itself has to be in
@@ -1457,7 +1458,7 @@ class TheAddressUnderTheButtonIsALinkTests(TicketEmailsThroughTheApiTestCase):
                     anchors = [attrs for tag, attrs in stack if tag == "a"]
                     self.assertTrue(anchors, f"the address in {label} is not a link")
                     anchor = anchors[-1]
-                    self.assertEqual(anchor.get("href"), expected)
+                    self.assertEqual(delivered_destination(anchor.get("href")), expected)
                     self.assertIn("color:#307054", style_of(anchor))
                     self.assertIn("text-decoration:underline", style_of(anchor))
 
@@ -1557,7 +1558,12 @@ class TicketEmailFooterNoteTests(TicketEmailsThroughTheApiTestCase):
                     "to your address book to keep receiving updates about your enquiries.",
                     visible_text(html),
                 )
-                self.assertIn('href="https://www.biotechfutures.org/"', html)
+                self.assertTrue(
+                    any(
+                        delivered_destination(href) == "https://www.biotechfutures.org/"
+                        for href in HREF.findall(html)
+                    )
+                )
 
     def test_the_rest_of_the_platform_keeps_the_shared_footer(self):
         response = self.client.post(

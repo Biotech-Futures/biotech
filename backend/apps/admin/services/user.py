@@ -19,11 +19,13 @@ from apps.users.models import (
 )
 from apps.tickets.models import SupportScope
 from apps.users.models.admin_scope import AdminScope
+from apps.users.models.mentor_profile import normalize_mentor_background
 from apps.users.models.mentor_availability import MentorAvailability
 from apps.users.profile_images import delete_profile_image_file, profile_image_url
 from apps.submissions.services import current_cohort
 from apps.users.returning import bring_back_for_this_year, earlier_challenge_year
 from apps.users.email_verification import check_one_address, invalid_address_message
+from apps.users.serializers import PLACEHOLDER_ADDRESS, is_placeholder_email, new_guardian_email_problem
 from apps.users.mentor_registration import (
     MAX_WORDS as MENTOR_MAX_WORDS, STUDY_YEARS as MENTOR_STUDY_YEARS,
 )
@@ -439,7 +441,7 @@ def ensure_admin_email_available(email: str) -> Optional[str]:
     Check if email is already in use by any user.
     Returns error message if email exists, None otherwise.
     """
-    if User.objects.filter(email=email).exists():
+    if User.objects.filter(email__iexact=email).exists():
         return "Account email already exists"
     return None
 
@@ -794,11 +796,14 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "hasLoggedIn": user.last_login is not None,
         "lastLogin": user.last_login.isoformat() if user.last_login else None,
         "accountStatus": "active" if user.is_active else "deactivated",
+        # When the account was created; registration analytics count from it.
+        "createdAt": user.date_joined.isoformat(),
         "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
         "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
         "supervisorName": supervisor_name,
         "supervisorEmail": supervisor_email_val,
         "supervisees": supervisees or [],
+        "adminNotes": user.admin_notes or "",
         **last_edits([user.id]).get(user.id, _NO_EDIT),
     }
 
@@ -885,22 +890,26 @@ def get_admin_user_ids(user_ids: List[int]) -> set:
 
 def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str] = None,
                                 state: Optional[str] = None, active: Optional[bool] = None,
-                                in_group: Optional[str] = None, country: Optional[str] = None):
+                                in_group: Optional[str] = None, country: Optional[str] = None,
+                                include_admin_notes: bool = False):
     """Filtered (unpaginated) user queryset shared by the list view and
-    filter-based bulk actions, so 'select all matching' hits exactly the rows
-    the list would show for the same filters."""
+    filter-based bulk actions. Admin notes are included only for the list view;
+    filter-based bulk actions must not select users based on private notes."""
     now = timezone.now()
     filters = Q()
 
     if search:
         normalized_search = search.strip()
-        filters &= (
+        search_filters = (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
             Q(search_full_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
             Q(groupmembership__group__group_name__icontains=normalized_search)
         )
+        if include_admin_notes:
+            search_filters |= Q(admin_notes__icontains=normalized_search)
+        filters &= search_filters
 
     if role:
         filters &= Q(roleassignmenthistory__role__role_name=role) & (
@@ -936,7 +945,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     queryset = _build_user_filter_queryset(
         search=search, role=role, state=state, active=active, in_group=in_group,
-        country=country,
+        country=country, include_admin_notes=True,
     )
 
     # Get total count
@@ -1115,11 +1124,13 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "hasLoggedIn": user.last_login is not None,
             "lastLogin": user.last_login.isoformat() if user.last_login else None,
             "accountStatus": "active" if user.is_active else "deactivated",
+            "createdAt": user.date_joined.isoformat(),
             "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
             "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
             "supervisorName": supervisor_name,
             "supervisorEmail": supervisor_email_val,
             "supervisees": supervisees_for_user,
+            "adminNotes": user.admin_notes or "",
             **last_edit_map.get(uid, _NO_EDIT),
         })
 
@@ -1228,20 +1239,47 @@ def add_users_by_role(
         role = input_data.get("role", "student")
         country_name = (input_data.get("country") or "").strip()
         state_name = (input_data.get("state") or "").strip()
+        mentor_background = None
 
         refusal = role_rejection_message(role, allowed)
         if refusal is not None:
             results.append({"input": input_data, "msg": refusal, "data": None})
             continue
 
-        # Check if user exists
-        if User.objects.filter(email=email).exists():
+        # What Add user's own check refuses as each box is left
+        # (user_email_check): not an address, or the template's placeholder.
+        from apps.admin.user_email_check import (
+            TAKEN, account_email_problem, guardian_email_problem, supervisor_email_problem,
+        )
+
+        problem = account_email_problem(email)
+        if problem and problem != TAKEN:
+            results.append({"input": input_data, "msg": problem, "data": None})
+            continue
+
+        # Check if user exists (in any case)
+        if problem == TAKEN:
             results.append({
                 "input": input_data,
                 "msg": "Email already exists",
                 "data": None
             })
             continue
+
+        # A student's guardian: an address, not the student's own, nor a student's.
+        guardian_email = str(input_data.get("guardianEmail") or "").strip().lower()
+        if role == "student" and guardian_email:
+            problem = guardian_email_problem(guardian_email, email)
+            if problem:
+                results.append({"input": input_data, "msg": problem, "data": None})
+                continue
+        # And their supervisor: never a student, mentor or admin made one.
+        supervisor_email = str(input_data.get("supervisorEmail") or "").strip().lower()
+        if role == "student" and supervisor_email:
+            problem = supervisor_email_problem(supervisor_email, email)
+            if problem:
+                results.append({"input": input_data, "msg": problem, "data": None})
+                continue
         
         # Only an email and a role are needed: an admin may add someone before
         # their country, school or year are known. A year given is 9 to 12.
@@ -1294,6 +1332,16 @@ def add_users_by_role(
                 results.append({
                     "input": input_data,
                     "msg": "Max group count is required for mentor users",
+                    "data": None
+                })
+                continue
+            # Single create and CSV bulk import both arrive here.
+            try:
+                mentor_background = normalize_mentor_background(input_data.get("mentorBackground"))
+            except ValueError as exc:
+                results.append({
+                    "input": input_data,
+                    "msg": str(exc),
                     "data": None
                 })
                 continue
@@ -1376,6 +1424,10 @@ def add_users_by_role(
                 is_active = input_data.get("active", True)
                 account_status = STATUS_ACTIVE if is_active else STATUS_INVITED
                 
+                admin_notes = (
+                    (input_data.get("adminNotes") if "adminNotes" in input_data else input_data.get("admin_notes")) or ""
+                ).strip()
+
                 # Create user
                 user = User.objects.create_user(
                     email=email,
@@ -1391,6 +1443,7 @@ def add_users_by_role(
                     is_superuser=role == "admin",
                     invited_at=now,
                     activated_at=now if is_active else None,
+                    admin_notes=admin_notes,
                 )
                 
                 new_user_id = user.id
@@ -1437,7 +1490,7 @@ def add_users_by_role(
                 elif role == "mentor":
                     upsert_mentor_profile(
                         new_user_id,
-                        background=input_data.get("mentorBackground"),
+                        background=mentor_background,
                         institution=input_data.get("mentorInstitution"),
                         mentor_reason=input_data.get("mentorReason"),
                         max_group_count=input_data.get("mentorMaxGroupCount")
@@ -1787,7 +1840,10 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "Email is not a valid email address", "data": None}
         if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
             return {"msg": "Account email already exists", "data": None}
-        if invalid := check_one_address(new_email, current=user.email):
+        # A new address only, so an older one can still be edited around.
+        if new_email != (user.email or "").strip().lower() and is_placeholder_email(new_email):
+            return {"msg": PLACEHOLDER_ADDRESS, "data": None}
+        if invalid := check_one_address(new_email, current=user.email, caller="admin_edit"):
             return {"msg": invalid_address_message(invalid), "data": None}
     email_changed = new_email != user.email.strip().lower()
 
@@ -1846,7 +1902,12 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 if guardian_email == new_email.strip().lower():
                     return {"msg": "Guardian email cannot be the student's own email", "data": None}
                 current_guardian = StudentProfile.objects.filter(user_id=user_id).values_list("pg_email", flat=True).first()
-                if invalid := check_one_address(guardian_email, current=current_guardian):
+                # A new guardian only: not a placeholder, nor a student's account.
+                if guardian_email != (current_guardian or "").strip().lower() and (
+                    problem := new_guardian_email_problem(guardian_email)
+                ):
+                    return {"msg": problem, "data": None}
+                if invalid := check_one_address(guardian_email, current=current_guardian, caller="admin_edit"):
                     return {"msg": invalid_address_message(invalid, "The guardian's email address"), "data": None}
     
     mentor_values: Dict[str, Any] = {}
@@ -1859,6 +1920,25 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             slots_error, mentor_slots = _availability_slots(input_data["mentorAvailability"])
             if slots_error:
                 return {"msg": slots_error, "data": None}
+
+        # Omitted keeps the stored background. A value outside the five
+        # categories is rejected unless it is the one already stored: older
+        # free-text backgrounds are preserved until an admin picks a category.
+        next_background = MentorProfile.objects.filter(user_id=user_id).values_list(
+            'background', flat=True
+        ).first()
+        if "mentorBackground" in input_data:
+            sent_background = input_data["mentorBackground"]
+            try:
+                next_background = normalize_mentor_background(sent_background)
+            except ValueError as exc:
+                unchanged = (
+                    isinstance(sent_background, str)
+                    and next_background is not None
+                    and sent_background.strip() == next_background.strip()
+                )
+                if not unchanged:
+                    return {"msg": str(exc), "data": None}
 
     role_changed = "role" in input_data and input_data["role"] != current_role
     before_user = fetch_user_by_id(user_id)
@@ -1937,14 +2017,17 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
 
     try:
         with transaction.atomic():
-            # Update basic user fields
             if "email" in input_data:
                 user.email = new_email
             if "firstName" in input_data:
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "pronouns", "email"]):
+            if "adminNotes" in input_data:
+                user.admin_notes = (input_data["adminNotes"] or "").strip()
+            elif "admin_notes" in input_data:
+                user.admin_notes = (input_data["admin_notes"] or "").strip()
+            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "pronouns", "email", "adminNotes", "admin_notes"]):
                 user.save()
 
             if email_changed:
@@ -2026,6 +2109,10 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 SupervisorProfile.objects.filter(user_id=user_id).delete()
             
             if next_role == "mentor":
+                # AM2 stores the canonical key. ``_next_mentor_values`` keeps
+                # the background as it was sent, which may differ in case or
+                # spacing, so the normalised value wins here.
+                mentor_values["background"] = next_background
                 MentorProfile.objects.update_or_create(user_id=user_id, defaults=mentor_values)
                 if mentor_slots is not None:
                     MentorAvailability.objects.filter(mentor_user_id=user_id).delete()

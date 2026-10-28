@@ -42,7 +42,7 @@
         </label>
         <button
           type="button"
-          class="btn btn-primary btn-sm"
+          class="btn btn-primary btn-field"
           :disabled="isSaving || !groupQuery || !untilLocal"
           @click="save"
         >
@@ -58,7 +58,7 @@
       <p v-if="isLoading" class="extensions__hint">Loading…</p>
       <div v-else-if="loadError" class="extensions__load-error">
         <p>Failed to load. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </div>
       <!-- Kept in the server's order: the page owns sorting, and sorts nothing. -->
       <AppDataTable
@@ -123,12 +123,12 @@
           the current one.
         </p>
         <div class="extensions__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="overwriteWarning = null">
+          <button type="button" class="btn btn-outline btn-field" @click="overwriteWarning = null">
             Cancel
           </button>
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="isSaving"
             @click="performSave(overwriteWarning.id)"
           >
@@ -147,12 +147,12 @@
           group back on the standard submission deadline.
         </p>
         <div class="extensions__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="pendingRevoke = null">
+          <button type="button" class="btn btn-outline btn-field" @click="pendingRevoke = null">
             Cancel
           </button>
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="isSaving"
             @click="revoke(pendingRevoke.group_id)"
           >

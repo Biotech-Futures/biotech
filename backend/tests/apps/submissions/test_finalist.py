@@ -30,6 +30,7 @@ from apps.submissions.emails import finalist_confirmation_context
 from apps.submissions.models import FinalistEntry
 from apps.submissions.services import current_cohort
 from apps.users.models import User
+from tests.email_helpers import delivered_destinations
 
 
 def _pdf(name="deck.pdf"):
@@ -193,7 +194,10 @@ class FinalistTests(TestCase):
         self.assertNotIn("11:40 - 12:30", message.body)
         html = message.alternatives[0][0]
         self.assertIn("10:00 - 11:00", html)
-        self.assertIn(f"https://example.org/#/groups/{self.group.id}/finalist", html)
+        self.assertIn(
+            f"https://example.org/#/groups/{self.group.id}/finalist",
+            delivered_destinations(html),
+        )
 
     def test_the_email_gives_the_symposium_day_and_when_slides_are_due(self):
         details = FinalistEmailSettings.load()

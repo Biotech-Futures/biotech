@@ -10,7 +10,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, Signer
 from django.db import IntegrityError, transaction
-from django.db.models.functions import Lower
+from django.db.models import DateTimeField, ExpressionWrapper, F, Value
+from django.db.models.functions import Greatest, Lower
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, serializers
@@ -246,7 +247,21 @@ class IntakeInput(StrictInput):
                 errors["payload.source.rowNumbers"] = "Provide the filename and one unique ordered CSV row number per student."
         elif set(source) - {"method"}:
             errors["payload.source"] = "CSV metadata is only accepted for CSV intake."
-        # A student registering themselves may nominate a supervisor (optional).
+        # A student registering themselves must nominate a supervisor unless
+        # joining a group that already has one recorded. Legacy submissions
+        # and email address checks intentionally do not require the details.
+        joining = bool((payload.get("group") or {}).get("joinCode"))
+        if (
+            journey in ("student_individual", "student_team")
+            and not joining
+            and not self.context.get("legacy")
+            and not self.context.get("addresses_only")
+            and "supervisor" not in payload
+            and not self.context.get("email_precheck")
+        ):
+            errors["payload.supervisor.firstName"] = "Enter the supervisor first name."
+            errors["payload.supervisor.lastName"] = "Enter the supervisor last name."
+            errors["payload.supervisor.email"] = "Enter the supervisor email."
         # A supervisor is their own students'; an admin chooses one (register).
         if journey in SUPERVISOR_JOURNEYS and "supervisor" in payload:
             errors["payload.supervisor"] = "Supervisor identity comes from the authenticated session."
@@ -393,7 +408,7 @@ def legacy_request(body):
                 "overrides": {key: body[key] for key in REGISTRATION_OVERRIDES if key in body},
             }],
             "source": {"method": JOURNEY},
-            # A supervisor only when one was given (it's optional).
+            # Preserve supplied details; intake rejects a missing supervisor.
             **({"supervisor": {
                 "email": body.get("SupervisorEmail", ""), "firstName": body.get("SupervisorFirstName", ""),
                 "lastName": body.get("SupervisorSurname", ""),
@@ -527,7 +542,9 @@ def save_student(student, supervisor, now, *, registered_by, lookups=None):
     returning = user is not None
     if returning:
         user.first_name, user.last_name = student["firstName"], student["lastName"]
-        user.country, user.state, user.pronouns = country, state, pronouns
+        user.country, user.state = country, state
+        # The form no longer asks for pronouns: theirs stay unless some are sent.
+        user.pronouns = pronouns or user.pronouns
         user.activate(save=False)
         user.save()
     else:
@@ -605,8 +622,7 @@ def create_nominated_supervisor(supervisor, student) -> User | None:
 
 
 def registering_as_admin(user) -> bool:
-    """An admin registering students (Management > Registration) who isn't a
-    supervisor: their students have no supervisor, registered by an admin."""
+    """An admin registering students who must select their supervisor."""
     return (
         getattr(user, "is_authenticated", False)
         and (is_admin(user) or user.is_staff or user.is_superuser)
@@ -615,9 +631,7 @@ def registering_as_admin(user) -> bool:
 
 
 def authenticated_supervisor(request):
-    """Who's registering students: a supervisor, as their students'
-    supervisor; or an admin with no supervisor profile, as no one's
-    (``admin``)."""
+    """Resolve the registering supervisor, or an admin awaiting a selection."""
     user = request.user
     if (
         not user.is_authenticated or user.account_status in User.INACTIVE_LOGIN_STATUSES
@@ -646,6 +660,26 @@ def participant_details(student):
         "guardian_relationship": guardian.get("relationshipOther") or guardian.get("relationship", ""),
         "grouping_preference": student["groupingPreference"],
     }
+
+
+def group_supervisor(group):
+    """Use an assigned supervisor, or the group's original nomination."""
+    member = GroupMembership.objects.filter(
+        group=group, membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR, left_at__isnull=True,
+        user__supervisorprofile__isnull=False,
+    ).select_related("user").order_by("-pk").first()
+    if member:
+        return {
+            "firstName": member.user.first_name, "lastName": member.user.last_name,
+            "email": member.user.email,
+        }
+    submission = RegistrationSubmission.objects.filter(group=group).order_by("created_at", "pk").first()
+    details = submission.supervisor_details if submission else {}
+    if all(details.get(field, "").strip() for field in ("firstName", "lastName", "email")):
+        return details
+    raise serializers.ValidationError({
+        "group.joinCode": "This group has no supervisor on record. Contact BIOTech Support.",
+    })
 
 
 def joinable_group(code, joining):
@@ -766,10 +800,12 @@ def register(request):
     if not legacy and journey not in SUPERVISOR_JOURNEYS:
         require_policies(parser.validated_data)
     students = payload["students"]
-    # None nominated: blank details, as the supervisor is optional.
+    # Resolve the supervisor from the session, admin selection, or nomination.
     if journey in SUPERVISOR_JOURNEYS:
         supervisor = authenticated_supervisor(request)
         chosen = (payload.get("supervisorEmail") or "").strip()
+        if supervisor.get("admin") and not supervisor["email"] and not chosen:
+            raise serializers.ValidationError({"supervisorEmail": "Choose a supervisor from the list."})
         if chosen:
             # An admin chooses their students' supervisor (Management >
             # Registration), even one who supervises too; a supervisor's
@@ -854,6 +890,8 @@ def register(request):
             # A student joining a group by its code: checked before anything's saved.
             join_code = payload.get("group", {}).get("joinCode", "") if journey == "student_team" else ""
             joining = joinable_group(join_code, len(students)) if join_code else None
+            if joining:
+                supervisor = group_supervisor(joining)
             errors, warnings, provenance = {}, [], []
             # Every address's email check on file, in one query for the submission:
             # the students', their guardians', and the supervisor a student named.
@@ -1179,9 +1217,14 @@ class RegistrationManagementView(APIView):
                 serializer.is_valid(raise_exception=True)
                 serializer.save(updated_by=request.user, updated_at=timezone.now())
                 # Codes held for student groups last until registration ends,
-                # so they move with its end.
+                # so they move with its end: 4 months from being held at least.
                 GroupCodeReservation.objects.filter(expires_at__gt=timezone.now()).update(
-                    expires_at=registration_end(serializer.instance),
+                    expires_at=Greatest(
+                        Value(registration_end(serializer.instance), output_field=DateTimeField()),
+                        ExpressionWrapper(
+                            F("created_at") + GroupCodeReservation.HOLD, output_field=DateTimeField(),
+                        ),
+                    ),
                 )
                 return Response({"window": serializer.data})
             if action == "invite":

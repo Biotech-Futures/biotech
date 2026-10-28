@@ -36,6 +36,32 @@ describe('production registration normalization', () => {
     ).toHaveProperty('mentor')
   })
 
+  it("sends a mentor's or supervisor's own confirmed warnings with theirs", () => {
+    const forms = createRegistrationForms()
+    const mentor = buildProductionRegistrationRequest(buildRegistrationRequest('mentor', forms), {
+      'mentor.overrides.ConfirmEmailInvalidOverride': true,
+      'mentor.overrides.ConfirmNameEmailOverride': true,
+    })
+    expect(mentor.payload).toHaveProperty('mentor.overrides', {
+      ConfirmEmailInvalidOverride: true,
+      ConfirmNameEmailOverride: true,
+    })
+    const supervisor = buildProductionRegistrationRequest(buildRegistrationRequest('supervisor', forms), {
+      'supervisor.overrides.ConfirmNameEmailOverride': true,
+    })
+    expect(supervisor.payload).toHaveProperty('supervisor.overrides', { ConfirmNameEmailOverride: true })
+    // None confirmed: none sent.
+    expect(
+      buildProductionRegistrationRequest(buildRegistrationRequest('supervisor', forms)).payload,
+    ).not.toHaveProperty('supervisor.overrides')
+    // Another's confirmation isn't theirs.
+    expect(() =>
+      buildProductionRegistrationRequest(buildRegistrationRequest('mentor', forms), {
+        'students.0.overrides.ConfirmEmailInvalidOverride': true,
+      }),
+    ).toThrow('Invalid registration warning override.')
+  })
+
   it("sends a student group's held code token, for the group to take", () => {
     const forms = createRegistrationForms()
     expect(
@@ -61,12 +87,12 @@ describe('production registration normalization', () => {
     expect(request.payload).not.toHaveProperty('supervisor')
   })
 
-  it('sends a nominated supervisor only when one was given, as it is optional', () => {
+  it('always sends supervisor details when registering individually or creating a group', () => {
     const forms = createRegistrationForms()
     for (const journey of ['student_individual', 'student_team'] as const) {
       expect(
         buildProductionRegistrationRequest(buildRegistrationRequest(journey, forms)).payload,
-      ).not.toHaveProperty('supervisor')
+      ).toHaveProperty('supervisor', { firstName: '', lastName: '', email: '' })
     }
     Object.assign(forms.studentIndividual.supervisor, {
       firstName: 'Sam',
@@ -119,6 +145,18 @@ describe('production registration normalization', () => {
     ).toThrow()
   })
 
+  it("sends the guardian-has-an-account and the named supervisor's name confirmations", () => {
+    const request = buildRegistrationRequest('student_individual', createRegistrationForms())
+    const normalized = buildProductionRegistrationRequest(request, {
+      'students.0.overrides.ConfirmGuardianEmailHasAccountOverride': true,
+      'students.0.overrides.ConfirmSupervisorNameEmailOverride': true,
+    })
+    expect(normalized.payload).toHaveProperty('students.0.overrides', {
+      ConfirmGuardianEmailHasAccountOverride: true,
+      ConfirmSupervisorNameEmailOverride: true,
+    })
+  })
+
   it("sends Member 1's own interests, and guardian details only when enabled", () => {
     const forms = createRegistrationForms()
     forms.studentTeam.creator.interests = ['Biomedical Innovations']
@@ -153,19 +191,13 @@ describe('production registration normalization', () => {
     ])
     expect(normalized.payload).toHaveProperty('source.rowNumbers', [2])
   })
-  it('asks a mentor for no safeguarding, demographic or attestation details', () => {
+  it("sends a mentor's checks and signature, and no older compliance or attestation details", () => {
     const forms = createRegistrationForms()
     const request = buildProductionRegistrationRequest(buildRegistrationRequest('mentor', forms))
-    for (const field of [
-      'safeguardingJurisdiction',
-      'indigenousStatus',
-      'languages',
-      'dateOfBirth',
-      'complianceDeclaration',
-      'attestation',
-    ]) {
+    for (const field of ['usydEngineering', 'studentId', 'dateOfBirth', 'wwccNumber', 'indigenous', 'languages', 'signature'])
+      expect(request.payload).toHaveProperty(`mentor.${field}`)
+    for (const field of ['safeguardingJurisdiction', 'indigenousStatus', 'complianceDeclaration', 'attestation'])
       expect(request.payload).not.toHaveProperty(`mentor.${field}`)
-    }
   })
 
   it('does not assign a new grouping preference or replace server validation', () => {

@@ -8,6 +8,7 @@ import {
   fetchUnmatchedGroups
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
+import { useIdleThreshold } from '@/composables/admin/useIdleThreshold'
 import {
   type MentorGroupRecommendation,
   type MentorMatchGroup,
@@ -22,19 +23,23 @@ export type {
   RecommendedMentor
 } from '@/utils/adminMatching'
 
-/** Copy for the mode selector — wording taken from the reference app. */
+/**
+ * Copy for the mode selector — wording taken from the reference app. In display
+ * order (Strict → Balanced → Coverage), matching Student Matching. Order is
+ * display only: the default mode is set in useMentorMatching().
+ */
 export const MENTOR_MATCH_MODES: { value: MentorMatchMode; label: string; description: string }[] = [
-  {
-    value: 'balanced',
-    label: 'Balanced',
-    description:
-      'Considers all available mentors for every group. Same-country mentors are preferred, but cross-country mentors can fill in when needed. Best overall coverage.'
-  },
   {
     value: 'strict',
     label: 'Strict',
     description:
       'Only matches groups with mentors from the same country (or GLOBAL mentors). Groups with no compatible mentor in their country will be left unmatched.'
+  },
+  {
+    value: 'balanced',
+    label: 'Balanced',
+    description:
+      'Considers all available mentors for every group. Same-country mentors are preferred, but cross-country mentors can fill in when needed. Best overall coverage.'
   },
   {
     value: 'coverage',
@@ -54,6 +59,9 @@ export type RecommendationSortKey =
   | 'score'
 
 export function useMentorMatching() {
+  // Shared with the Mentors and Matched Groups screens, and sent with the
+  // confirm so the server enforces the threshold the admin is working to.
+  const { idleDays } = useIdleThreshold()
   const loading = ref(false)
   /** Initial load of the two reference lists, before any match is run. */
   const loadingLists = ref(true)
@@ -382,7 +390,7 @@ export function useMentorMatching() {
     confirming.value = true
     error.value = ''
     try {
-      await confirmMentorAssignments(payload)
+      await confirmMentorAssignments(payload, { idleDays: idleDays.value })
       await run()
       return true
     } catch (confirmError) {

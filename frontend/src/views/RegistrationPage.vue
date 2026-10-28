@@ -46,7 +46,7 @@
         <!-- What Review showed, then when it was registered. -->
         <div class="success-body">
           <div class="success-intro">
-            <!-- Registration Complete, or a mentor's Application received, ticked. -->
+            <!-- Registration Complete, ticked. -->
             <h3>
               {{ successHeading }}
               <i class="fas fa-circle-check success-check" aria-hidden="true"></i>
@@ -182,75 +182,6 @@
           </span>
         </button>
       </div>
-      <!-- A supervisor from an earlier year comes back by confirming their email. -->
-      <p v-if="!invitationToken" class="supervisor-guidance">
-        Supervised in an earlier year?
-        <button type="button" class="supervisor-guidance__action" @click="startReturningSupervisor">
-          Confirm your email
-        </button>
-        to register your students again.
-      </p>
-    </section>
-
-    <!-- A supervisor back for a new year: Start new year deactivated their
-         account, so a code to their email brings it back and signs them in,
-         to register their students. -->
-    <section
-      v-else-if="!journey && selectionStage === 'returningSupervisor'"
-      class="setup-layout"
-      aria-labelledby="returning-supervisor-title"
-    >
-      <button type="button" class="btn btn-outline back-button setup-back" @click="backToRoleSelection">
-        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to Roles
-      </button>
-      <header class="page-header">
-        <h1 id="returning-supervisor-title" class="page-title">Supervising Again</h1>
-      </header>
-      <form class="returning-supervisor" novalidate @submit.prevent="submitReturningSupervisor">
-        <p class="returning-supervisor__intro">
-          Enter the email you supervised with. We'll email you a code: entering it brings your
-          account back and signs you in, to register your students.
-        </p>
-        <RegistrationTextField
-          id="returning-supervisor-email"
-          v-model="returningSupervisor.email"
-          label="Your email"
-          type="email"
-          autocomplete="email"
-          :disabled="returningSupervisor.codeSent"
-          required
-          wide
-        />
-        <RegistrationTextField
-          v-if="returningSupervisor.codeSent"
-          id="returning-supervisor-code"
-          v-model="returningSupervisor.code"
-          label="Code"
-          hint="The 6-digit code in the email we sent you."
-          autocomplete="one-time-code"
-          required
-        />
-        <p v-if="returningSupervisor.codeSent" class="returning-supervisor__note" role="status">
-          If that's a supervisor's email, we've emailed it a code.
-        </p>
-        <div v-if="returningSupervisor.error" class="server-error" role="alert">
-          <span>{{ returningSupervisor.error }}</span>
-        </div>
-        <div class="returning-supervisor__actions">
-          <button type="submit" class="primary-action" :disabled="returningSupervisor.busy">
-            {{ returningSupervisor.codeSent ? 'Confirm' : 'Email Me a Code' }}
-          </button>
-          <button
-            v-if="returningSupervisor.codeSent"
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="returningSupervisor.busy"
-            @click="changeReturningEmail"
-          >
-            Use Another Email
-          </button>
-        </div>
-      </form>
     </section>
 
     <section
@@ -333,11 +264,13 @@
         >
           <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
         </button>
-        <!-- The platform's own page heading; a supervisor's with the option's
-             description under it. -->
+        <!-- The platform's own page heading; a supervisor's, and a supervisor
+             registering themselves, with the option's description under it. -->
         <header class="page-header">
           <h1 class="page-title">{{ selectedJourney?.title }}</h1>
-          <p v-if="isSupervisorMode" class="page-subtitle">{{ selectedJourney?.description }}</p>
+          <p v-if="isSupervisorMode || journey === 'supervisor'" class="page-subtitle">
+            {{ selectedJourney?.description }}
+          </p>
           <!-- Register one student: who was just registered, the form empty
                again for the next. -->
           <p v-if="registeredNote" class="registered-note" role="status" data-test="registered-note">
@@ -379,46 +312,9 @@
         </div>
 
         <form novalidate :aria-busy="isSubmitting" @submit.prevent="handlePrimaryAction">
-          <section
-            v-if="registrationWarnings.length"
-            ref="warningSummaryRef"
-            class="registration-warnings"
-            role="alert"
-            tabindex="-1"
-            aria-labelledby="registration-warnings-title"
-          >
-            <h2 id="registration-warnings-title">Check before submitting</h2>
-            <p>
-              No registration has been saved. Correct the details, or confirm each item to continue.
-            </p>
-            <label v-for="warning in registrationWarnings" :key="warning.overrideField">
-              <input
-                v-model="warningAcknowledgements[warning.overrideField]"
-                type="checkbox"
-                :disabled="isSubmitting"
-              />
-              <span
-                ><strong>{{ warningSubject(warning) }}:</strong> {{ warning.message }}</span
-              >
-            </label>
-          </section>
-          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
           <div v-if="serverError" class="server-error" role="alert" tabindex="-1">
             <strong>We couldn’t submit this registration.</strong>
             <span>{{ serverError }}</span>
-          </div>
-
-          <div
-            v-if="errorMessages.length"
-            ref="errorSummaryRef"
-            class="error-summary"
-            role="alert"
-            tabindex="-1"
-          >
-            <strong>Information to review</strong>
-            <ul>
-              <li v-for="message in errorMessages" :key="message">{{ message }}</li>
-            </ul>
           </div>
 
           <section class="step-content" :aria-labelledby="stepHeadingId">
@@ -427,12 +323,12 @@
             </h2>
 
             <!-- An admin (Management > Registration): their students'
-                 supervisor first, if they have one, before the students: an
+                 supervisor first, before the students: an
                  existing supervisor, found by email. -->
             <div v-if="adminChoosesSupervisor && currentStep === 0" class="step-stack admin-supervisor">
               <div class="section-divider section-divider--first">
                 <h3>Supervisor</h3>
-                <p>A supervisor is usually a teacher, but can also be a guardian.</p>
+                <p>Enter an existing supervisor's email or select a suggestion. A supervisor can be a teacher or a parent.</p>
               </div>
               <SupervisorSearchField
                 id="admin-supervisor-email"
@@ -450,6 +346,8 @@
                 prefix="studentIndividual.student"
                 section="identity"
                 :errors="errors"
+                :email-state="emailChecks.stateOf"
+                @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
               />
 
               <RegistrationStudentEditor
@@ -458,41 +356,43 @@
                 prefix="studentIndividual.student"
                 section="profile"
                 :errors="errors"
-                show-optional-profile
-                :preview-url="photoPreviews['studentIndividual.student']"
-                @photo-selected="
-                  handlePhoto(forms.studentIndividual.student, 'studentIndividual.student', $event)
-                "
-                @remove-photo="
-                  removePhoto(forms.studentIndividual.student, 'studentIndividual.student')
-                "
+                :email-state="emailChecks.stateOf"
+                @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
                 <div class="section-divider section-divider--first">
                   <h3>Supervisor</h3>
-                  <p>A supervisor is usually a teacher, but can also be a guardian.</p>
+                  <p>Enter your supervisor's name and email. These details are required. Your supervisor can be a teacher or a parent.</p>
                 </div>
                 <div class="field-grid">
                   <RegistrationTextField
                     id="student-individual-supervisor-first"
                     v-model="forms.studentIndividual.supervisor.firstName"
                     label="Supervisor first name"
+                    required
                     :error="errors['studentIndividual.supervisor.firstName']"
                   />
                   <RegistrationTextField
                     id="student-individual-supervisor-last"
                     v-model="forms.studentIndividual.supervisor.lastName"
                     label="Supervisor last name"
+                    required
                     :error="errors['studentIndividual.supervisor.lastName']"
                   />
                   <RegistrationTextField
                     id="student-individual-supervisor-email"
                     v-model="forms.studentIndividual.supervisor.email"
                     label="Supervisor email"
+                    required
                     type="email"
                     :error="errors['studentIndividual.supervisor.email']"
                     wide
+                    @blur="checkOwnBox('studentIndividual.supervisor.email')"
+                  />
+                  <EmailCheckNote
+                    class="email-check-row"
+                    :state="ownBoxState('studentIndividual.supervisor.email')"
                   />
                 </div>
 
@@ -507,6 +407,8 @@
                   prefix="studentIndividual.student"
                   section="guardian"
                   :errors="errors"
+                  :email-state="emailChecks.stateOf"
+                  @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
                 />
               </div>
             </template>
@@ -518,6 +420,8 @@
                 prefix="studentTeam.creator"
                 section="identity"
                 :errors="errors"
+                :email-state="emailChecks.stateOf"
+                @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -531,7 +435,6 @@
                       id="student-team-join-code"
                       v-model="forms.studentTeam.joinCode"
                       label="Group code"
-                      placeholder="6-digit code"
                       autocomplete="off"
                       :hint="joinHint"
                       :error="joinError"
@@ -569,7 +472,7 @@
                           {{ groupCodeCopied ? 'Copied' : 'Copy' }}
                         </button>
                       </div>
-                      <p>It's held for you for 24 hours until you register.</p>
+                      <p>It's held for you for 4 months.</p>
                     </template>
                     <p v-else>
                       {{
@@ -582,28 +485,36 @@
                   <!-- The group's supervisor, on a line below its code. -->
                   <div class="section-divider">
                     <h3>Supervisor</h3>
-                    <p>A supervisor is usually a teacher, but can also be a guardian.</p>
+                    <p>Enter your supervisor's name and email. These details are required. Your supervisor can be a teacher or a parent.</p>
                   </div>
                   <div class="field-grid">
                     <RegistrationTextField
                       id="student-team-supervisor-first"
                       v-model="forms.studentTeam.supervisor.firstName"
                       label="Supervisor first name"
+                      required
                       :error="errors['studentTeam.supervisor.firstName']"
                     />
                     <RegistrationTextField
                       id="student-team-supervisor-last"
                       v-model="forms.studentTeam.supervisor.lastName"
                       label="Supervisor last name"
+                      required
                       :error="errors['studentTeam.supervisor.lastName']"
                     />
                     <RegistrationTextField
                       id="student-team-supervisor-email"
                       v-model="forms.studentTeam.supervisor.email"
                       label="Supervisor email"
+                      required
                       type="email"
                       :error="errors['studentTeam.supervisor.email']"
                       wide
+                      @blur="checkOwnBox('studentTeam.supervisor.email')"
+                    />
+                    <EmailCheckNote
+                      class="email-check-row"
+                      :state="ownBoxState('studentTeam.supervisor.email')"
                     />
                   </div>
                   <!-- Its members: Member 1 (the student), then the others. -->
@@ -653,6 +564,8 @@
                       :school-suggestions="teamSchoolsBesides(index)"
                       :region-suggestions="teamRegionsBesides(index)"
                       allow-guardian-defer
+                      :email-state="emailChecks.stateOf"
+                      @box-left="checkStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], $event)"
                     />
                   </div>
                 </template>
@@ -664,12 +577,8 @@
                   prefix="studentTeam.creator"
                   section="profile"
                   :errors="errors"
-                  show-optional-profile
-                  :preview-url="photoPreviews['studentTeam.creator']"
-                  @photo-selected="
-                    handlePhoto(forms.studentTeam.creator, 'studentTeam.creator', $event)
-                  "
-                  @remove-photo="removePhoto(forms.studentTeam.creator, 'studentTeam.creator')"
+                  :email-state="emailChecks.stateOf"
+                  @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
                 />
                 <div class="section-divider">
                   <h3>Guardian contact</h3>
@@ -680,6 +589,8 @@
                   prefix="studentTeam.creator"
                   section="guardian"
                   :errors="errors"
+                  :email-state="emailChecks.stateOf"
+                  @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
                 />
               </div>
             </template>
@@ -709,6 +620,8 @@
                     :school-suggestions="supervisedSchoolsBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
                     :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
                     allow-guardian-defer
+                    :email-state="emailChecks.stateOf"
+                    @box-left="checkStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, $event)"
                   />
                 </div>
                 <div
@@ -734,6 +647,8 @@
                     :school-suggestions="supervisedSchoolsBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
                     :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
                     allow-guardian-defer
+                    :email-state="emailChecks.stateOf"
+                    @box-left="checkStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], $event)"
                   />
                 </div>
               </div>
@@ -775,6 +690,8 @@
                     :school-suggestions="supervisedSchoolsBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
                     :region-suggestions="supervisedStatesBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
                     allow-guardian-defer
+                    :email-state="emailChecks.stateOf"
+                    @box-left="checkStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], $event)"
                   />
                 </div>
               </div>
@@ -826,6 +743,11 @@
                     <code>Guardian Last Name</code> and <code>Guardian Email</code> are optional.<br />
                     Extra columns and rows are ignored.
                   </p>
+                  <p class="template-example-note" data-test="template-example-note">
+                    The template has an example row ({{ CSV_EXAMPLE_ROW.first_name }}
+                    {{ CSV_EXAMPLE_ROW.last_name }}) to show how to fill it in. It won't be
+                    registered: leave it in or delete it.
+                  </p>
                 </div>
                 <label class="csv-upload">
                   <span
@@ -842,6 +764,9 @@
                     {{ errors['supervisorCsv.file'] }}
                   </strong>
                 </label>
+                <p v-if="csvExampleRows.length" class="template-example-note" role="status" data-test="template-example-left-out">
+                  Row {{ csvExampleRows.join(', ') }} is the template's example, so it won't be registered.
+                </p>
                 <div v-if="csvFileErrors.length" class="server-error" role="alert">
                   <strong>The CSV could not be previewed.</strong>
                   <span v-for="message in csvFileErrors" :key="message">{{ message }}</span>
@@ -891,8 +816,11 @@
                     :errors="{
                       ...editingCsvRow.fieldErrors,
                       ...csvServerFieldsByRow[editingCsvRow.rowNumber],
+                      ...csvEmailProblems(editingCsvRow),
                     }"
+                    :email-state="emailChecks.stateOf"
                     @update:values="updateCsvRow(editingCsvRow, $event)"
+                    @box-left="checkEditingCsvBox"
                   />
                   <footer class="csv-editor-footer">
                     <button type="button" class="primary-action" @click="closeCsvEditor">
@@ -977,6 +905,11 @@
                   :error="errors['mentor.email']"
                   required
                   wide
+                  @blur="checkOwnBox('mentor.email')"
+                />
+                <EmailCheckNote
+                  class="email-check-row"
+                  :state="ownBoxState('mentor.email')"
                 />
                 <RegistrationTextField
                   id="mentor-country"
@@ -1072,6 +1005,49 @@
                     :wide="!['undergraduate', 'postgraduate'].includes(forms.mentor.affiliation)"
                   />
                 </div>
+
+                <!-- A University of Sydney student: Engineering there earns PEP
+                     hours; if so, their student ID. -->
+                <template v-if="askUsydEngineering">
+                  <fieldset
+                    class="choice-fieldset"
+                    :aria-invalid="Boolean(errors['mentor.usydEngineering'])"
+                    aria-describedby="mentor-usyd-description"
+                  >
+                    <legend>
+                      Are you studying Engineering at USYD?
+                      <span class="required-mark" aria-hidden="true">*</span>
+                    </legend>
+                    <p id="mentor-usyd-description" class="fieldset-help">
+                      If so, you will be awarded 5 PEP hours per group you mentor, up to 15hrs
+                    </p>
+                    <div class="affiliation-options">
+                      <label v-for="option in YES_NO_OPTIONS" :key="option.value">
+                        <input
+                          v-model="forms.mentor.usydEngineering"
+                          type="radio"
+                          name="mentor-usyd-engineering"
+                          :value="option.value"
+                          :aria-invalid="Boolean(errors['mentor.usydEngineering'])"
+                        />
+                        <span>{{ option.label }}</span>
+                      </label>
+                    </div>
+                    <span v-if="errors['mentor.usydEngineering']" class="inline-error">
+                      {{ errors['mentor.usydEngineering'] }}
+                    </span>
+                  </fieldset>
+                  <div v-if="forms.mentor.usydEngineering === 'yes'" class="field-grid">
+                    <RegistrationTextField
+                      id="mentor-student-id"
+                      v-model="forms.mentor.studentId"
+                      label="Student ID"
+                      description="e.g. 123456789"
+                      :error="errors['mentor.studentId']"
+                      required
+                    />
+                  </div>
+                </template>
               </div>
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -1126,6 +1102,76 @@
                 />
               </div>
 
+              <!-- In Australia alone: their check, and a little about them. -->
+              <div v-else-if="currentStepDefinition.label === MENTOR_CHECKS_STEP.label" class="step-stack">
+                <div class="field-grid">
+                  <RegistrationTextField
+                    id="mentor-dob"
+                    v-model="forms.mentor.dateOfBirth"
+                    label="Date of Birth"
+                    type="date"
+                    description="Note: This is used for WWCC verification and is deleted after use."
+                    autocomplete="bday"
+                    :error="errors['mentor.dateOfBirth']"
+                    required
+                  />
+                  <RegistrationTextField
+                    id="mentor-wwcc"
+                    v-model="forms.mentor.wwccNumber"
+                    :label="mentorWwcc.label"
+                    :error="errors['mentor.wwccNumber']"
+                    required
+                    wide
+                  >
+                    <template #description>
+                      {{ mentorWwcc.check }} is required to mentor for BIOTech Futures.
+                      <template v-if="mentorWwcc.url">
+                        Apply for a check via
+                        <a :href="mentorWwcc.url" target="_blank" rel="noopener noreferrer">{{ mentorWwcc.url }}</a>.
+                      </template>
+                      If your application is pending, please provide your application number.
+                    </template>
+                  </RegistrationTextField>
+                </div>
+                <fieldset class="choice-fieldset" :aria-invalid="Boolean(errors['mentor.indigenous'])">
+                  <legend>
+                    Do you identify as Aboriginal or Torres Strait Islander?
+                    <span class="required-mark" aria-hidden="true">*</span>
+                  </legend>
+                  <div class="affiliation-options">
+                    <label v-for="option in INDIGENOUS_OPTIONS" :key="option.value">
+                      <input
+                        v-model="forms.mentor.indigenous"
+                        type="radio"
+                        name="mentor-indigenous"
+                        :value="option.value"
+                        :aria-invalid="Boolean(errors['mentor.indigenous'])"
+                      />
+                      <span>{{ option.label }}</span>
+                    </label>
+                  </div>
+                  <span v-if="errors['mentor.indigenous']" class="inline-error">
+                    {{ errors['mentor.indigenous'] }}
+                  </span>
+                </fieldset>
+                <RegistrationInterestSelector
+                  id="mentor-languages"
+                  v-model="forms.mentor.languages"
+                  label="Languages Spoken"
+                  :options="LANGUAGE_OPTIONS"
+                  :error="errors['mentor.languages']"
+                />
+                <div v-if="forms.mentor.languages.includes(LANGUAGE_OTHER)" class="field-grid">
+                  <RegistrationTextField
+                    id="mentor-languages-other"
+                    v-model="forms.mentor.languagesOther"
+                    label="Other language(s)"
+                    :error="errors['mentor.languagesOther']"
+                    required
+                  />
+                </div>
+              </div>
+
             </template>
 
             <template v-else-if="journey === 'supervisor'">
@@ -1155,6 +1201,11 @@
                   :error="errors['supervisor.email']"
                   required
                   wide
+                  @blur="checkOwnBox('supervisor.email')"
+                />
+                <EmailCheckNote
+                  class="email-check-row"
+                  :state="ownBoxState('supervisor.email')"
                 />
               </div>
 
@@ -1197,17 +1248,6 @@
                   :optional="!isAustralia(forms.supervisor.country)"
                 />
               </div>
-              <RegistrationProfileExtras
-                v-if="currentStep === 1"
-                v-model:pronouns="forms.supervisor.pronouns"
-                v-model:pronouns-other="forms.supervisor.pronounsOther"
-                class="supervisor-extras"
-                prefix="supervisor"
-                :errors="errors"
-                :preview-url="photoPreviews['supervisor']"
-                @photo-selected="handlePhoto(forms.supervisor, 'supervisor', $event)"
-                @remove-photo="removePhoto(forms.supervisor, 'supervisor')"
-              />
             </template>
 
             <div v-if="isReviewStep" class="review-step">
@@ -1243,6 +1283,36 @@
               </div>
             </div>
 
+            <!-- A mentor signs that the form is true, above the policies. -->
+            <section
+              v-if="journey === 'mentor' && isReviewStep"
+              ref="signatureRef"
+              class="mentor-sign"
+              tabindex="-1"
+              aria-labelledby="mentor-sign-title"
+            >
+              <h3 id="mentor-sign-title">
+                Sign the box <span class="required-mark" aria-hidden="true">*</span>
+              </h3>
+              <p class="fieldset-help">
+                Sign in the box below to confirm that you have completed all fields in this form
+                truthfully, to the best of your knowledge. Click the <em>Submit</em> button once you
+                are finished.
+              </p>
+              <SignaturePad
+                class="mentor-sign__pad"
+                :invalid="Boolean(errors['mentor.signature'] || signatureError)"
+                @change="forms.mentor.signature = $event ?? ''"
+              />
+              <p
+                v-if="errors['mentor.signature'] || signatureError"
+                class="policies-agree__error"
+                role="alert"
+              >
+                {{ errors['mentor.signature'] || signatureError }}
+              </p>
+            </section>
+
             <!-- BIOTech Futures' policies, agreed to before submitting: the
                  last step of a student's or mentor's own registration (not a
                  supervisor's or admin's registering students for them). -->
@@ -1266,7 +1336,68 @@
                 {{ policiesError }}
               </p>
             </div>
+
           </section>
+
+          <!-- Submit's warnings, each ticked to confirm: just above Submit, after
+               the policies, so they're all ticked in one place. -->
+          <section
+            v-if="registrationWarnings.length"
+            ref="warningSummaryRef"
+            class="registration-warnings"
+            role="alert"
+            tabindex="-1"
+            aria-labelledby="registration-warnings-title"
+          >
+            <h2 id="registration-warnings-title">Check before submitting</h2>
+            <p>
+              No registration has been saved. Correct the details, or confirm each item to continue.
+            </p>
+            <!-- A CSV's email address warnings, all at once; its school and
+                 name warnings stay one by one. -->
+            <label
+              v-if="csvEmailWarnings.length > 1"
+              class="registration-warnings__all"
+              data-test="confirm-all-email-warnings"
+            >
+              <input
+                type="checkbox"
+                :checked="allCsvEmailWarningsTicked"
+                :disabled="isSubmitting"
+                @change="tickCsvEmailWarnings"
+              />
+              <span
+                ><strong>Confirm all {{ csvEmailWarnings.length }} email address warnings</strong></span
+              >
+            </label>
+            <label v-for="warning in registrationWarnings" :key="warning.overrideField">
+              <input
+                v-model="warningAcknowledgements[warning.overrideField]"
+                type="checkbox"
+                :disabled="isSubmitting"
+              />
+              <span
+                ><strong>{{ warningSubject(warning) }}:</strong> {{ warning.message }}</span
+              >
+            </label>
+          </section>
+
+          <!-- What Continue or Submit was stopped by, last before them. -->
+          <div
+            v-if="errorMessages.length"
+            ref="errorSummaryRef"
+            class="error-summary"
+            role="alert"
+            tabindex="-1"
+          >
+            <strong>Information to review</strong>
+            <ul>
+              <li v-for="message in errorMessages" :key="message">{{ message }}</li>
+            </ul>
+          </div>
+
+          <!-- The email check Submit waits for, just above it. -->
+          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
 
           <!-- On the right; the steps above go back, and Back to the
                options. A group's students are added here. -->
@@ -1333,15 +1464,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { RouterLink, useRouter } from 'vue-router'
-import { SUPERVISOR_REGISTRATION_PATH } from '@/router/supervisorRegistrationRoute'
-import {
-  confirmReturningSupervisor,
-  sendReturningSupervisorCode,
-} from '@/registration/returningSupervisor'
-import { apiErrorFromUnknown } from '@/utils/apiError'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
@@ -1351,8 +1476,8 @@ import MentorCapacityPills from '@/components/MentorCapacityPills.vue'
 import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
-import RegistrationProfileExtras from '@/components/registration/RegistrationProfileExtras.vue'
-import { SUPPORT_EMAIL } from '@/constants/brand'
+import SignaturePad from '@/components/consent/SignaturePad.vue'
+import { POLICIES_URL, SUPPORT_EMAIL } from '@/constants/brand'
 import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import {
@@ -1362,10 +1487,20 @@ import {
   type GroupCodeCheck,
 } from '@/registration/groupCode'
 import { clearDraft, readDraft, saveDraft } from '@/registration/registrationDraft'
-import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
+import {
+  australianStateNames,
+  countryNames,
+  useCountryOptions,
+  useStateOptions,
+  useUniversityNames,
+} from '@/registration/useLocationOptions'
 import { useEmailPrecheck } from '@/registration/useEmailPrecheck'
 import EmailCheckProgress from '@/components/registration/EmailCheckProgress.vue'
+import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
+import { useEmailFieldChecks, type EmailBox, type StudentBoxField } from '@/registration/emailFieldCheck'
+import { studentRequestPrefixes } from '@/registration/productionRegistration'
 import { formatDayMonthTime } from '@/utils/date'
+import { MENTOR_BACKGROUND_OPTIONS } from '@/utils/userOptions'
 import {
   buildRegistrationRequest,
   REGISTRATION_GATEWAY_KEY,
@@ -1382,16 +1517,22 @@ import {
   createPendingPeer,
   countWords,
   findCrossRoleEmailConflicts,
-  hasSupervisor,
   isAustralia,
   isBlankStudent,
+  isUsyd,
   isValidRegistrationEmail,
+  LANGUAGE_OPTIONS,
+  LANGUAGE_OTHER,
   parseRegistrationCsv,
-  registrationCsvTemplate,
+  registrationTemplateRows,
+  CSV_EXAMPLE_NOTE,
+  CSV_EXAMPLE_ROW,
   MENTOR_MAX_WORDS,
   revalidateRegistrationCsvRows,
   stateLabel,
   supervisorSummary,
+  UNIVERSITY_STUDENTS,
+  wwccFor,
   type CsvCategory,
   type CsvHeader,
   type CsvRow,
@@ -1402,11 +1543,8 @@ import {
   type SupervisorDetails,
   type SupervisorGroupForm,
 } from '@/registration/registration'
-import { isXlsx, sheetAsCsv } from '@/registration/registrationSheet'
+import { isXlsx, sheetAsCsv, templateSheet } from '@/registration/registrationSheet'
 import { holdRegistrationPassword, REGISTRATION_PASSWORD_PATH } from '@/registration/registrationPassword'
-
-/** Whose photo: a student's, or a supervisor's registering themselves. */
-type PhotoHolder = Pick<StudentDetails, 'profilePhoto'>
 
 interface StepDefinition {
   label: string
@@ -1423,8 +1561,7 @@ interface JourneyOption {
 }
 
 type RegistrationRole = 'student' | 'supervisor' | 'mentor'
-// ``returningSupervisor``: a supervisor from an earlier year confirming their email.
-type SelectionStage = 'role' | 'pathway' | 'returningSupervisor'
+type SelectionStage = 'role' | 'pathway'
 
 interface RoleOption {
   value: RegistrationRole
@@ -1469,15 +1606,13 @@ const memberParts = (student: StudentDetails) => [
   `Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
 ]
 
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 const MAX_CSV_BYTES = 2 * 1024 * 1024
 const initialInvitationToken =
   new URLSearchParams(window.location.hash.split('?')[1] || window.location.search).get('invite') ||
   undefined
-const allowedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const emailLikePattern = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i
 const guardianContactExplanation =
-  'Your nominated guardian must provide permission through the existing guardian consent process before you can access most features of the program. Registration saves their contact details. It does not send a permission email or record consent.'
+  'Your nominated guardian must provide permission through the existing guardian consent process before you can access most features of the program. Registration saves their contact details.'
 
 const roleOptions: RoleOption[] = [
   {
@@ -1493,7 +1628,7 @@ const roleOptions: RoleOption[] = [
   {
     value: 'supervisor',
     title: 'Supervisor',
-    description: 'Sign up to register your students and follow their progress.',
+    description: 'Sign up to register your students and follow their progress. Supervisors can be teachers or parents.',
   },
 ]
 
@@ -1649,7 +1784,7 @@ const journeyOptions: JourneyOption[] = [
     value: 'supervisor',
     role: 'Supervisor',
     title: 'Register as a supervisor',
-    description: 'Share your contact details and school, and review information.',
+    description: 'Share your contact details and school, and review information. Supervisors can be teachers or parents.',
     steps: [
       {
         label: 'Contact',
@@ -1659,7 +1794,7 @@ const journeyOptions: JourneyOption[] = [
       {
         label: 'School & profile',
         title: 'Your school and profile',
-        description: 'The school your students attend, and optionally your pronouns and photo.',
+        description: 'The school your students attend.',
       },
       {
         label: 'Review',
@@ -1685,15 +1820,49 @@ const CAPACITY_OPTIONS = (['1', '2', '3', '4', '5'] as const).map((count) => ({
   label: `${count} ${count === '1' ? 'group' : 'groups'}`,
 }))
 
+// An answer's words on Review.
+const answerLabel = (options: Array<{ value: string; label: string }>, value: string) =>
+  options.find((option) => option.value === value)?.label || ''
+// The languages a mentor speaks, with Other's typed in.
+const mentorLanguages = () =>
+  forms.mentor.languages.flatMap((language) =>
+    language === LANGUAGE_OTHER ? [forms.mentor.languagesOther.trim()].filter(Boolean) : [language],
+  )
+// "12 April 1999", from the date box's 1999-04-12.
+const longDate = (iso: string) => {
+  const [year, month, day] = iso.split('-').map(Number)
+  if (!year || !month || !day) return iso
+  return new Date(year, month - 1, day).toLocaleDateString('en-AU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+// Today in the date box's form, in this browser's time zone.
+const todayIso = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+const YES_NO_OPTIONS: Array<{ value: MentorForm['usydEngineering']; label: string }> = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+]
+const INDIGENOUS_OPTIONS: Array<{ value: MentorForm['indigenous']; label: string }> = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+  { value: 'prefer_not', label: 'Prefer not to answer' },
+]
+
 // The same backgrounds, in the same words, as everywhere a mentor's are shown:
 // from an undergraduate student up to industry.
-const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> = [
-  { value: 'undergraduate', label: 'University Student – Undergraduate' },
-  { value: 'postgraduate', label: 'University Student – Postgraduate' },
-  { value: 'hdr', label: 'University Student – HDR' },
-  { value: 'academic', label: 'Academic' },
-  { value: 'industry', label: 'Industry' },
-]
+// The same five the admin panel offers, from the one shared list (AM2), so a
+// mentor picks here exactly what an admin sees later.
+const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> =
+  MENTOR_BACKGROUND_OPTIONS.map(({ value, label }) => ({
+    value: value as MentorForm['affiliation'],
+    label
+  }))
 
 const props = withDefaults(
   defineProps<{
@@ -1752,7 +1921,7 @@ if (draft) {
   const blank = createRegistrationForms()
   forms.studentIndividual = { ...blank.studentIndividual, ...draft.forms.studentIndividual }
   forms.studentTeam = { ...blank.studentTeam, ...draft.forms.studentTeam }
-  forms.mentor = { ...blank.mentor, ...draft.forms.mentor }
+  forms.mentor = { ...blank.mentor, ...draft.forms.mentor, signature: '' }
   forms.supervisor = { ...blank.supervisor, ...draft.forms.supervisor }
 }
 // The countries, and in Australia its states, from the database, for the
@@ -1761,6 +1930,12 @@ const mentorCountryOptions = useCountryOptions()
 // Offered as a mentor types their university (Management > Known Universities).
 const universityNames = useUniversityNames()
 const mentorStateOptions = useStateOptions(() => forms.mentor.country)
+// Asked of a University of Sydney student, on Affiliation.
+const askUsydEngineering = computed(
+  () => UNIVERSITY_STUDENTS.includes(forms.mentor.affiliation) && isUsyd(forms.mentor.institution),
+)
+// The Working with Children Check their state asks for.
+const mentorWwcc = computed(() => wwccFor(forms.mentor.state))
 // Another country: its state or region starts again, but only from one they'd
 // picked (none to start).
 watch(
@@ -1794,23 +1969,176 @@ if (draft) {
   currentStep.value = draft.currentStep
   maxReachedStep.value = draft.maxReachedStep
 }
+// A sign-up (a student's, a mentor's or a supervisor's own) starts in the
+// country, and Australia's state, the computer says it's in: chosen for them,
+// changed as any other. Only while Country is empty, so never over theirs.
+const ownPlace = (current: RegistrationJourney | null): { country: string; state: string } | null => {
+  if (isSupervisorMode.value) return null
+  if (current === 'student_individual') return forms.studentIndividual.student
+  if (current === 'student_team') return forms.studentTeam.creator
+  if (current === 'mentor') return forms.mentor
+  if (current === 'supervisor') return forms.supervisor
+  return null
+}
+watch(
+  journey,
+  async (current) => {
+    const place = ownPlace(current)
+    if (!place || place.country) return
+    const [{ detectPlace }, countries, states] = await Promise.all([
+      import('@/registration/detectPlace'),
+      countryNames(),
+      australianStateNames(),
+    ])
+    const detected = detectPlace(countries, states)
+    if (!detected || journey.value !== current || place.country) return
+    place.country = detected.country
+    if (!place.state) place.state = detected.state
+  },
+  { immediate: true },
+)
 const clientErrors = reactive<Record<string, string>>({})
 const serverFieldErrors = reactive<Record<string, string>>({})
 const errors = computed<Record<string, string>>(() => ({
   ...serverFieldErrors,
+  // An email box's hard problem, once it's left (emailChecks, below).
+  ...emailChecks.hardProblems(boxEmail),
   ...clientErrors,
 }))
 const csvFileErrors = ref<string[]>([])
 const editingCsvRowNumber = ref<number | null>(null)
 const csvEditorHeadingRef = ref<HTMLElement | null>(null)
-const photoPreviews = reactive<Record<string, string>>({})
-const photoFiles = new WeakMap<PhotoHolder, File>()
 let submissionKey = ''
 let submissionSignature = ''
 const serverError = ref('')
 const registrationWarnings = ref<RegistrationWarning[]>([])
 const warningAcknowledgements = reactive<Record<string, boolean>>({})
 const warningOverrides = ref<Record<string, boolean>>({})
+
+// Each email box (and each student's School), checked as it's left
+// (registration/emailFieldCheck): a hard problem is the box's error and keeps
+// its step from going on; a warning is only shown under it, and Submit asks
+// for it to be ticked, just above its button.
+const emailChecks = useEmailFieldChecks({
+  // Through the page's gateway, as Submit goes: none, no check.
+  request: (body) => registrationGateway.checkEmailField?.(body) ?? Promise.resolve(null),
+  journey: () => journey.value,
+})
+// A student's place in the registration as Submit sends it, for their
+// warnings' confirmations: a supervisor's extra students follow Student 1.
+const studentIndexOf = (prefix: string) => {
+  const extra = /^supervisorIndividual\.extraStudents\.(\d+)$/.exec(prefix)
+  if (extra) return Number(extra[1]) + 1
+  if (!journey.value) return 0
+  try {
+    return Math.max(0, studentRequestPrefixes(buildRegistrationRequest(journey.value, forms)).indexOf(prefix))
+  } catch {
+    return 0
+  }
+}
+// A student's or their guardian's email box, or the student's School
+// (RegistrationStudentEditor's).
+const studentBox = (prefix: string, student: StudentDetails, field: StudentBoxField): EmailBox => {
+  if (field === 'school') {
+    return { field: `${prefix}.school`, kind: 'school', email: '', school: student.school, student: studentIndexOf(prefix) }
+  }
+  return field === 'email'
+    ? {
+        field: `${prefix}.email`, kind: 'student', email: student.email,
+        student: studentIndexOf(prefix), firstName: student.firstName, lastName: student.lastName,
+      }
+    : {
+        field: `${prefix}.guardian.email`, kind: 'guardian', email: student.guardian.email,
+        student: studentIndexOf(prefix), studentEmail: student.email,
+      }
+}
+const checkStudentBox = (prefix: string, student: StudentDetails, field: StudentBoxField) =>
+  emailChecks.check(studentBox(prefix, student, field))
+// The registration's own boxes: the supervisor a student names, and a mentor's
+// or supervisor's own address.
+const ownBoxes = {
+  'studentIndividual.supervisor.email': (): EmailBox => ({
+    field: 'studentIndividual.supervisor.email', kind: 'supervisor',
+    email: forms.studentIndividual.supervisor.email, studentEmail: forms.studentIndividual.student.email,
+    firstName: forms.studentIndividual.supervisor.firstName, lastName: forms.studentIndividual.supervisor.lastName,
+  }),
+  'studentTeam.supervisor.email': (): EmailBox => ({
+    field: 'studentTeam.supervisor.email', kind: 'supervisor',
+    email: forms.studentTeam.supervisor.email, studentEmail: forms.studentTeam.creator.email,
+    firstName: forms.studentTeam.supervisor.firstName, lastName: forms.studentTeam.supervisor.lastName,
+  }),
+  'mentor.email': (): EmailBox => ({
+    field: 'mentor.email', kind: 'mentor', email: forms.mentor.email,
+    firstName: forms.mentor.firstName, lastName: forms.mentor.lastName,
+  }),
+  'supervisor.email': (): EmailBox => ({
+    field: 'supervisor.email', kind: 'supervisor_self', email: forms.supervisor.email,
+    firstName: forms.supervisor.firstName, lastName: forms.supervisor.lastName,
+  }),
+}
+type OwnBox = keyof typeof ownBoxes
+const checkOwnBox = (path: OwnBox) => emailChecks.check(ownBoxes[path]())
+const ownBoxState = (path: OwnBox) => emailChecks.stateOf(path, ownBoxes[path]().email)
+// The forms' value at a dotted path ("studentTeam.teammates.1"), if any.
+const valueAtPath = (root: unknown, path: string): unknown =>
+  path.split('.').reduce<unknown>(
+    (value, key) => (value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined),
+    root,
+  )
+// A CSV row's boxes, as its editor names them (csv-row-<number>), the student
+// its place among the rows Submit sends.
+const csvRowIndex = (row: CsvRow) => {
+  try {
+    const request = buildRegistrationRequest('supervisor_csv', forms)
+    return request.journey === 'supervisor_csv'
+      ? Math.max(0, request.payload.rows.findIndex((sent) => sent.rowNumber === row.rowNumber))
+      : 0
+  } catch {
+    return 0
+  }
+}
+const csvBox = (row: CsvRow, field: StudentBoxField): EmailBox => {
+  if (field === 'school') {
+    return {
+      field: `csv-row-${row.rowNumber}.school`, kind: 'school', email: '', school: row.values.school,
+      student: csvRowIndex(row),
+    }
+  }
+  return field === 'email'
+    ? {
+        field: `csv-row-${row.rowNumber}.email`, kind: 'student', email: row.values.email,
+        student: csvRowIndex(row), firstName: row.values.first_name, lastName: row.values.last_name,
+      }
+    : {
+        field: `csv-row-${row.rowNumber}.guardian.email`, kind: 'guardian', email: row.values.guardian_email,
+        student: csvRowIndex(row), studentEmail: row.values.email,
+      }
+}
+// The row being edited (editingCsvRow, below)'s boxes.
+const checkEditingCsvBox = (field: StudentBoxField) => {
+  const row = editingCsvRow.value
+  return row ? emailChecks.check(csvBox(row, field)) : Promise.resolve()
+}
+// A row's hard problems, as its editor's own errors (by column).
+const csvEmailProblems = (row: CsvRow): Partial<Record<CsvHeader, string>> => {
+  const problems = emailChecks.hardProblems(boxEmail)
+  const email = problems[`csv-row-${row.rowNumber}.email`]
+  const guardian = problems[`csv-row-${row.rowNumber}.guardian.email`]
+  return { ...(email ? { email } : {}), ...(guardian ? { guardian_email: guardian } : {}) }
+}
+// What each checked box holds now, to tell a check about it from an older one.
+const boxEmail = (path: string): string => {
+  if (path in ownBoxes) return ownBoxes[path as OwnBox]().email
+  const csv = /^csv-row-(\d+)\.(email|guardian\.email)$/.exec(path)
+  if (csv) {
+    const row = forms.supervisorCsv.rows.find((item) => item.rowNumber === Number(csv[1]))
+    return row ? (csv[2] === 'email' ? row.values.email : row.values.guardian_email) : ''
+  }
+  const guardian = path.endsWith('.guardian.email')
+  const student = valueAtPath(forms, path.replace(guardian ? /\.guardian\.email$/ : /\.email$/, ''))
+  if (!student || typeof student !== 'object') return ''
+  return guardian ? (student as StudentDetails).guardian.email : (student as StudentDetails).email
+}
 const warningSummaryRef = ref<HTMLElement | null>(null)
 const isSubmitting = ref(false)
 const success = ref<RegistrationReceipt | null>(null)
@@ -2023,12 +2351,10 @@ const visibleRoleOptions = computed(() =>
         registrationGateway.supportedJourneys.includes(role.value)),
   ),
 )
-const successHeading = computed(() =>
-  journey.value === 'mentor' ? 'Application received' : 'Registration Complete',
-)
+const successHeading = computed(() => 'Registration Complete')
 const successNote = computed(() =>
   journey.value === 'mentor'
-    ? 'Your application is pending administrator review.'
+    ? 'You can now sign in.'
     : journey.value === 'supervisor'
       ? 'You can now sign in to register your students.'
       : 'Guardian consent is still required before full registration.',
@@ -2040,25 +2366,54 @@ const ADDED_STUDENTS_REVIEW = {
   title: 'Review the student registration',
   description: 'Check the record before saving.',
 }
+// A mentor in Australia: their Working with Children Check and a little
+// about them, on a step of its own before Review.
+const MENTOR_CHECKS_STEP = {
+  label: 'Checks',
+  title: 'Your Working with Children Check',
+  description: 'Required to mentor in Australia, with a little about you.',
+}
 const steps = computed(() => {
   const own = selectedJourney.value?.steps || []
+  if (journey.value === 'mentor' && isAustralia(forms.mentor.country))
+    return [...own.slice(0, -1), MENTOR_CHECKS_STEP, ...own.slice(-1)]
   return journey.value === 'supervisor_individual' && forms.supervisorIndividual.extraStudents.length
     ? [...own, ADDED_STUDENTS_REVIEW]
     : own
 })
+// Fewer steps (a mentor's country no longer Australia): none past Review.
+watch(
+  () => steps.value.length,
+  (count) => {
+    maxReachedStep.value = Math.min(maxReachedStep.value, Math.max(count - 1, 0))
+    currentStep.value = Math.min(currentStep.value, Math.max(count - 1, 0))
+  },
+)
 // Every journey's last step is Review, but Register one student's on its own.
 const isReviewStepIndex = (index: number) => steps.value[index]?.label === 'Review'
 const isReviewStep = computed(() => isReviewStepIndex(currentStep.value))
 
 // BIOTech Futures' policies: ticked on the last step to submit, and asked
 // again for each registration (a new journey, or after one is sent).
-const POLICIES_URL = 'https://www.biotechfutures.org/policies'
 const policiesAgreed = ref(false)
 // Asked of those registering themselves; a supervisor or admin registering
 // students isn't agreeing for them.
 const policiesAsked = computed(() => !(journey.value && SUPERVISOR_JOURNEYS.includes(journey.value)))
 const policiesError = ref('')
 const policiesRef = ref<HTMLInputElement | null>(null)
+// A mentor's signature on Review: drawn again each time they come back to it,
+// as the box starts empty.
+const signatureError = ref('')
+const signatureRef = ref<HTMLElement | null>(null)
+watch(
+  () => forms.mentor.signature,
+  (signed) => {
+    if (signed) signatureError.value = ''
+  },
+)
+watch(isReviewStep, (onReview) => {
+  if (!onReview) forms.mentor.signature = ''
+})
 watch(policiesAgreed, (agreed) => {
   if (agreed) policiesError.value = ''
 })
@@ -2118,18 +2473,57 @@ const currentStepDefinition = computed(
     },
 )
 const stepHeadingId = computed(() => `registration-step-${currentStep.value + 1}`)
-const errorMessages = computed(() => [...new Set(Object.values(errors.value))])
+// What Continue or Submit was stopped by: the step's own errors, the server's,
+// and an email box's hard problem while it's there (under its box as soon as
+// it's left, but listed here only once Continue or Submit was pressed).
+const reviewedEmailProblems = ref<string[]>([])
+const errorMessages = computed(() => {
+  const live = emailChecks.hardProblems(boxEmail)
+  return [
+    ...new Set([
+      ...Object.values(serverFieldErrors),
+      // A box's own message from the page or the server says it instead, as
+      // under the box: one message for one box.
+      ...reviewedEmailProblems.value
+        .filter((path) => !clientErrors[path] && !serverFieldErrors[path])
+        .map((path) => live[path])
+        .filter((message): message is string => !!message),
+      ...Object.values(clientErrors),
+    ]),
+  ]
+})
 const includedCsvRows = computed(() =>
   forms.supervisorCsv.rows.filter(
     (row) => !forms.supervisorCsv.excludedRowNumbers.includes(row.rowNumber),
   ),
 )
+// A CSV's warnings about a student's or guardian's mailbox (not found, or
+// can't be confirmed), which one tick can confirm together.
+const CSV_EMAIL_OVERRIDES = new Set(['ConfirmEmailInvalidOverride', 'ConfirmGuardianEmailInvalidOverride'])
+const csvEmailWarnings = computed(() =>
+  journey.value === 'supervisor_csv'
+    ? registrationWarnings.value.filter((warning) =>
+        CSV_EMAIL_OVERRIDES.has(warning.overrideField.split('.').pop() ?? ''),
+      )
+    : [],
+)
+const allCsvEmailWarningsTicked = computed(() =>
+  csvEmailWarnings.value.every((warning) => warningAcknowledgements[warning.overrideField]),
+)
+const tickCsvEmailWarnings = (event: Event) => {
+  const ticked = (event.target as HTMLInputElement).checked
+  for (const warning of csvEmailWarnings.value) warningAcknowledgements[warning.overrideField] = ticked
+}
 const warningSubject = (warning: RegistrationWarning) => {
+  // A mentor's or self-registering supervisor's own email is theirs alone.
+  if (warning.field === 'mentor.email' || warning.field === 'supervisor.email') return 'Your email'
   const field = warning.field.endsWith('.school')
     ? 'School'
     : warning.field.endsWith('.guardian.email')
       ? 'Guardian email'
-      : 'Student email'
+      : warning.field.endsWith('.supervisor.email')
+        ? 'Supervisor email'
+        : 'Student email'
   const csvRow = /^supervisorCsv\.rows\.(\d+)\./.exec(warning.field)
   if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
   const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
@@ -2281,18 +2675,14 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
           items: [
             {
               label: 'Group code',
-              // Held 24 hours while registering; once registered, for 4 months.
-              value: success.value
-                ? `${success.value.groupCode || forms.studentTeam.groupCode} (held for 4 months)`
-                : forms.studentTeam.groupCode
-                  ? `${forms.studentTeam.groupCode} (held for 24 hours until you register)`
-                  : 'Given once you register',
+              // Held for 4 months, while registering as once registered.
+              value: success.value?.groupCode || forms.studentTeam.groupCode || 'Given once you register',
               // To copy, once there is one.
               copy: success.value?.groupCode || forms.studentTeam.groupCode || undefined,
             },
           ],
         },
-        // As on the Group step: its supervisor (optional) after its code.
+        // As on the Group step: its required supervisor after its code.
         {
           title: 'Supervisor',
           items: [
@@ -2415,6 +2805,17 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
             ...(forms.mentor.affiliation !== 'industry'
               ? [{ label: 'Field of study or research', value: forms.mentor.fieldOfStudy }]
               : []),
+            ...(askUsydEngineering.value
+              ? [
+                  {
+                    label: 'Studying Engineering at USYD',
+                    value: answerLabel(YES_NO_OPTIONS, forms.mentor.usydEngineering),
+                  },
+                  ...(forms.mentor.usydEngineering === 'yes'
+                    ? [{ label: 'Student ID', value: forms.mentor.studentId }]
+                    : []),
+                ]
+              : []),
           ],
         },
         {
@@ -2427,6 +2828,22 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
             },
           ],
         },
+        ...(isAustralia(forms.mentor.country)
+          ? [
+              {
+                title: 'Checks',
+                items: [
+                  { label: 'Date of Birth', value: longDate(forms.mentor.dateOfBirth) },
+                  { label: mentorWwcc.value.label, value: forms.mentor.wwccNumber },
+                  {
+                    label: 'Aboriginal or Torres Strait Islander',
+                    value: answerLabel(INDIGENOUS_OPTIONS, forms.mentor.indigenous),
+                  },
+                  { label: 'Languages Spoken', value: mentorLanguages().join(', ') },
+                ],
+              },
+            ]
+          : []),
       ]
     case 'supervisor':
       return [
@@ -2460,6 +2877,7 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
 
 const clearErrors = () => {
   Object.keys(clientErrors).forEach((key) => delete clientErrors[key])
+  reviewedEmailProblems.value = []
 }
 
 const clearServerErrors = () => {
@@ -2483,9 +2901,8 @@ const validateEmail = (key: string, value: string, label: string) => {
     clientErrors[key] = `Enter a valid ${label.toLowerCase()}.`
 }
 
-// A nominated supervisor is optional: none at all, or their name and email.
+// A nominated supervisor must have a name and valid email.
 const validateSupervisor = (supervisor: SupervisorDetails, prefix: string) => {
-  if (!hasSupervisor(supervisor)) return
   requireValue(`${prefix}.firstName`, supervisor.firstName, 'Enter the supervisor first name.')
   requireValue(`${prefix}.lastName`, supervisor.lastName, 'Enter the supervisor last name.')
   validateEmail(`${prefix}.email`, supervisor.email, 'Supervisor email')
@@ -2505,9 +2922,6 @@ const validateStudentProfile = (student: StudentDetails, prefix: string) => {
   requireValue(`${prefix}.country`, student.country, 'Enter the student country.')
   if (isAustralia(student.country))
     requireValue(`${prefix}.state`, student.state, 'Enter the Australian state or territory.')
-  if (student.pronouns === 'Other') {
-    requireValue(`${prefix}.pronounsOther`, student.pronounsOther, 'Enter the student pronouns.')
-  }
 }
 
 // A guardian is their name and email, as on the Guardian Details form.
@@ -2538,15 +2952,10 @@ const validateCurrentStep = () => {
   clearErrors()
   if (!journey.value) return false
   const step = currentStep.value
-  // An admin's students' supervisor, on the first step: one of the list, if any.
-  if (
-    adminChoosesSupervisor.value &&
-    step === 0 &&
-    forms.adminSupervisorEmail.trim() &&
-    registrationSupervisors.value.length &&
-    !chosenSupervisor.value
-  )
-    clientErrors.supervisorEmail = 'Choose a supervisor from the list.'
+  // The list is autocomplete only: it can fail to load or omit a profile.
+  // Require a valid email here; the server checks that the supervisor exists.
+  if (adminChoosesSupervisor.value && step === 0)
+    validateEmail('supervisorEmail', forms.adminSupervisorEmail, 'Supervisor email')
 
   if (journey.value === 'student_individual') {
     if (step === 0)
@@ -2564,11 +2973,10 @@ const validateCurrentStep = () => {
       validateGuardian(forms.studentTeam.creator, 'studentTeam.creator', false)
     }
     if (step === 2 && joiningGroup.value) {
-      // Joining: a 6-digit code of a group with room.
+      // Joining: a group's code (one that can't be one is no group's), with room.
       const result = joinCheckResult.value
-      if (!GROUP_CODE_PATTERN.test(forms.studentTeam.joinCode.trim()))
-        clientErrors['studentTeam.joinCode'] = 'Enter the 6-digit group code.'
-      else if (result?.state === 'missing') clientErrors['studentTeam.joinCode'] = JOIN_CODE_MISSING
+      if (!GROUP_CODE_PATTERN.test(forms.studentTeam.joinCode.trim()) || result?.state === 'missing')
+        clientErrors['studentTeam.joinCode'] = JOIN_CODE_MISSING
       else if (result?.state === 'full') clientErrors['studentTeam.joinCode'] = JOIN_CODE_FULL
     } else if (step === 2) {
       validateSupervisor(forms.studentTeam.supervisor, 'studentTeam.supervisor')
@@ -2631,8 +3039,6 @@ const validateCurrentStep = () => {
       requireValue('supervisor.country', forms.supervisor.country, 'Enter your country.')
       if (isAustralia(forms.supervisor.country))
         requireValue('supervisor.state', forms.supervisor.state, 'Enter your state.')
-      if (forms.supervisor.pronouns === 'Other')
-        requireValue('supervisor.pronounsOther', forms.supervisor.pronounsOther, 'Enter your pronouns.')
     }
   } else if (journey.value === 'mentor') {
     if (step === 0) {
@@ -2666,6 +3072,30 @@ const validateCurrentStep = () => {
           'Enter your current year of study.',
         )
       }
+      if (askUsydEngineering.value) {
+        requireValue(
+          'mentor.usydEngineering',
+          forms.mentor.usydEngineering,
+          'Say whether you study Engineering at USYD.',
+        )
+        if (forms.mentor.usydEngineering === 'yes' && !/^\d+$/.test(forms.mentor.studentId.trim()))
+          clientErrors['mentor.studentId'] = 'Enter your student ID, in numbers.'
+      }
+    }
+    if (steps.value[step]?.label === MENTOR_CHECKS_STEP.label) {
+      const born = forms.mentor.dateOfBirth
+      if (!born || born < '1900-01-01' || born >= todayIso())
+        clientErrors['mentor.dateOfBirth'] = 'Enter your date of birth.'
+      requireValue(
+        'mentor.wwccNumber',
+        forms.mentor.wwccNumber,
+        "Enter your check's number, or your application number.",
+      )
+      requireValue('mentor.indigenous', forms.mentor.indigenous, 'Choose an answer.')
+      if (!forms.mentor.languages.length)
+        clientErrors['mentor.languages'] = 'Choose at least one language.'
+      if (forms.mentor.languages.includes(LANGUAGE_OTHER))
+        requireValue('mentor.languagesOther', forms.mentor.languagesOther, 'Enter the other language.')
     }
     if (step === 2) {
       if (!forms.mentor.interests.length)
@@ -2687,7 +3117,15 @@ const validateCurrentStep = () => {
   }
 
   if (journey.value !== 'supervisor_csv') validateCrossRoleEmails()
-  return !Object.keys(clientErrors).length
+  // An email box whose check found a hard problem (shown as its error while
+  // its address is there, `errors`): its step doesn't go on until the address
+  // is corrected (registration/emailFieldCheck).
+  const currentJourney = journey.value
+  const emailProblems = Object.keys(emailChecks.hardProblems(boxEmail)).filter(
+    (path) => earliestRegistrationErrorStep(currentJourney, [path]) === step,
+  )
+  reviewedEmailProblems.value = emailProblems
+  return !Object.keys(clientErrors).length && !emailProblems.length
 }
 
 const focusErrors = async () => {
@@ -2763,49 +3201,7 @@ const backToRoleSelection = () => {
   scrollToTop()
 }
 
-// A supervisor from an earlier year: their email, then the code emailed to it,
-// which brings their account back and signs them in to register students.
 const router = useRouter()
-const returningSupervisor = reactive({ email: '', code: '', codeSent: false, busy: false, error: '' })
-
-const startReturningSupervisor = () => {
-  Object.assign(returningSupervisor, { email: '', code: '', codeSent: false, busy: false, error: '' })
-  selectionStage.value = 'returningSupervisor'
-  scrollToTop()
-}
-
-const changeReturningEmail = () => {
-  Object.assign(returningSupervisor, { code: '', codeSent: false, error: '' })
-}
-
-const submitReturningSupervisor = async () => {
-  const email = returningSupervisor.email.trim().toLowerCase()
-  const code = returningSupervisor.code.trim()
-  if (!email) {
-    returningSupervisor.error = 'Enter your email.'
-    return
-  }
-  if (returningSupervisor.codeSent && !/^\d{6}$/.test(code)) {
-    returningSupervisor.error = 'Enter the 6-digit code from the email.'
-    return
-  }
-  returningSupervisor.busy = true
-  returningSupervisor.error = ''
-  try {
-    if (!returningSupervisor.codeSent) {
-      await sendReturningSupervisorCode(email)
-      returningSupervisor.codeSent = true
-      return
-    }
-    await confirmReturningSupervisor(email, code)
-    await auth.fetchUserData()
-    await router.push(SUPERVISOR_REGISTRATION_PATH)
-  } catch (error) {
-    returningSupervisor.error = apiErrorFromUnknown(error, "Couldn't reach the server. Try again.").message
-  } finally {
-    returningSupervisor.busy = false
-  }
-}
 
 const changeJourney = () => {
   leaveCsvEditor()
@@ -2832,6 +3228,8 @@ const goToStep = (index: number) => {
 
 const continueJourney = async () => {
   leaveCsvEditor()
+  // A box left as Continue was pressed: its check first.
+  if (emailChecks.checking()) await emailChecks.settled()
   if (!validateCurrentStep()) {
     await focusErrors()
     return
@@ -2876,7 +3274,7 @@ const handlePrimaryAction = () => {
 // Continue by a group's code (the join's own Continue): one is needed.
 const continueJoining = () => {
   if (!joiningGroup.value) {
-    clientErrors['studentTeam.joinCode'] = 'Enter the 6-digit group code.'
+    clientErrors['studentTeam.joinCode'] = 'Enter the group code.'
     return
   }
   handlePrimaryAction()
@@ -3002,37 +3400,12 @@ const reindexErrorMap = (
   })
 }
 
+// The template's example rows left out of the file uploaded, to say so.
+const csvExampleRows = ref<number[]>([])
+
 const reindexStudentErrors = (prefix: string, removedIndex: number) => {
   reindexErrorMap(clientErrors, prefix, removedIndex)
   reindexErrorMap(serverFieldErrors, prefix, removedIndex)
-}
-
-const handlePhoto = (student: PhotoHolder, prefix: string, file: File) => {
-  delete clientErrors[`${prefix}.profilePhoto`]
-  if (!allowedPhotoTypes.has(file.type)) {
-    removePhoto(student, prefix)
-    clientErrors[`${prefix}.profilePhoto`] = 'Choose a JPG, PNG, or WebP image.'
-    return
-  }
-  if (file.size > MAX_PHOTO_BYTES) {
-    removePhoto(student, prefix)
-    clientErrors[`${prefix}.profilePhoto`] = 'Choose an image no larger than 5 MB.'
-    return
-  }
-  if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
-  photoPreviews[prefix] = URL.createObjectURL(file)
-  student.profilePhoto = { name: file.name, type: file.type, size: file.size }
-  photoFiles.set(student, file)
-  submissionKey = ''
-}
-
-const removePhoto = (student: PhotoHolder, prefix: string) => {
-  if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
-  delete photoPreviews[prefix]
-  student.profilePhoto = null
-  photoFiles.delete(student)
-  submissionKey = ''
-  delete clientErrors[`${prefix}.profilePhoto`]
 }
 
 const handleCsvUpload = async (event: Event) => {
@@ -3042,6 +3415,7 @@ const handleCsvUpload = async (event: Event) => {
   forms.supervisorCsv.rows = []
   forms.supervisorCsv.excludedRowNumbers = []
   forms.supervisorCsv.fileName = ''
+  csvExampleRows.value = []
   editingCsvRowNumber.value = null
   delete clientErrors['supervisorCsv.file']
   if (!file) return
@@ -3059,6 +3433,7 @@ const handleCsvUpload = async (event: Event) => {
     }
     forms.supervisorCsv.fileName = file.name
     forms.supervisorCsv.rows = result.rows
+    csvExampleRows.value = result.examples
   } catch (error) {
     csvFileErrors.value = [
       xlsx
@@ -3070,12 +3445,27 @@ const handleCsvUpload = async (event: Event) => {
   }
 }
 
-const downloadCsvTemplate = () => {
-  const blob = new Blob([registrationCsvTemplate()], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
+// The template, as an .xlsx: its columns, and an example row that's never
+// registered (it's left out when uploaded back). As a CSV if the server can't
+// make one.
+const downloadCsvTemplate = async () => {
+  const { header, example } = registrationTemplateRows()
+  let file: Blob
+  let name = 'biotech-registration-template.xlsx'
+  try {
+    file = await templateSheet(header, example, CSV_EXAMPLE_NOTE)
+  } catch {
+    const cell = (value: string) => (/[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value)
+    file = new Blob(
+      [`${header.map(cell).join(',')}\r\n${[...example, CSV_EXAMPLE_NOTE].map(cell).join(',')}\r\n`],
+      { type: 'text/csv;charset=utf-8' },
+    )
+    name = 'biotech-registration-template.csv'
+  }
+  const url = URL.createObjectURL(file)
   const link = document.createElement('a')
   link.href = url
-  link.download = 'biotech-registration-template.csv'
+  link.download = name
   document.body.appendChild(link)
   link.click()
   link.remove()
@@ -3181,11 +3571,18 @@ const toCsvRow = (row: Record<string, unknown>) => row.row as CsvRow
 const submitRegistration = async () => {
   if (!journey.value || isSubmitting.value) return
   leaveCsvEditor()
+  if (emailChecks.checking()) await emailChecks.settled()
   if (!(await validateJourneyBeforeSubmit())) return
   if (
     registrationWarnings.value.some((warning) => !warningAcknowledgements[warning.overrideField])
   ) {
-    warningSummaryRef.value?.focus()
+    // Above Submit already: focused for screen readers, not scrolled to.
+    warningSummaryRef.value?.focus({ preventScroll: true })
+    return
+  }
+  if (journey.value === 'mentor' && !forms.mentor.signature) {
+    signatureError.value = 'Sign in the box to confirm your details.'
+    signatureRef.value?.focus()
     return
   }
   if (policiesAsked.value && !policiesAgreed.value) {
@@ -3213,38 +3610,17 @@ const submitRegistration = async () => {
     const signature = JSON.stringify({ request, overrides: warningOverrides.value, supervisorEmail })
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
-    const attachments: Record<string, File> = {}
-    const attach = (student: PhotoHolder, prefix: string) => {
-      const file = photoFiles.get(student)
-      if (file) attachments[prefix] = file
-    }
-    if (journey.value === 'student_individual')
-      attach(forms.studentIndividual.student, 'studentIndividual.student')
-    if (journey.value === 'supervisor') attach(forms.supervisor, 'supervisor')
-    if (journey.value === 'student_team') {
-      attach(forms.studentTeam.creator, 'studentTeam.creator')
-      forms.studentTeam.teammates.forEach((student, index) =>
-        attach(student, `studentTeam.teammates.${index}`),
-      )
-    }
-    if (journey.value === 'supervisor_individual')
-      attach(forms.supervisorIndividual.student, 'supervisorIndividual.student')
-    if (journey.value === 'supervisor_group')
-      forms.supervisorGroup.students.forEach((student, index) =>
-        attach(student, `supervisorGroup.students.${index}`),
-      )
     // Any address found not to exist then comes back as a warning to correct
     // or confirm. Skipped whenever it can't be done; never holds this up.
     await checkEmails(registrationGateway, request, {
       invitationToken: invitationToken.value,
-      overrides: { ...warningOverrides.value },
+      overrides: warningOverrides.value,
       supervisorEmail: supervisorEmail || undefined,
     })
     const result = await registrationGateway.submit(request, {
-      attachments,
       invitationToken: invitationToken.value,
       idempotencyKey: submissionKey,
-      overrides: { ...warningOverrides.value },
+      overrides: warningOverrides.value,
       supervisorEmail: supervisorEmail || undefined,
     })
     clearServerErrors()
@@ -3258,8 +3634,7 @@ const submitRegistration = async () => {
           : result.warnings
         Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
         await nextTick()
-        warningSummaryRef.value?.scrollIntoView?.({ block: 'center' })
-        warningSummaryRef.value?.focus()
+        warningSummaryRef.value?.focus({ preventScroll: true })
         return
       }
       const fieldErrors = asGroup
@@ -3273,7 +3648,7 @@ const submitRegistration = async () => {
       Object.assign(serverFieldErrors, fieldErrors)
       serverError.value = result.message
       const errorStep = earliestRegistrationErrorStep(journey.value, Object.keys(fieldErrors))
-      if (errorStep !== null) currentStep.value = errorStep
+      if (errorStep !== null) currentStep.value = Math.min(errorStep, steps.value.length - 1)
       if (journey.value === 'supervisor_csv') {
         const rowKey = Object.keys(fieldErrors).find((key) =>
           /^supervisorCsv\.rows\.\d+\./.test(key),
@@ -3326,8 +3701,6 @@ const resetRegistration = () => {
   registeredNote.value = ''
   submissionKey = ''
   submissionSignature = ''
-  Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
-  Object.keys(photoPreviews).forEach((key) => delete photoPreviews[key])
   Object.assign(forms, createRegistrationForms())
   journey.value = null
   selectedRole.value = isSupervisorMode.value ? 'supervisor' : null
@@ -3340,6 +3713,8 @@ const resetRegistration = () => {
   editingCsvRowNumber.value = null
   clearErrors()
   clearServerErrors()
+  // The boxes' checks and their confirmations, for the old registration.
+  emailChecks.reset()
   scrollToTop()
 }
 
@@ -3397,24 +3772,83 @@ if (!isSupervisorMode.value) {
     { deep: true },
   )
 }
+// Who each warning is about (its person's place in the forms, or a CSV row by
+// its number), and how their details stood when it was given. Kept while its
+// confirmation is, so either goes once those details change.
+const warnedAbout = new Map<string, { about: string; state: string }>()
+
+// A warning's person: its field's owner (a guardian's student, so a student's
+// own warnings go too), or the CSV row its index names among those included.
+const warningAbout = (field: string) => {
+  const csv = /^supervisorCsv\.rows\.(\d+)\./.exec(field)
+  if (csv) return `csv:${includedCsvRows.value[Number(csv[1])]?.rowNumber ?? ''}`
+  const parts = field.split('.').slice(0, -1)
+  if (parts[parts.length - 1] === 'guardian') parts.pop()
+  return parts.join('.')
+}
+
+// That person's details now: a CSV row's values (or that it's left out), or
+// their part of the forms, a mentor's signature aside.
+const stateOf = (about: string) => {
+  if (about.startsWith('csv:')) {
+    const rowNumber = Number(about.slice(4))
+    if (forms.supervisorCsv.excludedRowNumbers.includes(rowNumber)) return 'excluded'
+    return JSON.stringify(forms.supervisorCsv.rows.find((row) => row.rowNumber === rowNumber)?.values ?? null)
+  }
+  const found = about
+    .split('.')
+    .reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], forms)
+  const { signature: _signature, ...details } = (found ?? {}) as Record<string, unknown>
+  return JSON.stringify(details)
+}
+
+watch(
+  registrationWarnings,
+  (warnings) => {
+    for (const warning of warnings) {
+      const about = warningAbout(warning.field)
+      warnedAbout.set(warning.overrideField, { about, state: stateOf(about) })
+    }
+  },
+  { flush: 'sync' },
+)
+
+// Editing someone's details takes back only their warnings and confirmations,
+// so the server checks them again; everyone else's ticks stay.
 watch(
   forms,
   () => {
-    registrationWarnings.value = []
-    warningOverrides.value = {}
-    Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
+    const changed = [...warnedAbout].filter(([, { about, state }]) => stateOf(about) !== state).map(([key]) => key)
+    if (!changed.length) return
+    for (const key of changed) {
+      warnedAbout.delete(key)
+      delete warningAcknowledgements[key]
+      delete warningOverrides.value[key]
+    }
+    registrationWarnings.value = registrationWarnings.value.filter((warning) => !changed.includes(warning.overrideField))
   },
   { deep: true },
 )
 
-onBeforeUnmount(() => {
-  Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
+// Another journey: none of this one's warnings apply.
+watch(journey, () => {
+  warnedAbout.clear()
+  registrationWarnings.value = []
+  warningOverrides.value = {}
+  Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
 })
 </script>
 
 <style scoped>
+/* An email box's check, the whole row under it (EmailCheckNote). */
+.email-check-row {
+  grid-column: 1 / -1;
+}
+
+/* Above Submit, apart from the step's fields as Information to review is. */
 .registration-warnings {
-  margin-block: 1rem;
+  margin-top: 46px;
+  margin-bottom: 36px;
   padding: 1rem;
   border: 1px solid #9c7940;
   background: #fff8e8;
@@ -3438,6 +3872,12 @@ onBeforeUnmount(() => {
 .registration-warnings input {
   flex: none;
   margin-block-start: 0.2rem;
+}
+
+/* Confirm all: set apart from the warnings it ticks. */
+.registration-warnings__all {
+  padding-block-end: 0.75rem;
+  border-block-end: 1px solid rgba(156, 121, 64, 0.35);
 }
 
 .registration-page {
@@ -3649,45 +4089,6 @@ onBeforeUnmount(() => {
 .supervisor-guidance a {
   color: var(--registration-green);
   text-decoration: underline;
-}
-
-/* Confirm your email: a link in the sentence, as the guidance's email is. */
-.supervisor-guidance__action {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--registration-green);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.returning-supervisor {
-  max-width: 560px;
-  padding: 28px;
-  display: grid;
-  gap: 18px;
-  border: 1px solid rgba(20, 63, 57, 0.16);
-  border-radius: 8px;
-  background: var(--white);
-}
-
-.returning-supervisor__intro,
-.returning-supervisor__note {
-  margin: 0;
-  color: var(--registration-muted);
-  font-size: 0.9rem;
-}
-
-.returning-supervisor .server-error {
-  margin-bottom: 0;
-}
-
-.returning-supervisor__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
 }
 
 .pathway-choices {
@@ -4308,6 +4709,15 @@ form,
   gap: 30px;
 }
 
+/* The template's example row: said beside the download, and when an upload
+   still has it. */
+.template-example-note {
+  margin: 10px 0 0;
+  color: var(--registration-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
 .csv-upload {
   min-height: 180px;
   padding: 30px;
@@ -4460,6 +4870,24 @@ form,
 }
 
 /* The options with no lines between them, as Areas of Interest's. */
+/* Sign the box: a mentor's, above the policies. */
+.mentor-sign {
+  margin-top: 24px;
+  outline: none;
+}
+
+.mentor-sign h3 {
+  margin: 0;
+  color: var(--registration-ink);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.mentor-sign__pad {
+  max-width: 420px;
+  margin-top: 12px;
+}
+
 .affiliation-options {
   margin-top: 20px;
   display: grid;
@@ -4583,11 +5011,6 @@ dd {
   gap: 32px;
 }
 
-/* A supervisor's pronouns and photo, below their school and where it is. */
-.supervisor-extras {
-  margin-top: 30px;
-}
-
 /* The policies to agree to: a line of its own above Submit registration. */
 .policies-agree {
   margin-top: 32px;
@@ -4678,6 +5101,27 @@ dd {
   color: #7d2d28;
   font-size: 0.86rem;
   line-height: 1.45;
+}
+
+/* Last before Back and Continue: apart from the step's fields above it. */
+.error-summary {
+  margin-top: 46px;
+  margin-bottom: 36px;
+}
+
+/* After it, Back and Continue are 36px below it (not the footer's own 46px). */
+.error-summary + .form-footer,
+.registration-warnings + .form-footer {
+  margin-top: 0;
+}
+
+/* Both: Information to review a normal gap under Submit's warnings. */
+.registration-warnings:has(+ .error-summary) {
+  margin-bottom: 18px;
+}
+
+.registration-warnings + .error-summary {
+  margin-top: 0;
 }
 
 .error-summary:focus {

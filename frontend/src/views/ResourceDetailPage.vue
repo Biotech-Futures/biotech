@@ -197,21 +197,12 @@ type ResourceAccessMode =
 const route = useRoute()
 const router = useRouter()
 
-// Back to where it was opened from: Management > Challenge Start's Release
-// Resources (from=release-resources), at this resource's row there, on
-// whichever page of its table has it; otherwise the library.
-const back = computed(() =>
-  route.query.from === 'release-resources'
-    ? {
-        to: {
-          name: 'management-challenge-start',
-          query: { resource: String(route.params.id) },
-          hash: '#release-resources',
-        },
-        label: 'Back to Release Resources',
-      }
-    : { to: { name: 'resources' }, label: 'Back to resources' }
-)
+// Back to the library, at this resource's row, on whichever page of its
+// table has it.
+const back = computed(() => ({
+  to: { name: 'resources', query: { resource: String(route.params.id) } },
+  label: 'Back to resources',
+}))
 
 const resource = ref<Resource | null>(null)
 const access = ref<ResourceAccess | null>(null)

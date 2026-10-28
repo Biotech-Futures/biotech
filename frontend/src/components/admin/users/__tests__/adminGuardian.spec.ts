@@ -31,6 +31,7 @@ vi.mock('@/utils/adminAPI', async (importOriginal) => ({
   // The real wording said before activating a student from an earlier year.
   earlierYearMessage: (await importOriginal<typeof import('@/utils/adminAPI')>()).earlierYearMessage,
   createAdminUser: vi.fn(),
+  checkAdminUserEmails: vi.fn(async () => ({})),
   updateAdminUser: vi.fn().mockResolvedValue({ msg: 'ok', data: null }),
   setAdminUserActive: vi.fn(),
   sendGuardianConsentRequest: vi.fn(),
@@ -198,7 +199,7 @@ describe('admin user form: adding a user', () => {
     expect(wrapper.find('#f-mfield').exists()).toBe(false)
 
     // A university student gives their year and field of study.
-    await pickAppSelect(wrapper, '#f-mbg', 'University Student – Postgraduate')
+    await pickAppSelect(wrapper, '#f-mbg', 'Postgraduate')
     await wrapper.find('#f-minst').setValue('Uni')
     await pickAppSelect(wrapper, '#f-myear', 'Year 2')
     await wrapper.find('#f-mfield').setValue('Biology')
@@ -740,7 +741,14 @@ describe('admin user detail: a student edited part by part', () => {
     const wrapper = openDetail(student({ supervisorName: 'Sam Lee', supervisorEmail: 'sam@example.com', groupName: 'BTF1' }))
 
     const headings = wrapper.findAll('h3').map((h) => h.text())
-    expect(headings).toEqual(['Profile Photo', 'Account', 'Supervisor and Group', 'Student Details', 'Guardian Details'])
+    expect(headings).toEqual([
+      'Profile Photo',
+      'Account',
+      'Internal Admin Notes',
+      'Supervisor and Group',
+      'Student Details',
+      'Guardian Details'
+    ])
     for (const part of ['account', 'details', 'guardian', 'supervisor']) {
       expect(wrapper.find(`[data-test="admin-edit-${part}"]`).exists()).toBe(true)
     }
@@ -751,7 +759,12 @@ describe('admin user detail: a student edited part by part', () => {
   it('shows an admin their Admin Details, with no buttons below either', () => {
     const wrapper = openDetail(student({ role: 'admin' }))
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Profile Photo', 'Account', 'Admin Details'])
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
+      'Profile Photo',
+      'Account',
+      'Internal Admin Notes',
+      'Admin Details'
+    ])
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
     expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Close')
   })
@@ -1256,12 +1269,12 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(rows.slice(0, 3)).toEqual(['Name', 'Pronouns', 'Background'])
     expect(wrapper.find('[data-test="admin-mentor-pronouns"] dd').text()).toBe('She/her')
     // Its year of study shows, as for anyone at university.
-    expect(wrapper.find('[data-test="admin-mentor-background-label"]').text()).toBe('University Student – Undergraduate')
+    expect(wrapper.find('[data-test="admin-mentor-background-label"]').text()).toBe('Undergraduate')
     expect(rows).toContain('Year of study')
 
     // Edit picks the list's choice, so saving stores it.
     await wrapper.find('[data-test="admin-edit-mentor-details"]').trigger('click')
-    expect(appSelectText(wrapper, '#admin-mentor-background')).toBe('University Student – Undergraduate')
+    expect(appSelectText(wrapper, '#admin-mentor-background')).toBe('Undergraduate')
   })
 
   it('shows Account, Groups, Mentor Details and Application Form, each with Edit, and nothing at the bottom', () => {
@@ -1270,6 +1283,7 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
       'Profile Photo',
       'Account',
+      'Internal Admin Notes',
       'Groups',
       'Mentor Details',
       'Weekly Availability',
@@ -1286,7 +1300,7 @@ describe('admin user detail: a mentor edited part by part', () => {
 
     expect(wrapper.find('[data-test="admin-mentor-group-names"]').text()).toBe('BTF2, BTF10')
     const details = wrapper.find('[data-test="admin-mentor-details"]').text()
-    for (const text of ['University Student – Postgraduate', 'Uni of Sydney', 'Year 2', 'Biology', 'Structural Biology', '3 groups']) {
+    for (const text of ['Postgraduate', 'Uni of Sydney', 'Year 2', 'Biology', 'Structural Biology', '3 groups']) {
       expect(details).toContain(text)
     }
     expect(details).not.toContain('Company')
@@ -1324,7 +1338,12 @@ describe('admin user detail: a mentor edited part by part', () => {
 
     expect(wrapper.find('[data-test="admin-replacing"]').exists()).toBe(false)
     expect(unassignMentors).not.toHaveBeenCalled()
-    expect(confirmMentorAssignments).toHaveBeenCalledWith([{ groupId: 4, mentorUserId: 5 }])
+    // allowIdle: the admin opened this mentor and named the groups, so a quiet
+    // mentor is not refused here the way a suggested one is.
+    expect(confirmMentorAssignments).toHaveBeenCalledWith(
+      [{ groupId: 4, mentorUserId: 5 }],
+      { allowIdle: true }
+    )
     expect(wrapper.emitted('updated')).toEqual([[updated]])
   })
 
@@ -1348,7 +1367,10 @@ describe('admin user detail: a mentor edited part by part', () => {
     await wrapper.find('.admin-modal--confirm').findAll('button').find((b) => b.text() === 'Save')!.trigger('click')
     await flushPromises()
     expect(unassignMentors).toHaveBeenCalledWith([2])
-    expect(confirmMentorAssignments).toHaveBeenCalledWith([{ groupId: 3, mentorUserId: 5 }])
+    expect(confirmMentorAssignments).toHaveBeenCalledWith(
+      [{ groupId: 3, mentorUserId: 5 }],
+      { allowIdle: true }
+    )
   })
 
   it('shows no more groups than their capacity', async () => {
@@ -1499,26 +1521,33 @@ describe('admin user detail: a supervisor edited part by part', () => {
     vi.mocked(changeSupervisees).mockReset()
   })
 
-  it('shows Account, Groups, Supervisor Details and Supervisees, and nothing at the bottom', () => {
+  it('shows Account, Groups, Supervisor Details and Students, and nothing at the bottom', () => {
     const wrapper = openDetail(supervisor())
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Profile Photo', 'Account', 'Groups', 'Supervisor Details', 'Supervisees'])
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
+      'Profile Photo',
+      'Account',
+      'Internal Admin Notes',
+      'Groups',
+      'Supervisor Details',
+      'Students (2)'
+    ])
     expect(wrapper.find('[data-test="admin-edit-account"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="admin-edit-supervisor-details"]').exists()).toBe(true)
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
 
     expect(wrapper.find('[data-test="admin-supervisor-group-names"]').text()).toBe('BTF5, BTF6')
-    const rows = wrapper.find('[data-test="admin-supervisees"]').findAll('.admin-users-detail__item')
-    expect(rows.map((row) => [row.find('dt').text(), row.find('dd').text()])).toEqual([
+    const rows = wrapper.find('[data-test="admin-supervisees"]').findAll('.admin-users-detail__student')
+    expect(rows.map((row) => [row.find('.admin-users-detail__student-name').text(), row.find('.admin-users-detail__student-email').text()])).toEqual([
       ['Idris Novak', 'idris@example.com'],
       ['Tariq Mensah', 'tariq@example.com']
     ])
   })
 
-  it('shows — with no groups or students', () => {
+  it('shows — with no groups, and an empty students list', () => {
     const wrapper = openDetail(supervisor({ supervisorGroups: [], supervisees: [] }))
     expect(wrapper.find('[data-test="admin-supervisor-group-names"]').text()).toBe('—')
-    expect(wrapper.find('[data-test="admin-supervisees"]').text()).toContain('—')
+    expect(wrapper.find('[data-test="admin-supervisees"]').text()).toContain('No students yet.')
   })
 
   it('shows pronouns after the school, and edits them there', async () => {

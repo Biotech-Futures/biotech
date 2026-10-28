@@ -329,16 +329,18 @@ import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { AnalyticsYearData } from '@/types/analytics'
 import {
+  analyticsSourceAvailable,
   buildOverviewAnalytics,
   buildRegistrationAnalytics,
-  liveAnalyticsYear,
+  analyticsYears,
   loadOverviewAnalyticsBundle,
   participantYearComparison,
+  registeredByYear,
   type OverviewAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import { useRouter } from 'vue-router'
@@ -352,6 +354,7 @@ const comparisonPreviousYear = ref(currentYear - 1)
 const overviewComparisons = ref<Record<string, { current: number; previous: number }>>({})
 const selectedData = ref<AnalyticsYearData>({ summary: [], modules: [], attention: [] })
 const registrationTrend = ref<Array<{ date: string; students: number; mentors: number }>>([])
+const loadedBundle = ref<OverviewAnalyticsBundle | null>(null)
 const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
@@ -377,7 +380,7 @@ const overviewSummary = computed(() => {
       label: 'Total Students',
       value: readCount(/(\d+)\s*students?/i),
       trend: `${selectedYear.value}`,
-      helper: 'Registered student participants',
+      helper: 'Registered\nstudent',
       icon: 'fas fa-user',
       tone: 'green',
       source: 'live-api',
@@ -386,7 +389,7 @@ const overviewSummary = computed(() => {
       label: 'Total Mentors',
       value: readCount(/(\d+)\s*mentors?/i),
       trend: `${selectedYear.value}`,
-      helper: 'Registered mentors',
+      helper: 'Registered\nmentors',
       icon: 'fas fa-user-tie',
       tone: 'green',
       source: 'live-api',
@@ -493,8 +496,7 @@ const registrationYearComparison = computed(() => {
     const year = Number(row.date.slice(0, 4))
     yearlyTotals.set(year, (yearlyTotals.get(year) ?? 0) + row.students + row.mentors)
   }
-  const years = [...yearlyTotals.keys()].sort((a, b) => a - b)
-  const year = years[years.length - 1] ?? selectedYear.value
+  const year = selectedYear.value
   return {
     current: yearlyTotals.get(year) ?? 0,
     previous: yearlyTotals.get(year - 1) ?? 0,
@@ -583,6 +585,81 @@ function overviewBundleIsEmpty(bundle: OverviewAnalyticsBundle) {
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await loadAnalytics(true, true) })
 
+function applySelectedYear(year: number) {
+  const bundle = loadedBundle.value
+  if (!bundle) return
+
+  const data = buildOverviewAnalytics(bundle)
+  const comparison = participantYearComparison(bundle.users, year)
+  const currentLoginRow = bundle.loginActivity?.by_year.find((row) => row.year === year)
+  const previousLoginRow = bundle.loginActivity?.by_year.find((row) => row.year === comparison.previousYear)
+  const currentParticipants = bundle.users.filter((user) =>
+    !user.isAdmin
+    && ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase())
+    && registeredByYear(user, year),
+  )
+  const currentLoginCount = currentLoginRow?.total
+    ?? (year === currentYear ? currentParticipants.filter((user) => user.hasLoggedIn).length : 0)
+  const currentLoginRate = comparison.current.total
+    ? currentLoginCount / comparison.current.total * 100
+    : 0
+  const previousLoginRate = comparison.previous.total && previousLoginRow
+    ? previousLoginRow.total / comparison.previous.total * 100
+    : 0
+
+  // A source that failed to load has no previous year to compare with, so
+  // leave its comparisons out instead of comparing against zero.
+  const participantsLoaded = analyticsSourceAvailable(bundle, 'users')
+  const loginsLoaded = participantsLoaded && analyticsSourceAvailable(bundle, 'loginActivity')
+
+  comparisonPreviousYear.value = comparison.previousYear
+  overviewComparisons.value = {
+    ...(participantsLoaded && comparison.previous.students > 0
+      ? { 'Total Students': { current: comparison.current.students, previous: comparison.previous.students } }
+      : {}),
+    ...(participantsLoaded && comparison.previous.mentors > 0
+      ? { 'Total Mentors': { current: comparison.current.mentors, previous: comparison.previous.mentors } }
+      : {}),
+    ...(participantsLoaded && comparison.previous.supervisors > 0
+      ? { 'Total Supervisors': { current: comparison.current.supervisors, previous: comparison.previous.supervisors } }
+      : {}),
+    ...(loginsLoaded && previousLoginRow && comparison.previous.total > 0 && previousLoginRate > 0
+      ? { 'Logged In': { current: currentLoginRate, previous: previousLoginRate } }
+      : {}),
+  }
+
+  data.summary = data.summary.map((item) => {
+    if (item.label === 'Total Participants') {
+      return {
+        ...item,
+        value: String(comparison.current.total),
+        helper: `${comparison.current.students} students · ${comparison.current.mentors} mentors · ${comparison.current.supervisors} supervisors`,
+        trend: String(year),
+      }
+    }
+    if (item.label !== 'Logged In') return item
+    if (item.unavailable) return { ...item, trend: String(year) }
+    if (!currentLoginRow && year !== currentYear) {
+      return {
+        ...item,
+        value: '—',
+        helper: `No recorded login history is available for ${year}.`,
+        trend: String(year),
+        unavailable: true,
+      }
+    }
+    return {
+      ...item,
+      value: `${Math.round(currentLoginRate)}%`,
+      helper: `${currentLoginCount} of ${comparison.current.total} participants have logged in`,
+      trend: String(year),
+      unavailable: false,
+    }
+  })
+
+  selectedData.value = data
+}
+
 async function loadAnalytics(force = false, preserveFilters = false) {
   if (analyticsRefreshBusy.value) return
   analyticsRefreshBusy.value = true
@@ -591,29 +668,13 @@ async function loadAnalytics(force = false, preserveFilters = false) {
   try {
     const bundle = await loadOverviewAnalyticsBundle(force)
     unavailableSources.value = bundle.unavailableSources ?? []
-    const year = liveAnalyticsYear(bundle)
-    const comparison = participantYearComparison(bundle.users, year)
-    comparisonPreviousYear.value = comparison.previousYear
-    const currentLoginCount = bundle.loginActivity?.by_year.find((row) => row.year === year)?.total ?? 0
-    const previousLoginCount = bundle.loginActivity?.by_year.find((row) => row.year === comparison.previousYear)?.total ?? 0
-    const currentLoginRate = comparison.current.total
-      ? currentLoginCount / comparison.current.total * 100
-      : 0
-    const previousLoginRate = comparison.previous.total
-      ? previousLoginCount / comparison.previous.total * 100
-      : 0
-    overviewComparisons.value = {
-      'Total Students': { current: comparison.current.students, previous: comparison.previous.students },
-      'Total Mentors': { current: comparison.current.mentors, previous: comparison.previous.mentors },
-      'Total Supervisors': { current: comparison.current.supervisors, previous: comparison.previous.supervisors },
-      'Logged In': { current: currentLoginRate, previous: previousLoginRate },
-    }
-    availableAnalyticsYears.value = [year]
+    loadedBundle.value = bundle
+    availableAnalyticsYears.value = analyticsYears(bundle)
     if (!preserveFilters || !availableAnalyticsYears.value.includes(selectedYear.value)) {
-      selectedYear.value = year
+      selectedYear.value = currentYear
     }
-    selectedData.value = buildOverviewAnalytics(bundle)
     registrationTrend.value = buildRegistrationAnalytics(bundle).trend
+    applySelectedYear(selectedYear.value)
     isEmpty.value = unavailableSources.value.length === 0 && overviewBundleIsEmpty(bundle)
     hasLoaded.value = true
     markUpdated()
@@ -633,6 +694,8 @@ function refreshAnalytics() {
 }
 
 onMounted(() => loadAnalytics())
+
+watch(selectedYear, (year) => applySelectedYear(year))
 
 const moduleIcons: Record<string, string> = {
   registration: 'fas fa-user-plus',
@@ -814,24 +877,26 @@ const moduleAxisRange = (values: number[], key?: string) => {
 
   // Bars should keep a zero baseline so their height remains visually honest.
   if (key === 'messages') {
-    const step = niceStep(rawMax)
-    const max = Math.ceil(rawMax / step) * step
+    const step = Math.max(1, niceStep(rawMax))
+    let max = Math.max(step * 2, Math.ceil(rawMax / step) * step)
+    if (!Number.isInteger(max / 2)) max += 1
     return { min: 0, max, mid: max / 2 }
   }
 
-  // For the line cards, use a rounded lower bound close to the data minimum.
-  // This avoids wasting most of the small chart on an unused 0–40 range while
-  // still keeping some visual room below the lowest point.
-  const spread = Math.max(rawMax - rawMin, 1)
-  const step = niceStep(spread)
-  const min = Math.floor(rawMin / step) * step
-  let max = Math.ceil(rawMax / step) * step
+  // Use an integer step and make the three displayed ticks the exact bounds
+  // used to plot the line. This keeps small ranges aligned (1, 2, 3 instead
+  // of rounded labels that do not correspond to the SVG coordinates).
+  const spread = rawMax - rawMin
+  const step = rawMin === rawMax
+    ? Math.max(1, niceStep(Math.max(Math.abs(rawMax) * 0.2, 1)))
+    : Math.max(1, niceStep(spread))
+  const min = rawMin === rawMax
+    ? Math.max(0, rawMin - step)
+    : Math.max(0, Math.floor(rawMin / step) * step)
+  let max = min + step * 2
 
-  if (min === max) max = min + step
-
-  // Give the top label a little breathing room if the maximum lands exactly
-  // on the top tick.
-  if (rawMax >= max) max += step
+  while (max < rawMax) max += step
+  if (!Number.isInteger((max - min) / 2)) max += 1
 
   return { min, max, mid: min + (max - min) / 2 }
 }
@@ -883,7 +948,7 @@ const axisLinePointObjects = (values: number[], width: number, height: number) =
 
 const moduleAxisTicks = (values: number[], key?: string) => {
   const { min, max, mid } = moduleAxisRange(values, key)
-  return [Math.round(max), Math.round(mid), Math.round(min)]
+  return [max, mid, min]
 }
 
 const moduleBarHeight = (value: number, values: number[]) => {
@@ -943,9 +1008,13 @@ const exportCsv = () => {
     const rows: SummaryRow[] = [
       ...overviewSummary.value.flatMap((item) => {
         const comparison = overviewComparisons.value[item.label]
+        // The login comparison is a rate: a whole percentage, like its headline.
+        const rate = item.label === 'Logged In'
         return [
           figure('Headline', item.label, item.value, '', item.helper),
-          ...(comparison ? [figure('Headline', `${item.label} (${year - 1})`, comparison.previous, '', 'Previous year')] : []),
+          ...(comparison
+            ? [figure('Headline', `${item.label} (${year - 1})`, rate ? Math.round(comparison.previous) : comparison.previous, rate ? '%' : '', 'Previous year')]
+            : []),
         ]
       }),
       ...attentionIssueDetails.value.map((item) => figure('Attention required', item.label, item.value, '', item.description)),
@@ -1228,6 +1297,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   color: var(--analytics-ui-muted, #4d6461);
   font-size: 14px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .summary-value {
@@ -1264,6 +1334,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   font-size: 13px;
   line-height: 1.28;
   text-align: right;
+  white-space: pre-line;
 }
 
 .sparkline {
@@ -1673,9 +1744,9 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 }
 
 .overview-axis-chart { display:grid; grid-template-columns:28px minmax(0,1fr); gap:8px; align-items:stretch; min-height:82px; margin-top:8px; }
-.overview-y-axis { display:flex; flex-direction:column; justify-content:space-between; padding:2px 0 8px; color:var(--analytics-ui-muted, #6b7b77); font-size:10px; text-align:right; }
+.overview-y-axis { display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box; height:82px; padding:3px 0; color:var(--analytics-ui-muted, #6b7b77); font-size:10px; line-height:12px; text-align:right; }
 .overview-axis-plot { min-width:0; }
-.overview-axis-chart .mini-bars { height:78px; align-items:end; }
+.overview-axis-chart .mini-bars { box-sizing:border-box; height:82px; margin:0; padding:9px 0; align-items:end; }
 .overview-axis-chart .mini-line-wrap { margin-top:0; }
 
 .overview-point-value {
@@ -1691,7 +1762,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   position: relative;
   flex: 1 1 0;
   max-width: 30px;
-  height: 78px;
+  height: 64px;
 }
 .overview-bar-item .overview-bar-mark {
   position: absolute;

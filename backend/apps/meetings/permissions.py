@@ -10,7 +10,6 @@ from apps.groups.models import GroupMembership
 # apps.common.rbac.user_has_role reads.
 MENTOR_MEMBERSHIP_ROLES = (
     GroupMembership.MembershipRoleChoices.MENTOR,
-    GroupMembership.MembershipRoleChoices.SUPERVISOR,
 )
 
 
@@ -73,7 +72,7 @@ class IsGroupMentorOrReadOnly(permissions.BasePermission):
     rather than reusing it.
     """
 
-    message = "Only a mentor or supervisor of this group can change this meeting."
+    message = "Only mentor of this group can change this meeting."
 
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated)

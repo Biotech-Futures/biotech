@@ -225,6 +225,8 @@ def _management(actor, next_year: int, now) -> dict:
         release.released_by = None
         release.save(update_fields=["released_at", "released_by"])
     SupervisorProfile.objects.filter(register_after_close=True).update(register_after_close=False)
+    # Asked again for the new year's students.
+    SupervisorProfile.objects.exclude(grouping_preference="").update(grouping_preference="")
     # New finalists see the presentation times once an admin shows them.
     times = PresentationSettings.load()
     times.times_shown = False

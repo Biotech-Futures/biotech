@@ -128,16 +128,26 @@
                 fill="none"
                 :stroke="segment.color"
                 stroke-width="24"
-                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
+                :stroke-dasharray="`${segment.renderPercent} ${100 - segment.renderPercent}`"
                 :stroke-dashoffset="-segment.start"
                 stroke-linecap="butt"
                 class="role-donut-segment"
+                :data-draw-percent="segment.drawPercent"
                 :class="{ selected: selectedRole?.label === segment.label }"
                 transform="rotate(-90 90 90)"
                 @mouseenter="selectRole(segment)"
                 @focus="selectRole(segment)"
                 @blur="clearRoleSelection"
                 tabindex="0"
+              />
+
+              <circle
+                class="role-donut-hole"
+                cx="90"
+                cy="90"
+                r="52.5"
+                fill="var(--analytics-ui-surface, #fff)"
+                aria-hidden="true"
               />
 
             </svg>
@@ -1178,6 +1188,7 @@ type RoleSegment = {
   value: number
   percent: number
   drawPercent: number
+  renderPercent: number
   start: number
   color: string
 }
@@ -1200,6 +1211,8 @@ const roleSegments = computed<RoleSegment[]>(() => {
       ...item,
       percent: percentage(item.value, data.value.totalUsers),
       drawPercent,
+      // A sub-pixel overlap prevents anti-aliasing seams between adjacent SVG arcs.
+      renderPercent: drawPercent > 0 ? Math.min(100, drawPercent + 0.12) : 0,
       start,
     }
     start += drawPercent
@@ -1908,7 +1921,7 @@ function usersDetails() {
         loggedInLater ? `Logged in after ${asOfDay}` : activityStatusLabel(days),
         isoUtc(user.lastLogin),
         days,
-        isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
+        isoUtc(user.createdAt),
         user.groupName,
         user.schoolName,
         user.country?.countryName,
@@ -2932,10 +2945,16 @@ function exportCsv(kind: ExportKind) {
 
 .role-donut-segment {
   cursor: pointer;
+  shape-rendering: geometricPrecision;
   transition:
     stroke-width 0.16s ease,
     filter 0.16s ease;
   outline: none;
+}
+
+.role-donut-hole {
+  pointer-events: none;
+  shape-rendering: geometricPrecision;
 }
 
 .role-donut-segment:hover,
@@ -2949,8 +2968,9 @@ function exportCsv(kind: ExportKind) {
   position: absolute;
   inset: 50% auto auto 50%;
   transform: translate(-50%, -50%);
-  width: 102px;
-  height: 102px;
+  width: 105px;
+  height: 105px;
+  background: transparent;
   pointer-events: none;
   z-index: 2;
 }

@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import MatchedGroupsPanel from '@/components/admin/groups/MatchedGroupsPanel.vue'
-import { pickAppSelect } from '@/__tests__/appSelect'
+import { appSelectLabels, pickAppSelect } from '@/__tests__/appSelect'
+import { setIdleDays } from '@/composables/admin/useIdleThreshold'
+import { DEFAULT_IDLE_DAYS } from '@/utils/mentorFormat'
+
+// Old enough that the join-date grace never applies, so these fixtures are
+// judged on their messages alone. `joinedRecently` is the opposite case.
+const longAgo = '2019-01-01T00:00:00Z'
+const joinedRecently = new Date(Date.now() - 5 * 86_400_000).toISOString()
 
 const activeGroup = {
   membershipId: 100,
@@ -13,7 +20,16 @@ const activeGroup = {
     { id: 10, name: 'Ada Lovelace', hasLoggedIn: true, interests: ['Genomics'] },
     { id: 11, name: 'Grace Hopper', hasLoggedIn: false, interests: [] }
   ],
-  mentor: { mentorId: 20, name: 'Marie Curie', isActive: true, countryName: 'Australia', institution: 'USYD' }
+  mentor: {
+    mentorId: 20,
+    name: 'Marie Curie',
+    isActive: true,
+    // Recent enough not to count as idle.
+    lastMessageAt: new Date().toISOString(),
+    dateJoined: longAgo,
+    countryName: 'Australia',
+    institution: 'USYD'
+  }
 }
 
 const inactiveGroup = {
@@ -23,13 +39,71 @@ const inactiveGroup = {
   countryName: 'Singapore',
   studentCount: 0,
   students: [],
-  mentor: { mentorId: 21, name: 'Nikola Tesla', isActive: false, countryName: 'Singapore', institution: null }
+  mentor: {
+    mentorId: 21,
+    name: 'Nikola Tesla',
+    isActive: false,
+    lastMessageAt: null,
+    dateJoined: longAgo,
+    countryName: 'Singapore',
+    institution: null
+  }
 }
 
+// Enabled account, but has not posted in years: idle, not inactive. The two
+// used to render identically as "Active", since only `isActive` was consulted.
+const idleGroup = {
+  membershipId: 102,
+  groupId: 3,
+  groupName: 'BTF3',
+  countryName: 'Australia',
+  studentCount: 0,
+  students: [],
+  mentor: {
+    mentorId: 24,
+    name: 'Quiet Mentor',
+    isActive: true,
+    lastMessageAt: '2020-01-01T00:00:00Z',
+    dateJoined: longAgo,
+    countryName: 'Australia',
+    institution: 'UTS'
+  }
+}
+
+// Joined five days ago and has not posted. Silent, but not idle: the matcher
+// gives a newcomer the benefit of the doubt and this screen now reads it the
+// same way, so the row should say Active.
+const gracedGroup = {
+  membershipId: 103,
+  groupId: 4,
+  groupName: 'BTF4',
+  countryName: 'Australia',
+  studentCount: 0,
+  students: [],
+  mentor: {
+    mentorId: 26,
+    name: 'New Mentor',
+    isActive: true,
+    lastMessageAt: null,
+    dateJoined: joinedRecently,
+    countryName: 'Australia',
+    institution: 'UOW'
+  }
+}
+
+// Replacements are only offered from mentors who are active and not idle, so
+// the pool carries a recent message. `quiet` and `deactivated` are the two
+// that must never be offered.
+const spokeToday = new Date().toISOString()
+
 const mentorPool = [
-  { mentorId: 20, name: 'Marie Curie', countryName: 'Australia', institution: 'USYD', interests: [], maxGroupCount: 4, currentAssignedCount: 1, remainingCapacity: 3 },
-  { mentorId: 22, name: 'Ada King', countryName: 'Australia', institution: 'UNSW', interests: [], maxGroupCount: 2, currentAssignedCount: 2, remainingCapacity: 0 },
-  { mentorId: 23, name: 'Rosalind Franklin', countryName: 'Australia', institution: 'ANU', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2 }
+  { mentorId: 20, name: 'Marie Curie', countryName: 'Australia', institution: 'USYD', interests: [], maxGroupCount: 4, currentAssignedCount: 1, remainingCapacity: 3, isActive: true, lastMessageAt: spokeToday, dateJoined: longAgo },
+  { mentorId: 22, name: 'Ada King', countryName: 'Australia', institution: 'UNSW', interests: [], maxGroupCount: 2, currentAssignedCount: 2, remainingCapacity: 0, isActive: true, lastMessageAt: spokeToday, dateJoined: longAgo },
+  { mentorId: 23, name: 'Rosalind Franklin', countryName: 'Australia', institution: 'ANU', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: spokeToday, dateJoined: longAgo },
+  { mentorId: 24, name: 'Quiet Mentor', countryName: 'Australia', institution: 'UTS', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: '2020-01-01T00:00:00Z', dateJoined: longAgo },
+  { mentorId: 25, name: 'Deactivated Mentor', countryName: 'Australia', institution: 'UOW', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: false, lastMessageAt: spokeToday, dateJoined: longAgo },
+  // Never posted, but too new to judge: offerable, unlike Quiet Mentor above.
+  { mentorId: 26, name: 'New Mentor', countryName: 'Australia', institution: 'UOW', interests: [], maxGroupCount: 3, currentAssignedCount: 1, remainingCapacity: 2, isActive: true, lastMessageAt: null, dateJoined: joinedRecently }
 ]
 
 const fetchMockFor = (
@@ -40,6 +114,7 @@ const fetchMockFor = (
     failGroupsRefetch?: boolean
     studentUser?: unknown
     studentError?: string
+    suggestions?: unknown[]
   } = {}
 ) => {
   let matchedGroupsGets = 0
@@ -75,7 +150,7 @@ const fetchMockFor = (
             data: {
               groupId: 2,
               groupName: 'BTF2',
-              suggestions: [
+              suggestions: opts.suggestions ?? [
                 { mentorUserId: 23, name: 'Rosalind Franklin', institution: 'ANU', remainingCapacity: 2, atCapacity: false, score: 90, reason: 'Great fit' }
               ]
             }
@@ -157,6 +232,8 @@ const fetchMockFor = (
 let wrapper: VueWrapper | null = null
 
 afterEach(() => {
+  // The threshold is module-level, so it would otherwise leak between tests.
+  setIdleDays(DEFAULT_IDLE_DAYS)
   wrapper?.unmount()
   wrapper = null
   vi.unstubAllGlobals()
@@ -175,21 +252,46 @@ describe('MatchedGroupsPanel', () => {
     // Curie is mentorId 20 there: currentAssignedCount 1, maxGroupCount 4).
     expect(wrapper.text()).toContain('1/4')
     expect(wrapper.text()).toContain('BTF2')
-    expect(wrapper.text()).toContain('1 inactive')
-    const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    expect(wrapper.text()).toContain('1 to replace')
+    const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
     expect(replaceInactiveButton).toBeDefined()
   })
 
-  it('disables the "Replace Inactive Mentors" button when every mentor is active', async () => {
+  it('disables the "Replace Idle Mentors" button when no mentor needs replacing', async () => {
     const fetchMock = fetchMockFor([activeGroup])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(MatchedGroupsPanel)
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('inactive')
-    const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    expect(wrapper.text()).not.toContain('to replace')
+    const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
     expect(replaceInactiveButton).toBeDefined()
     expect(replaceInactiveButton!.attributes('disabled')).toBeDefined()
+  })
+
+  it('counts by the threshold the Mentors page set, not a fixed 30 days', async () => {
+    // Active, and quiet for 20 days: not idle while the threshold is 30.
+    const quietGroup = {
+      ...activeGroup,
+      mentor: {
+        ...activeGroup.mentor,
+        lastMessageAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+      }
+    }
+    vi.stubGlobal('fetch', fetchMockFor([quietGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('to replace')
+
+    // The Mentors page drops it to a fortnight; this panel follows, instead of
+    // staying on its own hardcoded 30 and disagreeing about the count.
+    setIdleDays(14)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('1 to replace')
+    const button = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
+    expect(button!.attributes('disabled')).toBeUndefined()
   })
 
   it('expands a row to show its students', async () => {
@@ -228,8 +330,45 @@ describe('MatchedGroupsPanel', () => {
       ([u, i]) => String(u).includes('/mentor-match/unassign/') && (i as RequestInit | undefined)?.method === 'POST'
     ) as [string, RequestInit]
     expect(call).toBeDefined()
-    expect(JSON.parse(String(call[1].body))).toEqual({ groupIds: [1] })
+    // Nobody arrives on an unassign, so only the departing flag is sent,
+    // and it defaults to on.
+    expect(JSON.parse(String(call[1].body))).toEqual({
+      groupIds: [1],
+      notifyDeparting: true
+    })
   })
+
+  it('does not offer the mentor already on the group', async () => {
+    // Picking them would be a replacement that replaces nothing, and the
+    // bulk dialog leaves them out server-side for the same reason.
+    vi.stubGlobal('fetch', fetchMockFor([activeGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+
+    const labels = await appSelectLabels(wrapper, '.matched-groups__replace-select')
+    expect(labels).not.toContain('Marie Curie')
+    expect(labels).toContain('Rosalind Franklin')
+  })
+
+  it('does not offer an idle or deactivated mentor as a replacement', async () => {
+    // The whole point of the screen is replacing mentors who have gone quiet,
+    // so offering another one of those just moves the problem to a new group.
+    vi.stubGlobal('fetch', fetchMockFor([activeGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+
+    const labels = await appSelectLabels(wrapper, '.matched-groups__replace-select')
+    expect(labels).not.toContain('Quiet Mentor')
+    expect(labels).not.toContain('Deactivated Mentor')
+    expect(labels).toContain('Rosalind Franklin')
+  })
+
 
   it('replaces a mentor via the per-row replace control', async () => {
     const fetchMock = fetchMockFor([activeGroup])
@@ -253,8 +392,45 @@ describe('MatchedGroupsPanel', () => {
     expect(JSON.parse(String(call[1].body))).toEqual({
       membershipId: 100,
       groupId: 1,
-      newMentorUserId: 23
+      newMentorUserId: 23,
+      // The server enforces eligibility against this, so the screen has to say
+      // which threshold it filtered by or a widened one would be rejected.
+      idleDays: DEFAULT_IDLE_DAYS,
+      // Both notifications are opt-out, so an untouched form sends true.
+      notifyDeparting: true,
+      notifyIncoming: true
     })
+  })
+
+  it('sends notifyIncoming false when the admin unticks it', async () => {
+    const fetchMock = fetchMockFor([activeGroup])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', 'Rosalind Franklin')
+
+    const boxes = wrapper.findAll('.matched-groups__notify input')
+    expect(boxes).toHaveLength(2)
+    // Both start ticked - the admin opts out rather than in.
+    expect(boxes.every((box) => (box.element as HTMLInputElement).checked)).toBe(true)
+
+    await boxes[1].setValue(false)
+
+    const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
+    await confirmButton!.trigger('click')
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) =>
+        String(u).includes('/mentor-match/replace/') &&
+        (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit]
+    const body = JSON.parse(String(call[1].body))
+    expect(body.notifyDeparting).toBe(true)
+    expect(body.notifyIncoming).toBe(false)
   })
 
   it('reports a post-replace refresh failure as a stale list, not a failed replace', async () => {
@@ -322,13 +498,53 @@ describe('MatchedGroupsPanel', () => {
     expect(wrapper.find('.matched-groups__replace-select').exists()).toBe(true)
   })
 
-  it('replaces an inactive mentor via the bulk "Replace Inactive Mentors" dialog', async () => {
+  it('sends the unticked flag from the bulk dialog', async () => {
+    // The dialog's own checkboxes, not the per-row ones: a mis-wired v-model
+    // here would still pass the defaults test above and silently ignore an
+    // admin who unticks a box.
     const fetchMock = fetchMockFor([activeGroup, inactiveGroup])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(MatchedGroupsPanel)
     await flushPromises()
 
-    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
+    await bulkButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    const boxes = Array.from(
+      dialog.querySelectorAll('.replace-dialog__notify input')
+    ) as HTMLInputElement[]
+    expect(boxes).toHaveLength(2)
+    expect(boxes.every((box) => box.checked)).toBe(true)
+
+    boxes[0].checked = false
+    boxes[0].dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim().startsWith('Confirm')
+    ) as HTMLButtonElement
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) =>
+        String(u).includes('/mentor-match/confirm/') &&
+        (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit]
+    const body = JSON.parse(String(call[1].body))
+    expect(body.notifyDeparting).toBe(false)
+    expect(body.notifyIncoming).toBe(true)
+  })
+
+  it('replaces an inactive mentor via the bulk "Replace Idle Mentors" dialog', async () => {
+    const fetchMock = fetchMockFor([activeGroup, inactiveGroup])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
     expect(bulkButton).toBeDefined()
     await bulkButton!.trigger('click')
     await flushPromises()
@@ -351,9 +567,101 @@ describe('MatchedGroupsPanel', () => {
     ) as [string, RequestInit]
     expect(call).toBeDefined()
     expect(JSON.parse(String(call[1].body))).toEqual({
-      assignments: [{ groupId: 2, mentorUserId: 23 }]
+      assignments: [{ groupId: 2, mentorUserId: 23 }],
+      idleDays: DEFAULT_IDLE_DAYS,
+      notifyDeparting: true,
+      notifyIncoming: true
     })
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('shows an enabled but quiet mentor as Idle rather than Active', async () => {
+    // The panel already counted them under "Replace Idle Mentors"; the status
+    // column said "Active" in the same row, because it only read isActive.
+    vi.stubGlobal('fetch', fetchMockFor([activeGroup, idleGroup, inactiveGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const panel = wrapper!
+    const statusOf = (groupName: string) => {
+      const row = panel.findAll('tbody tr').find((r) => r.text().includes(groupName))
+      return row?.find('.matched-groups__status').text()
+    }
+
+    expect(statusOf('BTF3')).toBe('Idle')
+    // The other two readings are unchanged.
+    expect(statusOf('BTF1')).toBe('Active')
+    expect(statusOf('BTF2')).toBe('Inactive')
+  })
+
+  it('treats a mentor still inside the join-date grace as active', async () => {
+    // Same reading the matcher uses, so a mentor it is happy to assign is not
+    // flagged here, and is offered as a replacement rather than filtered out.
+    vi.stubGlobal('fetch', fetchMockFor([activeGroup, gracedGroup, idleGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const panel = wrapper!
+    const rowFor = (groupName: string) =>
+      panel.findAll('tbody tr').find((r) => r.text().includes(groupName))
+
+    expect(rowFor('BTF4')?.find('.matched-groups__status').text()).toBe('Active')
+    // The genuinely quiet mentor is still flagged, so the grace has not simply
+    // switched the check off.
+    expect(rowFor('BTF3')?.find('.matched-groups__status').text()).toBe('Idle')
+
+    const replaceButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+
+    const labels = await appSelectLabels(wrapper, '.matched-groups__replace-select')
+    expect(labels).toContain('New Mentor')
+    expect(labels).not.toContain('Quiet Mentor')
+  })
+
+  it('does not offer an idle mentor the backend scored as a suggestion', async () => {
+    // Matching is more forgiving than this screen: it forgives a recent join
+    // date, so it will happily score a mentor the row beside it flags as idle.
+    // The top score would normally be pre-selected, which is how an idle
+    // mentor could be confirmed as a replacement in one click.
+    const fetchMock = fetchMockFor([activeGroup, inactiveGroup], {
+      suggestions: [
+        { mentorUserId: 24, name: 'Quiet Mentor', institution: 'UTS', remainingCapacity: 2, atCapacity: false, score: 150, reason: 'Top scorer' },
+        { mentorUserId: 25, name: 'Deactivated Mentor', institution: 'UOW', remainingCapacity: 2, atCapacity: false, score: 140, reason: 'Also scored' },
+        { mentorUserId: 23, name: 'Rosalind Franklin', institution: 'ANU', remainingCapacity: 2, atCapacity: false, score: 90, reason: 'Great fit' }
+      ]
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Idle Mentors'))
+    await bulkButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+
+    // Pre-selection takes the top of the list, so what it landed on says which
+    // mentors survived the filter. Were either of the first two still there,
+    // Confirm would replace an idle mentor with an idle mentor.
+    expect(dialog.textContent).not.toContain('Quiet Mentor')
+    expect(dialog.textContent).not.toContain('Deactivated Mentor')
+    expect(dialog.textContent).toContain('Rosalind Franklin')
+
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim().startsWith('Confirm')
+    ) as HTMLButtonElement
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).includes('/mentor-match/confirm/') && (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit]
+    expect(JSON.parse(String(call[1].body)).assignments).toEqual([
+      { groupId: 2, mentorUserId: 23 }
+    ])
   })
 
   it('clicking on a student opens their details sheet matching AdminUserDetailSheet and close returns to matched groups', async () => {

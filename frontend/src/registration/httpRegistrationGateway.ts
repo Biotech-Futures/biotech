@@ -84,6 +84,22 @@ const normalizeReceipt = (
   }
 }
 
+// The only warnings a mentor, or a supervisor registering themselves, can be
+// asked to confirm: about their own email, at mentor.overrides.<name>.
+const OWN_OVERRIDES = new Set(['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'])
+
+const isOwnWarning = (request: RegistrationRequest, field: string, overrideField: string) => {
+  if (request.journey !== 'mentor' && request.journey !== 'supervisor') return false
+  const [who, kind, name, ...rest] = overrideField.split('.')
+  return (
+    who === request.journey &&
+    kind === 'overrides' &&
+    OWN_OVERRIDES.has(name ?? '') &&
+    !rest.length &&
+    field === `${request.journey}.email`
+  )
+}
+
 const normalizeWarnings = (
   data: unknown,
   request: RegistrationRequest,
@@ -103,15 +119,18 @@ const normalizeWarnings = (
       !item.message.trim()
     )
       return null
-    // Each warning is about the field its override confirms, for a student in the request.
-    const override = parseOverridePath(item.override_field)
-    if (
-      !override ||
-      overrideFields.has(item.override_field) ||
-      !studentRequestPrefixes(request)[override.index] ||
-      item.field !== registrationOverrideField(override.index, override.name)
-    )
-      return null
+    // Each warning is about the field its override confirms, for a student in
+    // the request, or for the mentor or supervisor registering themselves.
+    if (overrideFields.has(item.override_field)) return null
+    if (!isOwnWarning(request, item.field, item.override_field)) {
+      const override = parseOverridePath(item.override_field)
+      if (
+        !override ||
+        !studentRequestPrefixes(request)[override.index] ||
+        item.field !== registrationOverrideField(override.index, override.name)
+      )
+        return null
+    }
     overrideFields.add(item.override_field)
     warnings.push({
       code: item.code,
@@ -151,7 +170,7 @@ const emailCheck = (
             })
             if (options.invitationToken)
               headers.set('X-Registration-Invitation', options.invitationToken)
-            // The registration as it would be submitted, without its photos.
+            // The registration as it would be submitted.
             const production = buildProductionRegistrationRequest(request, options.overrides)
             if (options.supervisorEmail?.trim()) {
               ;(production.payload as Record<string, unknown>).supervisorEmail =
@@ -193,6 +212,32 @@ export const createHttpRegistrationGateway = ({
   emailCheckEndpoint,
 }: HttpRegistrationGatewayOptions): RegistrationGateway => ({
   ...(emailCheckEndpoint ? emailCheck(emailCheckEndpoint, fetchImpl, ensureCsrf) : {}),
+  // An email box's check as it's left: beside the pre-check, its field/.
+  ...(emailCheckEndpoint
+    ? {
+        async checkEmailField(body: { journey?: string; fields: unknown[] }) {
+          const csrfApiBaseUrl = csrfBaseUrl(endpoint)
+          try {
+            await ensureCsrf(csrfApiBaseUrl)
+            const response = await fetchImpl(`${emailCheckEndpoint.replace(/\/+$/, '')}/field/`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: buildSessionHeaders({
+                includeCSRF: true,
+                csrfApiBaseUrl,
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+              }),
+              body: JSON.stringify(body),
+            })
+            if (!response.ok) return null
+            const data = (await response.json().catch(() => null)) as { results?: Record<string, unknown> } | null
+            return data?.results ?? null
+          } catch {
+            return null
+          }
+        },
+      }
+    : {}),
   async submit(request, options = {}): Promise<RegistrationGatewayResult> {
     const csrfApiBaseUrl = csrfBaseUrl(endpoint)
     let csrfReady = false
@@ -208,7 +253,7 @@ export const createHttpRegistrationGateway = ({
       }
     }
 
-    let body: string | FormData
+    let body: string
     const headers = buildSessionHeaders({
       includeCSRF: true,
       csrfApiBaseUrl,
@@ -228,22 +273,6 @@ export const createHttpRegistrationGateway = ({
           options.supervisorEmail.trim()
       }
       body = JSON.stringify(production)
-      if (Object.keys(options.attachments || {}).length) {
-        const multipart = new FormData()
-        multipart.append('request', body)
-        for (const [prefix, file] of Object.entries(options.attachments || {})) {
-          // A supervisor registering themselves: their own photo.
-          if (request.journey === 'supervisor' && prefix === 'supervisor') {
-            multipart.append('supervisor', file)
-            continue
-          }
-          const index = studentRequestPrefixes(request).indexOf(prefix)
-          if (index < 0) throw new Error('Invalid registration photo field.')
-          multipart.append(`students.${index}`, file)
-        }
-        headers.delete('Content-Type')
-        body = multipart
-      }
     } catch (error) {
       return {
         ok: false,

@@ -221,3 +221,67 @@ describe('the bottom bar', () => {
     expect(box.style.minHeight).toBe('')
   })
 })
+
+describe('rows per page', () => {
+  // More rows than one page holds: the picker is disabled while everything
+  // already fits on screen, and a disabled one will not open to be read.
+  const manyRows = Array.from({ length: 40 }, (_, index) => ({
+    id: index + 1,
+    icon: 'x',
+    name: `Name ${index}`,
+    school: 'North',
+    open: false
+  }))
+  const pageSizeOptions = (props: Record<string, unknown> = {}) =>
+    appSelectLabels(mountTable({ rows: manyRows, ...props }), '.data-table-page-size')
+
+  it('offers All by default, as every other table does', async () => {
+    expect(await pageSizeOptions()).toContain('All Entries')
+  })
+
+  it('leaves All out when the server caps a page', async () => {
+    // All would ask for more rows than the server allows, so a table with a
+    // ceiling offers sizes up to it and nothing beyond.
+    const options = await pageSizeOptions({ maxPageSize: 15 })
+
+    expect(options).not.toContain('All Entries')
+    expect(options.length).toBeGreaterThan(0)
+  })
+})
+
+describe('sorting and searching together', () => {
+  const groups = [
+    { id: 1, group: 'BTF111', handed: 30 },
+    { id: 2, group: 'BTF02', handed: null },
+    { id: 3, group: 'BTF10', handed: 10 },
+    { id: 4, group: 'BTF01', handed: 20 }
+  ]
+  const groupColumns: DataTableColumn[] = [
+    { key: 'group', label: 'Group' },
+    { key: 'handed', label: 'Handed in', sortValue: (row) => row.handed as number | null }
+  ]
+  const mountGroups = () =>
+    mount(AppDataTable, {
+      props: { columns: groupColumns, rows: groups, selectable: false, pageSize: DATA_TABLE_ALL }
+    })
+  const names = (wrapper: ReturnType<typeof mountGroups>) =>
+    wrapper.findAll('tr.data-table-row').map((row) => row.find('td').text())
+  const heading = (wrapper: ReturnType<typeof mountGroups>, label: string) =>
+    wrapper.findAll('.data-table-sort-btn').find((button) => button.text() === label)!
+
+  it('keeps a row with nothing to sort by last, whichever way', async () => {
+    const wrapper = mountGroups()
+    await heading(wrapper, 'Handed in').trigger('click')
+    expect(names(wrapper)).toEqual(['BTF10', 'BTF01', 'BTF111', 'BTF02'])
+    await heading(wrapper, 'Handed in').trigger('click')
+    expect(names(wrapper)).toEqual(['BTF111', 'BTF01', 'BTF10', 'BTF02'])
+  })
+
+  it('lists a search most relevant first, the sort ordering only equal matches', async () => {
+    const wrapper = mountGroups()
+    await heading(wrapper, 'Handed in').trigger('click')
+    await heading(wrapper, 'Handed in').trigger('click')
+    await wrapper.find('.data-table-search-input').setValue('BTF 1')
+    expect(names(wrapper)).toEqual(['BTF01', 'BTF10', 'BTF111'])
+  })
+})

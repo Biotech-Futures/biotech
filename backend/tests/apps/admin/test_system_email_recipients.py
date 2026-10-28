@@ -19,6 +19,7 @@ from apps.services.email_registry import get_email_type
 from apps.submissions.models import Submission
 from apps.users.models import GuardianConsentRequest, StudentProfile, User
 from apps.users.models.admin_scope import AdminScope
+from tests.email_helpers import delivered_destinations
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
 FRONTEND = "https://connect.example.com"
@@ -234,7 +235,10 @@ class SystemEmailRecipientsTests(TestCase):
         html = mail.outbox[0].alternatives[0][0]
         self.assertIn("Hi Pat,", html)
         self.assertIn("Amy Chen recently registered", html)
-        self.assertIn("https://biotechfutures.org/#/consent/abc", html)
+        self.assertIn(
+            "https://biotechfutures.org/#/consent/abc",
+            delivered_destinations(html),
+        )
         self.assertNotIn(f"{FRONTEND}/#/consent/", html)
         # Nothing was issued, so no real link exists.
         self.assertFalse(GuardianConsentRequest.objects.exists())
@@ -252,7 +256,10 @@ class SystemEmailRecipientsTests(TestCase):
         self.assertEqual(response.json()["data"]["sentTo"], "tester@example.com")
         html = mail.outbox[0].alternatives[0][0]
         self.assertIn("Hi Group BTF10,", html)
-        self.assertIn(f"{FRONTEND}/#/submission/{self.btf10.id}", html)
+        self.assertIn(
+            f"{FRONTEND}/#/submission/{self.btf10.id}",
+            delivered_destinations(html),
+        )
 
     def test_the_confirmation_names_who_submitted(self):
         context = recipient_context("submission_confirmation", str(self.btf2.id))

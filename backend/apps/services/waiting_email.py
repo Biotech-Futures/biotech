@@ -44,7 +44,7 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 
 from .email_log import UNREACHABLE, WAITING_REASON, note_send, reason_for
-from .email_metrics import mailbox_address, record_email_delivery
+from .email_metrics import mailbox_address
 from .models import WaitingEmail
 from .retry import WAITING as WAITING_SENT
 from .retry import MailServerDown, reopen, send_noting_refused, send_reconnecting, worth_retrying
@@ -297,41 +297,66 @@ def _hook(row: WaitingEmail, name: str, addresses) -> None:
         logger.exception("waiting_email.hook_failed key=%s hook=%s", row.key, name)
 
 
-def _sent(row: WaitingEmail, delivered: list[str]) -> None:
-    """``row`` went to ``delivered``: counted, and its "sent" hook run."""
-    if not delivered:
-        return
-    record_email_delivery(
-        row.key,
-        source_mailbox=row.from_email,
-        attempted=len(delivered),
-        delivered=len(delivered),
-        failed=0,
-        initiated_by=row.sent_by,
-        started_at=row.created_at,
-        recipients=delivered,
-    )
-    _hook(row, "sent", delivered)
+def _finished(
+    row: WaitingEmail,
+    delivered: list[str],
+    missed: dict[str, str],
+    *,
+    started_at,
+    completed_at,
+) -> None:
+    """Record one completed retry attempt and run its outcome hooks.
 
-
-def _missed(row: WaitingEmail, missed: dict[str, str]) -> None:
-    """``row`` won't reach ``missed`` ({address: why}): noted in the Log, and
-    its "missed" hook run."""
-    if not missed:
+    A retry can be accepted for some recipients and refused for others.  It
+    must remain one metric row so Analytics can describe that attempt as
+    Delivered, Partial, or Failed instead of showing contradictory rows.
+    """
+    if not delivered and not missed:
         return
     note_send(
         row.key,
         missed=missed,
         by=row.sent_by,
-        attempted=len(missed),
-        delivered=0,
+        attempted=len(delivered) + len(missed),
+        delivered=len(delivered),
         failed=len(missed),
         source_mailbox=row.from_email,
-        started_at=row.created_at,
-        last_sent=False,
+        started_at=started_at,
+        completed_at=completed_at,
+        recipients=[*delivered, *missed],
+        # A partial send still has a real last-sent time. A total failure does
+        # not replace the last successful send shown on System Emails.
+        last_sent=bool(delivered),
         ref=(row.on_sent or {}).get("ref"),
     )
-    _hook(row, "missed", missed)
+    if delivered:
+        _hook(row, "sent", delivered)
+    if missed:
+        _hook(row, "missed", missed)
+
+
+def _sent(row: WaitingEmail, delivered: list[str]) -> None:
+    """Compatibility helper for a completed all-success retry."""
+    sent_at = timezone.now()
+    _finished(
+        row,
+        delivered,
+        {},
+        started_at=sent_at,
+        completed_at=sent_at,
+    )
+
+
+def _missed(row: WaitingEmail, missed: dict[str, str]) -> None:
+    """Compatibility helper for a completed all-failed retry."""
+    resolved_at = timezone.now()
+    _finished(
+        row,
+        [],
+        missed,
+        started_at=resolved_at,
+        completed_at=resolved_at,
+    )
 
 
 def give_up(now=None) -> int:
@@ -343,7 +368,13 @@ def give_up(now=None) -> int:
     unheld = Q(held_until__isnull=True) | Q(held_until__lt=now)
     for row in WaitingEmail.objects.filter(state=WAITING, give_up_at__lte=now).filter(unheld):
         due = _due(row)
-        _missed(row, dict.fromkeys(due, UNREACHABLE))
+        _finished(
+            row,
+            [],
+            dict.fromkeys(due, UNREACHABLE),
+            started_at=now,
+            completed_at=now,
+        )
         logger.warning("waiting_email.gave_up key=%s recipients=%s", row.key, len(row.recipients))
         row.recipients = due
         _to_missed(row, now)
@@ -378,6 +409,7 @@ def _send_row(row: WaitingEmail, connection, now) -> tuple[int, int] | None:
         row.delete()
         return 0, 0
     message = _KeptMessage(row, due, connection)
+    started_at = timezone.now()
     try:
         refused = send_reconnecting(connection, lambda: send_noting_refused(message))
     except MailServerDown:
@@ -386,7 +418,14 @@ def _send_row(row: WaitingEmail, connection, now) -> tuple[int, int] | None:
     except Exception as exc:  # noqa: BLE001
         # The server took the connection but turned the email away.
         logger.error("waiting_email.send_failed key=%s error=%s", row.key, type(exc).__name__)
-        _missed(row, dict.fromkeys(due, reason_for(exc)))
+        completed_at = timezone.now()
+        _finished(
+            row,
+            [],
+            dict.fromkeys(due, reason_for(exc)),
+            started_at=started_at,
+            completed_at=completed_at,
+        )
         row.recipients = due
         _to_missed(row, now)
         return 0, 1
@@ -394,8 +433,15 @@ def _send_row(row: WaitingEmail, connection, now) -> tuple[int, int] | None:
         address.lower(): reason_for(smtplib.SMTPRecipientsRefused({address: reply}))
         for address, reply in (refused or {}).items()
     }
-    _sent(row, [address for address in due if address.lower() not in why])
-    _missed(row, {address: why[address.lower()] for address in due if address.lower() in why})
+    delivered = [address for address in due if address.lower() not in why]
+    missed = {address: why[address.lower()] for address in due if address.lower() in why}
+    _finished(
+        row,
+        delivered,
+        missed,
+        started_at=started_at,
+        completed_at=timezone.now(),
+    )
     refused_too = [address for address in due if address.lower() in why]
     if refused_too:
         # Those it turned away, kept for Resend.

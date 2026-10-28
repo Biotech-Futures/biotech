@@ -28,7 +28,9 @@ def body(**fields):
     return {
         "Title": "kid@students.example.test", "FirstName": "Kid", "Surname": "Student",
         "Country": "Australia", "Region": "NSW", "SchoolName": "Example High", "YearLevel": "10",
-        "Areaofinterest": "Biotechnology", "RegisteredBy": "supervisor", **fields,
+        "Areaofinterest": "Biotechnology", "RegisteredBy": "supervisor",
+        "SupervisorEmail": "supervisor@example.test",
+        "SupervisorFirstName": "Sam", "SupervisorSurname": "Teacher", **fields,
     }
 
 
@@ -54,6 +56,8 @@ class Journeys(MultiStudentSetup):
             client = self.client
         else:
             body = batch("supervisor_individual" if name == "admin" else name, offset=offset)
+            if name == "admin":
+                body["payload"]["supervisorEmail"] = self.supervisor.email
             client = (
                 self.staff_client if name == "admin"
                 else self.supervisor_client if name.startswith("supervisor_") else self.client
@@ -319,6 +323,8 @@ class GuardianAccountTests(Journeys, TestCase):
         legacy = {"body": {
             "Title": "jordan.lee@example.com", "FirstName": "Jordan", "Surname": "Lee", "Country": "Australia",
             "Region": "NSW", "SchoolName": "Example High", "YearLevel": "10", "Areaofinterest": "Biotechnology",
+            "SupervisorEmail": "supervisor@example.test",
+            "SupervisorFirstName": "Sam", "SupervisorSurname": "Teacher",
             "GuardianEmail": "no.role@example.test", "GuardianName": "Taylor", "GuardianSurname": "Lee",
         }}
 

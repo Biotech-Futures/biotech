@@ -31,7 +31,7 @@
       <p v-if="isLoading" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="loadError" class="finalist-presentation__load-error">
         <p>Failed to load the times. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </div>
       <template v-else-if="data">
         <!-- After adding, the next time starts where this one ended and runs
@@ -47,7 +47,7 @@
           </label>
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="isSaving || !draft.starts_at || !draft.ends_at"
             @click="add"
           >
@@ -151,7 +151,7 @@
       <p v-if="isLoadingResponses" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="responsesError" class="finalist-presentation__load-error">
         <p>Failed to load the teams. {{ responsesError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="loadResponses">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="loadResponses">Try again</button>
       </div>
       <template v-else>
         <AppDataTable
@@ -160,7 +160,8 @@
           row-key="id"
           :selectable="false"
           :page-size="DATA_TABLE_ALL"
-          :sort="NO_SORT"
+          :default-sort="BY_GROUP"
+          :search-columns="[allocateColumns[0]!]"
           search-placeholder="Group name"
           empty-message="No finalist teams yet."
         >
@@ -303,8 +304,8 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// The teams in the order they come; nothing sorts them.
-const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
+// By number until a heading is clicked.
+const BY_GROUP: DataTableSort = { key: 'group', direction: 'asc' }
 
 // Allocate Slots: each team as a row, with plain text for search; the team
 // itself for the cells drawn here.
@@ -326,15 +327,27 @@ const answeredCount = computed(() => teams.value.filter((team) => team.answered_
 const allocatedCount = computed(() => teams.value.filter((team) => team.allocated_slot_id != null).length)
 
 // Group, Answered, Allocate, then a column for each time, centred, the
-// team's given time tinted.
+// team's given time tinted. Teams with no answer or no time sort last; a
+// time sorts the teams that can make it first.
 const allocateColumns = computed<DataTableColumn[]>(() => [
-  { key: 'group', label: 'Group', sortable: false },
-  { key: 'answered', label: 'Answered', sortable: false },
-  { key: 'allocate', label: 'Allocate', sortable: false },
+  { key: 'group', label: 'Group' },
+  {
+    key: 'answered',
+    label: 'Answered',
+    sortValue: (row) => (teamOf(row).answered_at ? Date.parse(teamOf(row).answered_at!) : null)
+  },
+  {
+    key: 'allocate',
+    label: 'Allocate',
+    sortValue: (row) => {
+      const given = columns.value.find((slot) => slot.id === teamOf(row).allocated_slot_id)
+      return given ? minutesOf(given.starts_at) : null
+    }
+  },
   ...columns.value.map((slot) => ({
     key: `slot-${slot.id}`,
     label: slotLabel(slot),
-    sortable: false,
+    sortValue: (row: Record<string, unknown>) => (teamOf(row).slot_ids.includes(slot.id) ? 0 : 1),
     align: 'center' as const,
     cellClass: (row: Record<string, unknown>) => ({
       'finalist-presentation__tick': true,

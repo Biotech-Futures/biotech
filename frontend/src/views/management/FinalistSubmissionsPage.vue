@@ -20,7 +20,7 @@
 
       <div v-else-if="loadError" class="finalist-close__load-error">
         <p>Failed to load. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </div>
 
       <template v-else>
@@ -52,7 +52,7 @@
           date-label="Closing Date"
           required
         />
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !closesAtLocal">
+        <button type="submit" class="btn btn-primary btn-field" :disabled="isSaving || !closesAtLocal">
           {{ isSaving ? 'Saving…' : 'Save Closing Time' }}
         </button>
       </form>
@@ -70,10 +70,10 @@
           time straight away.
         </p>
         <div class="finalist-close__dialog-actions">
-          <button type="button" class="btn btn-outline btn-sm" @click="confirmOpen = false">
+          <button type="button" class="btn btn-outline btn-field" @click="confirmOpen = false">
             Cancel
           </button>
-          <button type="button" class="btn btn-primary btn-sm" :disabled="isSaving" @click="save">
+          <button type="button" class="btn btn-primary btn-field" :disabled="isSaving" @click="save">
             {{ isSaving ? 'Saving…' : 'Confirm' }}
           </button>
         </div>
@@ -95,7 +95,7 @@
       <p v-if="isLoadingSlides" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="slidesError" class="finalist-presentation__load-error">
         <p>Failed to load the slides. {{ slidesError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="loadSlides">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="loadSlides">Try again</button>
       </div>
       <AppDataTable
         v-else
@@ -104,7 +104,8 @@
         row-key="id"
         :selectable="false"
         :page-size="DATA_TABLE_ALL"
-        :sort="NO_SORT"
+        :default-sort="NEWEST_FIRST"
+        :search-columns="[submissionColumns[0]!]"
         search-placeholder="Group name"
         empty-message="No finalist teams yet."
         :action-columns="2"
@@ -250,14 +251,23 @@ const loadSlides = async () => {
   }
 }
 
-// The teams in the order they come; nothing sorts them.
-const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
+// Newest first until a heading is clicked.
+const NEWEST_FIRST: DataTableSort = { key: 'submitted', direction: 'desc' }
 
-// Each team as a row, with plain text for search.
+// Each team as a row, with plain text for search. Teams yet to hand theirs
+// in sort last.
 const submissionColumns: DataTableColumn[] = [
-  { key: 'group', label: 'Group', sortable: false },
-  { key: 'submitted', label: 'Submitted', sortable: false },
-  { key: 'type', label: 'Type', sortable: false }
+  { key: 'group', label: 'Group' },
+  {
+    key: 'submitted',
+    label: 'Submitted',
+    sortValue: (row) => (slidesOf(row).submitted ? Date.parse(slidesOf(row).submitted_at!) : null)
+  },
+  {
+    key: 'type',
+    label: 'Type',
+    sortValue: (row) => (slidesOf(row).submitted ? fileType(slidesOf(row).file_name) : null)
+  }
 ]
 
 const submissionRows = computed(() =>

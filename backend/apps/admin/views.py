@@ -38,6 +38,7 @@ from apps.admin.services.user import (
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
 from apps.admin.services import guardian_consent
+from apps.admin.services.email_requests import RangeError, request_usage, usage_range
 from apps.admin.services.email_verification import get_credit_balance
 from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
@@ -66,13 +67,14 @@ from apps.admin.services.plan_task import (
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
-    create_group, update_group, remove_group_member, remove_group_message,
+    create_group, update_group, remove_group_member, remove_group_message, send_group_message,
     delete_group, bulk_delete_groups, bulk_delete_groups_by_filter,
 )
 from apps.admin.services.match import (
     match_student, get_individual_students, confirm_student_assignments,
     recommend_students_for_group,
 )
+from apps.common.matching_modes import resolve_match_mode
 from apps.admin.services.event import (
     query_events, query_event_by_id, create_event, update_event, delete_event,
     query_event_rsvps, create_event_rsvp, update_event_rsvp,
@@ -102,7 +104,7 @@ from apps.admin.services.role_task import (
 )
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
-    confirm_mentor_assignments, replace_mentor,
+    confirm_mentor_assignments, replace_mentor, DEFAULT_IDLE_DAYS,
     unassign_mentors, recommend_mentors_for_group,
 )
 from apps.admin.services.system_email import (
@@ -465,6 +467,7 @@ class GroupListView(APIView):
             limit=int(request.query_params.get("limit", 10)),
             search_name=request.query_params.get("searchName"),
             search_group=request.query_params.get("searchGroup"),
+            search=request.query_params.get("search"),
             mentor_status=request.query_params.get("mentorStatus"),
             requesting_user=request.user,
             sort_by=request.query_params.get("sortBy", "createdAt"),
@@ -563,7 +566,8 @@ class GroupBulkDeleteView(APIView):
 
 
 class GroupMessagesListView(APIView):
-    """GET /api/v1/group/{id}/messages - View group message history"""
+    """GET /api/v1/group/{id}/messages - View group message history
+    POST /api/v1/group/{id}/messages - Send a text message as Administrator"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, group_id):
@@ -573,6 +577,17 @@ class GroupMessagesListView(APIView):
             limit=int(request.query_params.get("limit", 50)),
         )
         return Response(result)
+
+    def post(self, request, group_id):
+        text = request.data.get("text") if isinstance(request.data, dict) else None
+        result = send_group_message(group_id, text, initiated_by=request.user)
+        if result.get("data"):
+            code = status.HTTP_201_CREATED
+        elif result.get("msg") == "Group not found":
+            code = status.HTTP_404_NOT_FOUND
+        else:
+            code = status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
 
 
 class GroupMessageDetailView(APIView):
@@ -608,7 +623,8 @@ class MatchStudentView(APIView):
         uid = str(request.user.id) if request.user.is_authenticated else None
         if not uid:
             return Response({"msg": "Authentication required"}, status=401)
-        result = match_student(uid)
+        mode = resolve_match_mode(request.query_params.get("mode"))
+        result = match_student(uid, mode=mode)
         return Response({
             "msg": "Match retrieved successfully",
             "data": {
@@ -1266,6 +1282,20 @@ class MentorActiveStatusUpdateView(APIView):
 # ============================================================================
 # MENTOR MATCH ENDPOINTS
 # ============================================================================
+def _idle_days_param(request) -> int:
+    """The admin's own "idle after" setting, as their browser reports it.
+
+    It lives in their session rather than the database, so it arrives with the
+    request; anything missing or unusable falls back to what the page starts
+    from. Clamped to at least a day: zero would make every mentor idle.
+    """
+    raw = request.query_params.get("idleDays")
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_IDLE_DAYS
+
+
 class MentorMatchRecommendView(APIView):
     """GET /api/v1/mentor-match/recommend - Get mentor recommendations"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
@@ -1275,9 +1305,8 @@ class MentorMatchRecommendView(APIView):
             request.user.id) if request.user.is_authenticated else None
         if not admin_user_id:
             return Response({"msg": "Authentication required"}, status=401)
-        raw_mode = request.query_params.get("mode")
-        mode = raw_mode if raw_mode in ("strict", "coverage") else "balanced"
-        result = match_mentor(admin_user_id, mode)
+        mode = resolve_match_mode(request.query_params.get("mode"))
+        result = match_mentor(admin_user_id, mode, _idle_days_param(request))
         return Response({"msg": "Mentor recommendations retrieved successfully", "data": result})
 
 
@@ -1313,7 +1342,7 @@ class MentorMatchConfirmView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = confirm_mentor_assignments(request.data)
+        result = confirm_mentor_assignments(request.data, initiated_by=request.user)
         return Response({"msg": "Mentor assignments confirmed successfully", "data": result})
 
 
@@ -1322,7 +1351,7 @@ class MentorMatchReplaceView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = replace_mentor(request.data)
+        result = replace_mentor(request.data, initiated_by=request.user)
         return Response({"msg": "Mentor replaced successfully", "data": result})
 
 
@@ -1344,7 +1373,7 @@ class MentorMatchReplaceSuggestionsView(APIView):
                 {"msg": "groupId must be an integer", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = recommend_mentors_for_group(gid)
+        result = recommend_mentors_for_group(gid, _idle_days_param(request))
         code = status.HTTP_200_OK if result.get(
             "data") is not None else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -1356,7 +1385,11 @@ class MentorMatchUnassignView(APIView):
 
     def post(self, request):
         group_ids = request.data.get("groupIds", [])
-        result = unassign_mentors(group_ids)
+        result = unassign_mentors(
+            group_ids,
+            notify_departing=request.data.get('notifyDeparting', True),
+            initiated_by=request.user,
+        )
         return Response({"msg": "Mentors unassigned successfully", "data": result})
 
 
@@ -1988,6 +2021,21 @@ class EmailVerificationCreditsView(APIView):
 
     def get(self, request):
         return Response(get_credit_balance())
+
+
+class EmailVerificationRequestsView(APIView):
+    """GET /api/v1/admin/email-verification/requests/?from=&to= — requests
+    made to QuickEmailVerification and the credits they cost, by UTC day, key
+    and outcome (apps.admin.services.email_requests). Read-only."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        try:
+            first, last = usage_range(request.query_params.get("from"), request.query_params.get("to"))
+        except RangeError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(request_usage(first, last))
 
 
 def _known_university_fields(data) -> dict:

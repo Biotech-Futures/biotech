@@ -105,6 +105,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.useRealTimers()
   resetCsrfToken()
 })
@@ -323,6 +324,8 @@ describe('exporting the queue (C-09)', () => {
     })
 
   it('posts the queue filters as JSON, with the token, and nothing about paging', async () => {
+    // The signed-in user names no zone, so the reader's is the computer's.
+    vi.stubEnv('TZ', 'Australia/Sydney')
     answer(xlsx())
 
     await exportTickets({
@@ -341,24 +344,27 @@ describe('exporting the queue (C-09)', () => {
     expect(last().method).toBe('POST')
     // Nothing in the URL: the body is where the export view reads filters.
     expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/export/')
-    // The filters that are set, in the list's own order, and no other key.
-    // A list as an array, which the export view reads as the table's repeats.
+    // The filters that are set, in the list's own order, and then the
+    // reader's zone, which the file's times are written in (C-37 to C-40,
+    // DEC-068). A list as an array, which the export view reads as the
+    // table's repeats.
     expect(String(last().body)).toBe(
-      '{"status":["open"],"assignee":["__unassigned__","4"],"search":"Mia Thompson"}'
+      '{"status":["open"],"assignee":["__unassigned__","4"],"search":"Mia Thompson","timeZone":"Australia/Sydney"}'
     )
     expect(last().headers.get('Content-Type')).toBe('application/json')
     expect(last().headers.get('Accept')).toBe('application/json')
     expect(last().headers.get('X-CSRFToken')).toBe('test-token')
   })
 
-  it('posts an empty object when nothing is filtered', async () => {
+  it('posts only the reader’s zone when nothing is filtered', async () => {
+    vi.stubEnv('TZ', 'Australia/Sydney')
     answer(xlsx())
 
     await exportTickets()
 
     expect(last().method).toBe('POST')
     expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/export/')
-    expect(String(last().body)).toBe('{}')
+    expect(String(last().body)).toBe('{"timeZone":"Australia/Sydney"}')
   })
 
   it('names the file the way the server did', async () => {
@@ -467,22 +473,24 @@ describe('exporting the audit log (C-26)', () => {
       }
     })
 
-  it('posts the tab’s filters as JSON, leaving an empty one out', async () => {
+  it('posts the tab’s filters as JSON, leaving an empty one out, and the reader’s zone', async () => {
+    vi.stubEnv('TZ', 'Australia/Sydney')
     answer(xlsx())
 
     await exportTicketAudit({ action: 'status', actor: '' })
 
     expect(last().method).toBe('POST')
     expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/audit/export/')
-    expect(String(last().body)).toBe('{"action":"status"}')
+    expect(String(last().body)).toBe('{"action":"status","timeZone":"Australia/Sydney"}')
   })
 
-  it('posts an empty object with no filter at all', async () => {
+  it('posts only the reader’s zone with no filter at all', async () => {
+    vi.stubEnv('TZ', 'Australia/Sydney')
     answer(xlsx())
 
     await exportTicketAudit()
 
-    expect(String(last().body)).toBe('{}')
+    expect(String(last().body)).toBe('{"timeZone":"Australia/Sydney"}')
   })
 
   it('names the file the way the server did, and for the reader’s day when it did not', async () => {
@@ -809,6 +817,7 @@ describe('audit and analytics', () => {
   }
 
   it('sends the picked dates exactly as picked; the server adds the day', async () => {
+    vi.stubEnv('TZ', 'Australia/Sydney')
     answer(ok(ANALYTICS))
 
     const report = await fetchTicketAnalytics({
@@ -818,7 +827,7 @@ describe('audit and analytics', () => {
     })
 
     expect(last().url).toBe(
-      'http://localhost:8000/api/v1/admin/tickets/analytics/?from=2026-09-01&to=2026-09-07&dimension=assignee'
+      'http://localhost:8000/api/v1/admin/tickets/analytics/?from=2026-09-01&to=2026-09-07&dimension=assignee&tz=Australia%2FSydney'
     )
     // Bucket values are strings, assignee ids included.
     expect(report.segment?.buckets).toEqual([
@@ -827,12 +836,14 @@ describe('audit and analytics', () => {
     ])
   })
 
-  it('asks for the default window with no query string at all', async () => {
+  it('asks for the default window with nothing but the reader’s zone', async () => {
+    // C-37 to C-40, DEC-068: the server reads both dates in it.
+    vi.stubEnv('TZ', 'Australia/Sydney')
     answer(ok({ ...ANALYTICS, window: { from: null, to: null }, segment: null }))
 
     await fetchTicketAnalytics()
 
-    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/analytics/')
+    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/analytics/?tz=Australia%2FSydney')
   })
 })
 

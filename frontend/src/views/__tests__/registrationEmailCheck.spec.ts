@@ -59,6 +59,12 @@ const prepareStudent = async (wrapper: VueWrapper) => {
     email: 'taylor@example.com',
     relationship: 'Parent',
   })
+  // Their supervisor, as a student must name one.
+  Object.assign(setup.forms.studentIndividual.supervisor, {
+    firstName: 'Sam',
+    lastName: 'Teacher',
+    email: 'sam.teacher@example.com',
+  })
   await wrapper.vm.$nextTick()
 }
 
@@ -111,6 +117,10 @@ describe('checking email addresses before submitting', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.get('.email-check').text()).toContain('Waiting for earlier checks')
     expect(wrapper.get('.email-check progress').attributes('value')).toBeUndefined()
+    // Just above Submit, where the person who pressed it is looking.
+    const html = wrapper.html()
+    expect(html.indexOf('class="step-content"')).toBeLessThan(html.indexOf('class="email-check"'))
+    expect(html.indexOf('class="email-check"')).toBeLessThan(html.indexOf('class="form-footer"'))
 
     check.report({ phase: 'running', done: 1, total: 2, secondsRemaining: 75 })
     await wrapper.vm.$nextTick()

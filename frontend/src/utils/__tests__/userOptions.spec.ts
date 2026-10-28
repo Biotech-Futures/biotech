@@ -85,7 +85,10 @@ describe('bulk import never reaches support', () => {
       const source = read(path)
       return {
         path,
-        readsRoleList: /USER_ROLES|userOptions/.test(source),
+        // The role list itself, not the module that holds it: an importer
+        // may read the mentor background categories from userOptions
+        // without being able to ask for a role.
+        readsRoleList: /USER_ROLES|UserRole/.test(source),
         namesSupport: /['"]support['"]/.test(source)
       }
     })

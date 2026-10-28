@@ -1,4 +1,4 @@
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -15,7 +15,6 @@ import {
   registrationCsvTemplate,
   revalidateRegistrationCsvRows,
   type RegistrationForms,
-  type StudentDetails,
 } from '@/registration/registration'
 import { resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { pickAppSelect } from '@/__tests__/appSelect'
@@ -42,7 +41,6 @@ type PageSetup = {
   goToStep: (index: number) => void
   changeJourney: () => void
   submitRegistration: () => Promise<void>
-  handlePhoto: (student: StudentDetails, prefix: string, file: File) => void
 }
 
 const mountWithGateway = (gateway: RegistrationGateway) =>
@@ -127,7 +125,8 @@ const prepareStudent = async (wrapper: VueWrapper) => {
 const prepareMentor = async (wrapper: VueWrapper) => {
   const setup = setupOf(wrapper)
   setup.journey = 'mentor'
-  setup.currentStep = 3
+  // In Australia: Review follows its Checks step.
+  setup.currentStep = 4
   Object.assign(setup.forms.mentor, {
     firstName: 'Riley',
     lastName: 'Chen',
@@ -139,8 +138,14 @@ const prepareMentor = async (wrapper: VueWrapper) => {
     interests: ['Biomedical Innovations'],
     capacity: '2',
     motivation: 'Support the next generation of researchers.',
+    dateOfBirth: '1990-05-01',
+    wwccNumber: 'WWC0012345E',
+    indigenous: 'no',
+    languages: ['English'],
   })
   await wrapper.vm.$nextTick()
+  // Signed on Review, as the box there would.
+  setup.forms.mentor.signature = 'data:image/png;base64,iVBORw0KGgo='
 }
 
 const prepareSupervisorStudent = async (wrapper: VueWrapper) => {
@@ -194,16 +199,7 @@ afterEach(() => {
 })
 
 describe('registration gateway UI integration', () => {
-  it('submits a selected image through the real HTTP adapter with CSRF, invitation and actual file bytes', async () => {
-    vi.stubGlobal(
-      'URL',
-      class extends URL {
-        static createObjectURL() {
-          return 'blob:selected-photo'
-        }
-        static revokeObjectURL() {}
-      },
-    )
+  it('submits through the real HTTP adapter as JSON with CSRF and the invitation', async () => {
     const endpoint = '/api/v1/registration'
     setCsrfToken('registration-csrf', window.location.origin)
     const send = vi.fn<typeof fetch>(
@@ -226,10 +222,6 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountWithGateway(gateway)
     await wrapper.setProps({ invitationToken: 'signed-invitation' })
     await prepareStudent(wrapper)
-    const setup = setupOf(wrapper)
-    const photo = new File(['actual image bytes'], 'profile.png', { type: 'image/png' })
-    setup.handlePhoto(setup.forms.studentIndividual.student, 'studentIndividual.student', photo)
-    await wrapper.vm.$nextTick()
     await submit(wrapper)
     await vi.waitFor(() => expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete'))
     const [url, init] = send.mock.calls[0]!
@@ -238,12 +230,10 @@ describe('registration gateway UI integration', () => {
     const headers = init?.headers as Headers
     expect(headers.get('X-CSRFToken')).toBe('registration-csrf')
     expect(headers.get('X-Registration-Invitation')).toBe('signed-invitation')
-    expect(headers.get('Content-Type')).toBeNull()
+    expect(headers.get('Content-Type')).toBe('application/json')
     expect(headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i)
-    const body = init?.body
-    if (!(body instanceof FormData)) throw new Error('Expected registration multipart data')
-    const serialized = body.get('request')
-    if (typeof serialized !== 'string') throw new Error('Expected JSON request part')
+    const serialized = init?.body
+    if (typeof serialized !== 'string') throw new Error('Expected a JSON request')
     expect(JSON.parse(serialized)).toMatchObject({
       journey: 'student_individual',
       payload: {
@@ -251,7 +241,9 @@ describe('registration gateway UI integration', () => {
         source: { method: 'student_individual' },
       },
     })
-    expect(body.get('students.0')).toBeInstanceOf(File)
+    // No pronouns or photo: the page no longer asks for them.
+    expect(JSON.parse(serialized).payload.students[0]).not.toHaveProperty('pronouns')
+    expect(JSON.parse(serialized).payload.students[0]).not.toHaveProperty('profilePhoto')
     wrapper.unmount()
   })
 
@@ -329,6 +321,11 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountWithGateway({ submit: send })
     await prepareStudent(wrapper)
     await submit(wrapper)
+    // Just above Submit, after the policies: every final tick in one place.
+    const html = wrapper.html()
+    expect(html.indexOf('data-test="policies-agree"')).toBeLessThan(html.indexOf('registration-warnings'))
+    expect(html.indexOf('registration-warnings')).toBeLessThan(html.indexOf('class="form-footer"'))
+    expect(html.indexOf('class="step-content"')).toBeLessThan(html.indexOf('registration-warnings'))
     const checkboxes = wrapper.findAll('.registration-warnings input')
     expect(checkboxes).toHaveLength(2)
     await checkboxes[0]!.setValue(true)
@@ -408,6 +405,103 @@ describe('registration gateway UI integration', () => {
     expect(wrapper.find('.registration-warnings').exists()).toBe(false)
     await submit(wrapper)
     expect(send.mock.calls[1]![1]?.overrides).toEqual({})
+    wrapper.unmount()
+  })
+
+  it("takes back only the edited person's warnings, keeping everyone else's ticks", async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Please check.',
+      warnings: [
+        {
+          code: 'school_requires_confirmation',
+          field: 'studentIndividual.student.school',
+          overrideField: 'students.0.overrides.ConfirmSchoolOverride',
+          message: 'Confirm this school.',
+        },
+        {
+          code: 'email_unverified',
+          field: 'studentIndividual.supervisor.email',
+          overrideField: 'ConfirmSupervisorEmailInvalidOverride',
+          message: 'Confirm this address.',
+        },
+      ],
+    })
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+    await flushPromises()
+    for (const tick of wrapper.findAll('.registration-warnings input')) await tick.setValue(true)
+
+    setupOf(wrapper).forms.studentIndividual.supervisor.email = 'sam.teacher@example.edu.au'
+    await wrapper.vm.$nextTick()
+
+    const left = wrapper.findAll('.registration-warnings label')
+    expect(left.map((label) => label.text())).toEqual(['School: Confirm this school.'])
+    expect((left[0]!.get('input').element as HTMLInputElement).checked).toBe(true)
+    await submit(wrapper)
+    expect(send.mock.calls[1]![1]?.overrides).toEqual({ 'students.0.overrides.ConfirmSchoolOverride': true })
+    wrapper.unmount()
+  })
+
+  it("keeps a mentor's ticked warning when they sign", async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check this.',
+      warnings: [
+        {
+          code: 'name_email_mismatch',
+          field: 'mentor.email',
+          overrideField: 'mentor.overrides.ConfirmNameEmailOverride',
+          message: 'Check this email.',
+        },
+      ],
+    })
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareMentor(wrapper)
+    await submit(wrapper)
+    await flushPromises()
+    await wrapper.get('.registration-warnings input').setValue(true)
+
+    setupOf(wrapper).forms.mentor.signature = 'data:image/png;base64,c2lnbmVkIGFnYWlu'
+    await wrapper.vm.$nextTick()
+
+    expect((wrapper.get('.registration-warnings input').element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
+
+  it("takes back an edited CSV row's warnings only", async () => {
+    const warning = (row: number, override: string, field: string) => ({
+      code: 'check',
+      field: `supervisorCsv.rows.${row}.${field}`,
+      overrideField: `students.${row}.overrides.${override}`,
+      message: `Row ${row}: check ${field}.`,
+    })
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check these.',
+      warnings: [warning(0, 'ConfirmEmailInvalidOverride', 'email'), warning(1, 'ConfirmSchoolOverride', 'school')],
+    })
+    const wrapper = mountSupervisorWithGateway({ submit: send })
+    const setup = setupOf(wrapper)
+    setup.journey = 'supervisor_csv'
+    setup.currentStep = 2
+    setup.maxReachedStep = 2
+    setup.forms.supervisorCsv.fileName = 'students.csv'
+    const second = studentCsv().split('\r\n').at(-2)!.replace('alex@example.test', 'jo@example.test')
+    setup.forms.supervisorCsv.rows = parseRegistrationCsv(`${studentCsv()}${second}\r\n`).rows
+    await wrapper.vm.$nextTick()
+    await submitForm(wrapper)
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    await flushPromises()
+    for (const tick of wrapper.findAll('.registration-warnings input')) await tick.setValue(true)
+
+    setup.forms.supervisorCsv.rows[1]!.values.school = 'Another School'
+    await wrapper.vm.$nextTick()
+
+    const left = wrapper.findAll('.registration-warnings label')
+    expect(left.map((label) => label.text())).toEqual(['CSV row 2 - Student email: Row 0: check email.'])
+    expect((left[0]!.get('input').element as HTMLInputElement).checked).toBe(true)
     wrapper.unmount()
   })
 
@@ -513,6 +607,78 @@ describe('registration gateway UI integration', () => {
     await submitForm(wrapper)
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete')
+    wrapper.unmount()
+  })
+
+  it("confirms a CSV's email warnings with one tick, leaving its school and name warnings one by one", async () => {
+    const warning = (row: number, override: string, field: string) => ({
+      code: 'check',
+      field: `supervisorCsv.rows.${row}.${field}`,
+      overrideField: `students.${row}.overrides.${override}`,
+      message: `Row ${row}: check ${field}.`,
+    })
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check these.',
+      warnings: [
+        warning(0, 'ConfirmEmailInvalidOverride', 'email'),
+        warning(0, 'ConfirmGuardianEmailInvalidOverride', 'guardian.email'),
+        warning(0, 'ConfirmSchoolOverride', 'school'),
+        warning(0, 'ConfirmNameEmailOverride', 'email'),
+      ],
+    })
+    const wrapper = mountSupervisorWithGateway({ submit: send })
+    const setup = setupOf(wrapper)
+    setup.journey = 'supervisor_csv'
+    setup.currentStep = 2
+    setup.maxReachedStep = 2
+    setup.forms.supervisorCsv.fileName = 'students.csv'
+    setup.forms.supervisorCsv.rows = parseRegistrationCsv(studentCsv()).rows
+    await wrapper.vm.$nextTick()
+    await submitForm(wrapper)
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    // Submit's last steps done, as they are long before anyone ticks.
+    await flushPromises()
+
+    const all = wrapper.get('[data-test="confirm-all-email-warnings"]')
+    expect(all.text()).toBe('Confirm all 2 email address warnings')
+    const ticks = () =>
+      wrapper.findAll('.registration-warnings label:not(.registration-warnings__all) input')
+    expect(ticks()).toHaveLength(4)
+    await all.get('input').setValue(true)
+    expect(ticks().map((tick) => (tick.element as HTMLInputElement).checked)).toEqual([true, true, false, false])
+
+    // Unticking one email warning unticks Confirm all; the others stay.
+    await ticks()[0]!.setValue(false)
+    expect((all.get('input').element as HTMLInputElement).checked).toBe(false)
+    expect((ticks()[1]!.element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('offers no Confirm all for a single email warning, or outside a CSV', async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check these.',
+      warnings: [
+        {
+          code: 'check',
+          field: 'studentIndividual.student.email',
+          overrideField: 'students.0.overrides.ConfirmEmailInvalidOverride',
+          message: 'Check this.',
+        },
+        {
+          code: 'check',
+          field: 'studentIndividual.student.guardian.email',
+          overrideField: 'students.0.overrides.ConfirmGuardianEmailInvalidOverride',
+          message: 'Check that.',
+        },
+      ],
+    })
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    expect(wrapper.find('[data-test="confirm-all-email-warnings"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -948,12 +1114,69 @@ describe('registration gateway UI integration', () => {
     expect(submitMock).toHaveBeenCalledTimes(2)
   })
 
-  it('shows the mentor Pending Review outcome', async () => {
+  it("shows a mentor's own email warning as theirs, and sends its tick back", async () => {
+    const registered = successfulGateway('mentor')
+    const send = vi
+      .fn<RegistrationGateway['submit']>()
+      .mockResolvedValueOnce({
+        ok: false,
+        message: 'Check this.',
+        warnings: [
+          {
+            code: 'name_email_mismatch',
+            field: 'mentor.email',
+            overrideField: 'mentor.overrides.ConfirmNameEmailOverride',
+            message: 'Check this email.',
+          },
+        ],
+      })
+      .mockImplementation((...args) => registered.submit(...args))
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareMentor(wrapper)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    expect(wrapper.get('.registration-warnings label').text()).toBe('Your email: Check this email.')
+    await wrapper.get('.registration-warnings input').setValue(true)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+    expect(send.mock.calls[1]![1]).toMatchObject({
+      overrides: { 'mentor.overrides.ConfirmNameEmailOverride': true },
+    })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration Complete'))
+  })
+
+  it("names a warning about a student's supervisor as the supervisor's email", async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: false,
+      message: 'Check this.',
+      warnings: [
+        {
+          code: 'email_unverified',
+          field: 'studentIndividual.supervisor.email',
+          overrideField: 'ConfirmSupervisorEmailInvalidOverride',
+          message: "We couldn't confirm this address.",
+        },
+      ],
+    })
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareStudent(wrapper)
+    await submit(wrapper)
+
+    await vi.waitFor(() => expect(wrapper.find('.registration-warnings').exists()).toBe(true))
+    expect(wrapper.get('.registration-warnings label').text()).toBe(
+      "Supervisor email: We couldn't confirm this address.",
+    )
+  })
+
+  it('tells a mentor they can sign in, with nothing for an admin to review', async () => {
     const wrapper = mountWithGateway(successfulGateway('mentor'))
     await prepareMentor(wrapper)
     await submit(wrapper)
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Application received'))
-    expect(wrapper.text()).toContain('pending administrator review')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration Complete'))
+    expect(wrapper.text()).toContain('You can now sign in.')
+    expect(wrapper.text()).not.toContain('pending administrator review')
   })
 })

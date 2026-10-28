@@ -4,7 +4,7 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.http import JsonResponse
+from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.middleware.csrf import get_token
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
@@ -17,9 +17,12 @@ from django.core.cache import cache
 from urllib.parse import urlencode, urlparse
 from django.conf import settings
 from . import auth_service
+from .email_tracking import decode_click, record_event
+from .models import EmailEngagementEvent
 from apps.users.models import User
 from apps.common.rbac import is_admin
 from apps.common.pii import email_log_tag
+from apps.common.client_ip import client_ip as _client_ip
 from apps.user_sessions.models import UserSession
 from config.errors import (
     AccountInactive,
@@ -34,6 +37,38 @@ from config.errors import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A transparent 1x1 GIF. Open tracking deliberately returns the same response
+# for known and unknown tokens so the endpoint does not reveal stored records.
+TRANSPARENT_GIF = (
+    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,"
+    b"\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+)
+
+
+@require_http_methods(["GET"])
+def track_email_open(request, token):
+    record_event(token, EmailEngagementEvent.EventType.OPEN)
+    response = HttpResponse(TRANSPARENT_GIF, content_type="image/gif")
+    response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response["Pragma"] = "no-cache"
+    response["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    return response
+
+
+@require_http_methods(["GET"])
+def track_email_click(request, payload):
+    decoded = decode_click(payload)
+    if decoded is None:
+        return HttpResponseBadRequest("Invalid tracking link")
+    token, destination = decoded
+    # Analytics is fail-open: a deleted row or temporary database failure must
+    # never stop a recipient from reaching the original link.
+    record_event(token, EmailEngagementEvent.EventType.CLICK)
+    response = redirect(destination)
+    response["Cache-Control"] = "no-store"
+    response["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    return response
 
 # --- Login code send rate limits -------------------------------------------
 LOGIN_SEND_PER_EMAIL_LIMIT = 5
@@ -370,33 +405,6 @@ class PasswordResetConfirmView(APIView):
             {"message": "Password reset successful. Please log in with your new password."},
             status=status.HTTP_200_OK,
         )
-
-
-def _client_ip(request) -> str:
-    # X-Forwarded-For is attacker-controlled when the app is reachable directly.
-    # Only honor it when the deployment terminates at a trusted proxy/CDN
-    # (Azure Front Door / App Service ingress / ALB). Production opts in via
-    # TRUST_FORWARDED_FOR=true; everywhere else we anchor rate-limit keys to
-    # the real socket peer so an attacker can't fan out across spoofed IPs.
-    if getattr(settings, "TRUST_FORWARDED_FOR", False):
-        xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
-        if xff:
-            return _strip_port(xff.split(",")[0])
-    return _strip_port(request.META.get("REMOTE_ADDR", "") or "")
-
-
-def _strip_port(addr: str) -> str:
-    # Azure App Service forwards `IP:PORT` in X-Forwarded-For / REMOTE_ADDR;
-    # GenericIPAddressField rejects the port suffix.
-    addr = addr.strip()
-    if not addr:
-        return ""
-    if addr.startswith("["):
-        end = addr.find("]")
-        return addr[1:end] if end != -1 else addr
-    if addr.count(":") == 1:
-        return addr.split(":", 1)[0]
-    return addr
 
 
 # --- shared throttle primitives ---------------------------------------------

@@ -20,6 +20,7 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 vi.mock('@/utils/adminAPI', async () => ({
   ...(await vi.importActual<typeof import('@/utils/adminAPI')>('@/utils/adminAPI')),
   createAdminUser: vi.fn(),
+  checkAdminUserEmails: vi.fn(async () => ({})),
   updateAdminUser: vi.fn(),
   setAdminUserActive: vi.fn()
 }))
@@ -100,6 +101,18 @@ async function submit() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The sheet makes its own requests on open and submit. Without a stub the
+  // spec only passed when another file happened to leave one behind, so it
+  // failed whenever it ran first.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      new Response(JSON.stringify({ msg: 'ok', data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ),
+  )
   vi.mocked(createAdminUser).mockResolvedValue({ msg: 'ok', data: agentRow() })
   vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: agentRow() })
   vi.mocked(setAdminUserActive).mockResolvedValue(undefined as never)
@@ -131,6 +144,7 @@ describe('an agent without a country (C5, C6)', () => {
     await openSheet()
     await fill({ '#f-first': 'Sam', '#f-last': 'Reid', '#f-email': 'sam@example.com' })
     await pickRole('Support')
+    ;(sheet().vm as unknown as { form: { role: string } }).form.role = 'support'
     await submit()
 
     expect(sheet().find('[role="alert"]').exists()).toBe(false)

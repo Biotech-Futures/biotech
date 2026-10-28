@@ -50,8 +50,13 @@ def assert_public_message_shape(testcase, payload):
     testcase.assertIn("is_edited", payload)
     testcase.assertIn("attachments", payload)
     testcase.assertIn("resources", payload)
+    # The sender's id is part of the contract: a mentor may remove a
+    # *student's* message (AM8), so the client has to know whose it is. It
+    # reveals nothing new - the group members endpoint already hands every
+    # member's id and role to the same viewer - and ``mask_admin_sender``
+    # nulls it on an admin-sent message so "Administrator" stays anonymous.
+    testcase.assertIn("sender_user", payload)
     testcase.assertNotIn("group", payload)
-    testcase.assertNotIn("sender_user", payload)
     testcase.assertNotIn("sender_id", payload)
     testcase.assertNotIn("text", payload)
     testcase.assertNotIn("resource_ids", payload)

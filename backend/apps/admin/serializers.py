@@ -52,14 +52,22 @@ class BulkUserRowSerializer(serializers.Serializer):
 
 
 def bulk_user_error_message(errors) -> str:
-    """Flatten DRF's per-row error map into one row-numbered message."""
-    if isinstance(errors, dict):
+    """Flatten DRF's per-row error map into one row-numbered message.
+
+    DRF keys each failing row's errors by its index; errors about the list
+    itself (such as an empty list) arrive under ``non_field_errors``.
+    """
+    if isinstance(errors, list):
+        return "; ".join(
+            f"Row {index + 1}: {_format_row(row_errors)}"
+            for index, row_errors in enumerate(errors)
+        ) or "Invalid user payload"
+    if not all(isinstance(index, int) for index in errors):
         return _format_row(errors) or "Invalid user payload"
 
     parts = [
         f"Row {index + 1}: {_format_row(row_errors)}"
-        for index, row_errors in enumerate(errors)
-        if row_errors
+        for index, row_errors in errors.items()
     ]
     return "; ".join(parts) or "Invalid user payload"
 

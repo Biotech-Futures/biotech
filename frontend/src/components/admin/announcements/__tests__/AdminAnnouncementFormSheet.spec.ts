@@ -434,4 +434,212 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
 
     editorWrapper.unmount()
   })
+  describe('sending progress (AM7)', () => {
+    const existing = {
+      id: 302,
+      title: 'Preloaded Title',
+      bodyHtml: '<p>Preloaded Body HTML</p>',
+      bodyText: 'Preloaded Body HTML',
+      visibilityScope: 'role_based'
+    } as unknown as adminApi.AdminAnnouncement
+
+    const saved = {
+      id: 301,
+      title: 'Created Announcement',
+      body: '<p>Created Body</p>',
+      visibilityScope: 'global',
+      publishedAt: '2026-05-01T10:00:00Z',
+      archivedAt: null,
+      authorUserId: 1,
+      audiences: []
+    } as adminApi.AdminAnnouncementDetail
+
+    /** A request the test settles itself, to look at the in-flight state. */
+    const deferred = () => {
+      let resolve!: (value: adminApi.AdminAnnouncementDetail) => void
+      let reject!: (error: Error) => void
+      const promise = new Promise<adminApi.AdminAnnouncementDetail>((res, rej) => {
+        resolve = res
+        reject = rej
+      })
+      return { promise, resolve, reject }
+    }
+
+    // The real FormSheet, so Escape / backdrop / close button are the real ones.
+    const mountSheet = async (announcement: adminApi.AdminAnnouncement | null = null) => {
+      wrapper = mount(AdminAnnouncementFormSheet, {
+        props: {
+          modelValue: true,
+          announcement,
+          'onUpdate:modelValue': (value: boolean) => wrapper!.setProps({ modelValue: value })
+        },
+        global: {
+          stubs: {
+            teleport: true,
+            RichEditor: {
+              name: 'RichEditor',
+              props: ['modelValue'],
+              emits: ['update:modelValue'],
+              template: '<textarea class="rich-editor-stub" :value="modelValue"></textarea>'
+            },
+            ConfirmDialog: {
+              name: 'ConfirmDialog',
+              props: ['modelValue'],
+              emits: ['update:modelValue', 'confirm'],
+              template: '<div v-if="modelValue"><button class="confirm-btn" @click="$emit(\'confirm\')">Confirm</button></div>'
+            }
+          }
+        }
+      })
+      await flushPromises()
+      await wrapper.find('#ann-title').setValue('Term dates')
+      wrapper.findComponent({ name: 'RichEditor' }).vm.$emit('update:modelValue', '<p>Body</p>')
+      await flushPromises()
+      return wrapper
+    }
+
+    const button = (label: string) => wrapper!.findAll('button').find((b) => b.text().includes(label))
+    const progress = () => wrapper!.find('[role="status"]')
+    const footerButtons = () => wrapper!.findAll('.admin-ann-form__footer button')
+
+    /** Publish & Notify through its confirmation, leaving the request in flight. */
+    const publishAndNotify = async () => {
+      await button('Publish & Notify')!.trigger('click')
+      await wrapper!.find('.confirm-btn').trigger('click')
+      await flushPromises()
+    }
+
+    it('shows "Sending emails…" and locks the form while Publish & Notify is in flight', async () => {
+      const request = deferred()
+      vi.mocked(adminApi.createAdminAnnouncement).mockReturnValue(request.promise)
+      await mountSheet()
+
+      await publishAndNotify()
+
+      expect(progress().text()).toContain('Sending emails…')
+      expect(progress().find('.fa-spinner').exists()).toBe(true)
+      expect(wrapper!.find('form').attributes('aria-busy')).toBe('true')
+      expect(button('Sending…')).toBeDefined()
+      expect(footerButtons().every((b) => b.attributes('disabled') !== undefined)).toBe(true)
+
+      request.resolve(saved)
+      await flushPromises()
+    })
+
+    it('shows "Saving…", not sending, for a save without email', async () => {
+      const request = deferred()
+      vi.mocked(adminApi.updateAdminAnnouncement).mockReturnValue(request.promise)
+      await mountSheet(existing)
+
+      await button('Save')!.trigger('click')
+      await flushPromises()
+
+      expect(progress().text()).toBe('Saving…')
+      expect(progress().text()).not.toContain('Sending')
+      expect(button('Saving…')).toBeDefined()
+
+      request.resolve(saved)
+      await flushPromises()
+    })
+
+    it('shows "Sending emails…" for Save & Re-notify', async () => {
+      const request = deferred()
+      vi.mocked(adminApi.updateAdminAnnouncement).mockReturnValue(request.promise)
+      await mountSheet(existing)
+
+      await button('Save & Re-notify')!.trigger('click')
+      await flushPromises()
+
+      expect(progress().text()).toContain('Sending emails…')
+      expect(vi.mocked(adminApi.updateAdminAnnouncement).mock.calls[0][1]).toMatchObject({ send_email: true })
+
+      request.resolve(saved)
+      await flushPromises()
+    })
+
+    it('cannot be closed by Escape, the backdrop or the close button while sending', async () => {
+      const request = deferred()
+      vi.mocked(adminApi.createAdminAnnouncement).mockReturnValue(request.promise)
+      await mountSheet()
+      await publishAndNotify()
+
+      await wrapper!.find('.admin-sheet').trigger('keydown', { key: 'Escape' })
+      await wrapper!.find('.admin-sheet__backdrop').trigger('mousedown')
+      await wrapper!.find('.admin-sheet__close').trigger('click')
+      await flushPromises()
+
+      expect(wrapper!.emitted('update:modelValue')).toBeUndefined()
+      expect(wrapper!.find('.admin-sheet').exists()).toBe(true)
+      expect(progress().text()).toContain('Sending emails…')
+
+      request.resolve(saved)
+      await flushPromises()
+    })
+
+    it('clears the indicator and closes once sending has finished', async () => {
+      const request = deferred()
+      vi.mocked(adminApi.createAdminAnnouncement).mockReturnValue(request.promise)
+      await mountSheet()
+      await publishAndNotify()
+
+      request.resolve(saved)
+      await flushPromises()
+
+      expect(wrapper!.emitted('saved')).toEqual([[saved, true]])
+      expect(wrapper!.emitted('update:modelValue')).toEqual([[false]])
+      expect(wrapper!.find('.admin-sheet').exists()).toBe(false)
+    })
+
+    it('reports a plain save without claiming emails were sent', async () => {
+      vi.mocked(adminApi.updateAdminAnnouncement).mockResolvedValue(saved)
+      await mountSheet(existing)
+
+      await button('Save')!.trigger('click')
+      await flushPromises()
+
+      expect(wrapper!.emitted('saved')).toEqual([[saved, false]])
+    })
+
+    it('clears the indicator and keeps the form open with the error when sending fails', async () => {
+      const request = deferred()
+      vi.mocked(adminApi.createAdminAnnouncement).mockReturnValue(request.promise)
+      await mountSheet()
+      await publishAndNotify()
+
+      request.reject(new Error('Mail server unavailable'))
+      await flushPromises()
+
+      expect(progress().text()).toBe('')
+      expect(wrapper!.find('form').attributes('aria-busy')).toBe('false')
+      expect(wrapper!.find('[role="alert"]').text()).toContain('Mail server unavailable')
+      expect(footerButtons().every((b) => b.attributes('disabled') === undefined)).toBe(true)
+      expect(button('Publish & Notify')).toBeDefined()
+      expect(wrapper!.find<HTMLInputElement>('#ann-title').element.value).toBe('Term dates')
+      expect(wrapper!.emitted('saved')).toBeUndefined()
+      expect(wrapper!.find('.admin-sheet').exists()).toBe(true)
+
+      // Once settled it can be dismissed again.
+      await wrapper!.find('.admin-sheet__close').trigger('click')
+      expect(wrapper!.emitted('update:modelValue')).toEqual([[false]])
+    })
+
+    it('sends only once when Confirm is double-clicked', async () => {
+      const request = deferred()
+      vi.mocked(adminApi.createAdminAnnouncement).mockReturnValue(request.promise)
+      await mountSheet()
+
+      await button('Publish & Notify')!.trigger('click')
+      // Two clicks before Vue re-renders: the dialog's button is still there
+      // for the second one, so only the re-entry guard stops a second send.
+      const confirm = wrapper!.find('.confirm-btn').element as HTMLButtonElement
+      confirm.click()
+      confirm.click()
+      await flushPromises()
+
+      expect(adminApi.createAdminAnnouncement).toHaveBeenCalledTimes(1)
+
+      request.resolve(saved)
+      await flushPromises()
+    })
+  })
 })

@@ -128,6 +128,33 @@ class AdminGroupServiceTests(TestCase):
             ["BTF2", "BTF9", "BTF10", "BTF100"],
         )
 
+    def test_query_group_messages_includes_soft_deleted_messages_for_moderation(self):
+        """Admins read this endpoint to moderate, so a removed message has to be
+        visible here with its text and who removed it. Participants read chat
+        through apps.chat, which still filters deleted rows out."""
+        kept = Messages.objects.create(
+            group=self.group, sender_user=self.mentor, message_text="still here",
+        )
+        removed = Messages.objects.create(
+            group=self.group, sender_user=self.mentor, message_text="taken down",
+        )
+        removed.soft_delete(deleted_by=self.mentor)
+
+        result = query_group_messages(str(self.group.id))
+        items = {item["id"]: item for item in result["data"]["items"]}
+
+        self.assertIn(str(kept.id), items)
+        self.assertIn(str(removed.id), items)
+        self.assertEqual(result["data"]["total"], 2)
+
+        self.assertIsNone(items[str(kept.id)]["deleted_at"])
+        self.assertIsNone(items[str(kept.id)]["deleted_by"])
+
+        tombstoned = items[str(removed.id)]
+        self.assertEqual(tombstoned["text"], "taken down")
+        self.assertIsNotNone(tombstoned["deleted_at"])
+        self.assertEqual(tombstoned["deleted_by"], "Mina Mentor")
+
     def test_query_group_messages_handles_removed_gif_relation(self):
         message = Messages.objects.create(
             group=self.group,
@@ -593,3 +620,81 @@ class AdminGroupServiceTests(TestCase):
         self.assertEqual(len(rest["data"]["deletedIds"]), 1)
         self.assertEqual(rest["data"]["remaining"], 0)
         self.assertEqual(Groups.objects.filter(deleted_at__isnull=True).count(), 0)
+
+
+class GroupSearchByMemberTests(TestCase):
+    """AM11: the groups page's one box matches a group name or a member's."""
+
+    def setUp(self):
+        from apps.users.models.admin_scope import AdminScope
+
+        self.admin_user = User.objects.create_user(
+            email="am11-admin@example.com", first_name="Admin", password="testpass",
+        )
+        AdminScope.objects.create(user=self.admin_user)
+
+        self.btf1 = Groups.objects.create(group_name="BTF1")
+        self.btf2 = Groups.objects.create(group_name="BTF2")
+
+        self.ada = User.objects.create_user(
+            email="ada@example.com", first_name="Ada", last_name="Lovelace",
+            password="testpass",
+        )
+        self.grace = User.objects.create_user(
+            email="grace@example.com", first_name="Grace", last_name="Hopper",
+            password="testpass",
+        )
+        for group, user in ((self.btf1, self.ada), (self.btf2, self.grace)):
+            GroupMembership.objects.create(
+                group=group, user=user,
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+            )
+
+    def _names(self, **kwargs):
+        result = query_groups(requesting_user=self.admin_user, limit=50, **kwargs)
+        return sorted(item["name"] for item in result["data"]["items"])
+
+    def test_a_group_name_still_matches(self):
+        self.assertEqual(self._names(search="BTF1"), ["BTF1"])
+
+    def test_a_member_name_matches_their_group(self):
+        self.assertEqual(self._names(search="Ada"), ["BTF1"])
+        self.assertEqual(self._names(search="Hopper"), ["BTF2"])
+
+    def test_matching_ignores_case_and_matches_part_of_a_name(self):
+        self.assertEqual(self._names(search="lovel"), ["BTF1"])
+
+    def test_an_email_matches_too(self):
+        self.assertEqual(self._names(search="grace@"), ["BTF2"])
+
+    def test_a_term_matching_neither_finds_nothing(self):
+        self.assertEqual(self._names(search="Nobody"), [])
+
+    def test_a_term_matching_both_sides_returns_each_group_once(self):
+        # "BTF" is every group's name; a group must not be listed twice just
+        # because it also has a member whose record matches.
+        renamed = User.objects.get(pk=self.ada.pk)
+        renamed.last_name = "BTF"
+        renamed.save()
+
+        self.assertEqual(self._names(search="BTF"), ["BTF1", "BTF2"])
+
+    def test_a_member_who_left_no_longer_surfaces_their_group(self):
+        GroupMembership.objects.filter(group=self.btf1, user=self.ada).update(
+            left_at=timezone.now()
+        )
+
+        self.assertEqual(self._names(search="Ada"), [])
+
+    def test_select_all_matching_deletes_exactly_what_the_list_showed(self):
+        # The list and the bulk delete must resolve the same set, or the delete
+        # reaches groups the admin never saw.
+        self.assertEqual(self._names(search="Ada"), ["BTF1"])
+
+        result = bulk_delete_groups_by_filter(
+            {"search": "Ada"}, initiated_by=self.admin_user
+        )
+
+        self.assertEqual(result["data"]["deletedIds"], [self.btf1.id])
+        self.assertFalse(Groups.objects.filter(id=self.btf1.id).exists())
+        self.assertTrue(Groups.objects.filter(id=self.btf2.id).exists())

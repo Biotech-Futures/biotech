@@ -16,7 +16,11 @@ from apps.chat.models import Messages
 from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.resources.models import ResourceAccessEvent, RoleAssignmentHistory
 from apps.services.email_registry import get_email_type, is_known_email_type
-from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
+from apps.services.models import (
+    EmailDeliveryMetric,
+    EmailDeliveryRecipient,
+    EmailEngagementTracker,
+)
 from apps.services.system_email import sender_for
 from apps.users.models import User
 
@@ -251,12 +255,16 @@ def get_group_activity_analytics(
     mentor_assignments = active_memberships.filter(
         membership_role=GroupMembership.MembershipRoleChoices.MENTOR
     )
-    mentor_assignment_count = mentor_assignments.count()
     mentored_group_ids = mentor_assignments.values("group_id")
-    students_in_mentored_groups = active_memberships.filter(
-        membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
-        group_id__in=mentored_group_ids,
-    ).count()
+    students_in_mentored_groups = (
+        active_memberships.filter(
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+            group_id__in=mentored_group_ids,
+        )
+        .values("user_id")
+        .distinct()
+        .count()
+    )
 
     comparison_year = (end_date or timezone.localdate()).year
     average_group_size_by_year = []
@@ -296,11 +304,13 @@ def get_group_activity_analytics(
         groups_with_mentor = (
             mentor_memberships_at_year_end.values("group_id").distinct().count()
         )
-        historical_mentor_assignments = mentor_memberships_at_year_end.count()
         historical_students_in_mentored_groups = (
             student_memberships_at_year_end.filter(
                 group_id__in=mentor_memberships_at_year_end.values("group_id")
-            ).count()
+            )
+            .values("user_id")
+            .distinct()
+            .count()
         )
         student_counts_by_group = {
             row["group_id"]: row["student_count"]
@@ -388,10 +398,10 @@ def get_group_activity_analytics(
                 "students_per_mentor": (
                     round(
                         historical_students_in_mentored_groups
-                        / historical_mentor_assignments,
+                        / historical_mentor_count,
                         2,
                     )
-                    if historical_mentor_assignments
+                    if historical_mentor_count
                     else None
                 ),
                 "group_size_distribution": group_size_distribution,
@@ -414,8 +424,8 @@ def get_group_activity_analytics(
         "mentor_count": mentor_count,
         "student_count": student_count,
         "students_per_mentor": (
-            round(students_in_mentored_groups / mentor_assignment_count, 2)
-            if mentor_assignment_count
+            round(students_in_mentored_groups / mentor_count, 2)
+            if mentor_count
             else None
         ),
         "average_group_size_by_year": average_group_size_by_year,
@@ -903,6 +913,18 @@ def get_email_delivery_analytics() -> dict:
         }
 
     snapshot_at = timezone.now()
+    window_start = snapshot_at - timedelta(hours=24)
+    tracker_window = EmailEngagementTracker.objects.filter(
+        created_at__gt=window_start,
+        created_at__lte=snapshot_at,
+    )
+    engagement = tracker_window.aggregate(
+        tracked_messages=Count("id"),
+        opened=Count("id", filter=Q(first_opened_at__isnull=False)),
+        clicked=Count("id", filter=Q(first_clicked_at__isnull=False)),
+        open_events=Coalesce(Sum("open_count"), Value(0)),
+        click_events=Coalesce(Sum("click_count"), Value(0)),
+    )
 
     if not EmailDeliveryMetric.objects.exists():
         empty_mailboxes = [
@@ -930,6 +952,7 @@ def get_email_delivery_analytics() -> dict:
             "totals": dict(zero_totals),
             "hourly": [],
             "daily": [],
+            "engagement": engagement,
             "status_by_role": empty_role_status(),
             # The first announcement ever sent has no metric row until it ends.
             "recent_sends": _sending_announcements(snapshot_at),
@@ -946,7 +969,6 @@ def get_email_delivery_analytics() -> dict:
             "recent_deliveries": [],
         }
 
-    window_start = snapshot_at - timedelta(hours=24)
     metric_window = EmailDeliveryMetric.objects.filter(
         started_at__gt=window_start,
         started_at__lte=snapshot_at,
@@ -1197,6 +1219,7 @@ def get_email_delivery_analytics() -> dict:
         "totals": totals,
         "hourly": hourly,
         "daily": daily,
+        "engagement": engagement,
         "status_by_role": status_by_role,
         "role_attribution": attribution,
         "recent_deliveries": recent_deliveries,

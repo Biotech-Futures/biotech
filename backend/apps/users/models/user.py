@@ -24,6 +24,18 @@ class UserManager(BaseUserManager):
             user.set_unusable_password()
         user.save(using=self._db)
         return user
+
+    def by_email(self, email):
+        """The account with ``email`` in any case, or None. Addresses are
+        saved in lower case, but an older one may not be: the exact match
+        wins, then the oldest matching it ignoring case."""
+        email = str(email or "").strip()
+        if not email:
+            return None
+        return (
+            self.filter(email=email).first()
+            or self.filter(email__iexact=email).order_by("pk").first()
+        )
     
     def create_superuser(self, email, password, **extra):
         if not password:
@@ -76,6 +88,8 @@ class User(AbstractUser):
     # only when serializing the authenticated user's profile.
     profile_image_key = models.CharField(max_length=512, blank=True, default="")
     profile_image_content_type = models.CharField(max_length=64, blank=True, default="")
+    # Private notes recorded by administrators, never exposed to non-admin users.
+    admin_notes = models.TextField(blank=True, default="")
     # When they agreed to the BIOTech Futures policies, ticking them as they
     # registered (themselves, or the students they registered). None for
     # anyone who hasn't: added by someone else, or before the box was there.

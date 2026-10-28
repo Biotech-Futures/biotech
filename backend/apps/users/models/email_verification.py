@@ -125,3 +125,33 @@ class EmailVerificationCredits(models.Model):
 
     def __str__(self):
         return "Unknown" if self.remaining is None else f"{self.remaining} credits remaining"
+
+
+class EmailVerificationRequest(models.Model):
+    """One real request sent to QuickEmailVerification, for usage reporting
+    (Team 4's analytics). A free key falling back to the paid one is two rows.
+    Failed requests are kept too; sandbox requests and stored answers reused
+    are not. No email address is kept. Kept indefinitely, from the deploy
+    that added it."""
+
+    KEY_CHOICES = [("free", "Free"), ("paid", "Paid")]
+
+    requested_at = models.DateTimeField(default=timezone.now, db_index=True)
+    # The key used, by name only ("free" or "paid"), never the key itself.
+    key = models.CharField(max_length=8, choices=KEY_CHOICES)
+    # valid, invalid or unknown when QEV answered; otherwise why there was no
+    # answer (out_of_credit, request_timeout, connection_error, http_<code>, ...).
+    outcome = models.CharField(max_length=32)
+    # 1 for an answer, 0 for a failure (assumed: QEV hasn't confirmed failures are free).
+    credits = models.PositiveSmallIntegerField(default=0)
+    # The key's balance QEV reported with this answer; None when it didn't say.
+    remaining = models.PositiveIntegerField(null=True, blank=True)
+    # The feature that asked (CALLERS in apps.users.email_verification); blank if unknown.
+    caller = models.CharField(max_length=32, blank=True, default="")
+
+    class Meta:
+        db_table = "email_verification_request"
+        ordering = ["-requested_at"]
+
+    def __str__(self):
+        return f"{self.requested_at:%Y-%m-%d %H:%M} {self.key} {self.outcome}"

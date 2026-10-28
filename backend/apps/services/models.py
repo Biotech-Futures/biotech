@@ -3,6 +3,7 @@ from django.conf import settings
 from django.utils import timezone
 from datetime import timedelta
 import secrets
+import uuid
 
 # Single source of truth — the login email quotes this value back to the user.
 LOGIN_OTP_EXPIRY_MINUTES = 10
@@ -492,6 +493,82 @@ class EmailDeliveryRecipient(models.Model):
 
     def __str__(self):
         return f"{self.email} ({self.status})"
+
+
+class EmailEngagementTracker(models.Model):
+    """One opaque tracker embedded in one outgoing HTML message copy.
+
+    Most application emails are built for one recipient and therefore retain
+    that address and user. A small number of existing team emails intentionally
+    share one To/CC copy; those keep only the recipient count so engagement
+    tracking never changes who can see the other recipients.
+    """
+
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    email_type = models.SlugField(max_length=64)
+    subject = models.CharField(max_length=255, blank=True, default="")
+    recipient_email = models.EmailField(null=True, blank=True)
+    recipient_count = models.PositiveIntegerField(default=1)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    first_opened_at = models.DateTimeField(null=True, blank=True)
+    last_opened_at = models.DateTimeField(null=True, blank=True)
+    open_count = models.PositiveIntegerField(default=0)
+    first_clicked_at = models.DateTimeField(null=True, blank=True)
+    last_clicked_at = models.DateTimeField(null=True, blank=True)
+    click_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "email_engagement_tracker"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["created_at"], name="email_engagement_created_idx"),
+            models.Index(fields=["email_type", "created_at"], name="email_engagement_type_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.email_type} ({self.token})"
+
+
+class EmailEngagementEvent(models.Model):
+    """A privacy-minimal open or click signal for an outgoing message copy.
+
+    IP addresses, user agents, destination URLs and other request metadata are
+    deliberately not retained. The dashboard uses unique trackers rather than
+    raw event rows so reloads and automated scanners cannot inflate its headline
+    counts repeatedly.
+    """
+
+    class EventType(models.TextChoices):
+        OPEN = "open", "Open"
+        CLICK = "click", "Click"
+
+    tracker = models.ForeignKey(
+        EmailEngagementTracker,
+        on_delete=models.CASCADE,
+        related_name="events",
+    )
+    event_type = models.CharField(max_length=8, choices=EventType.choices)
+    occurred_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "email_engagement_event"
+        ordering = ["-occurred_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["event_type", "occurred_at"],
+                name="email_engagement_event_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} ({self.tracker_id})"
 
 
 class WaitingEmail(models.Model):

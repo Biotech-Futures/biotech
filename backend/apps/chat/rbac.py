@@ -63,6 +63,79 @@ def chat_recipients_qs(group_id, *, exclude_user_id=None):
     return queryset
 
 
+def _is_group_mentor(user, group_id) -> bool:
+    """Active mentor membership in this specific group.
+
+    Scoped deliberately: mentoring one group is not a licence to moderate
+    another, so the role alone never grants anything.
+    """
+    return group_participant_qs(user, group_id).filter(
+        membership_role="mentor",
+    ).exists()
+
+
+def _was_sent_by_a_student(message, group_id) -> bool:
+    """The sender takes part in this group as a student.
+
+    Read off the membership rather than the profile: a mentor who also holds a
+    StudentProfile elsewhere is still a mentor here, and the rule is about the
+    role someone is playing in this group.
+    """
+    GroupMembership = apps.get_model("groups", "GroupMembership")
+    return GroupMembership.objects.filter(
+        group_id=group_id,
+        user_id=getattr(message, "sender_user_id", None),
+        left_at__isnull=True,
+        membership_role="student",
+    ).exists()
+
+
+def can_moderate_chat_message(user, message) -> bool:
+    """Authorize *deleting* an existing chat message.
+
+    Allowed for an admin, for the sender inside their self-action window, and
+    for a mentor of this group removing a student's message (AM8). Deliberately
+    separate from ``can_manage_chat_message``: a mentor may take a student's
+    message down, but may not rewrite it, and restoring stays admin-only.
+    """
+    if can_manage_chat_message(user, message):
+        return True
+
+    target_group = _group_from_value(
+        getattr(message, "group", None) or getattr(message, "group_id", None)
+    )
+    if target_group is None:
+        return False
+
+    return (
+        _is_group_mentor(user, target_group.id)
+        and _was_sent_by_a_student(message, target_group.id)
+    )
+
+
+def can_restore_chat_message(user, message) -> bool:
+    """Authorize undoing a removal, and reading back what was removed.
+
+    An admin may reverse anything. A mentor may reverse only their own
+    removal, and only while they still mentor that group - the same authority
+    that let them take it down, pointed the other way. A member who deleted
+    their own message inside the self-action window does not get it back: that
+    path has always been one-way, and widening it here would expose text the
+    sender chose to withdraw.
+    """
+    if not user or not getattr(user, "is_authenticated", False) or message is None:
+        return False
+    if is_admin(user):
+        return True
+    if getattr(message, "deleted_by_id", None) != getattr(user, "id", None):
+        return False
+
+    target_group = _group_from_value(
+        getattr(message, "group", None) or getattr(message, "group_id", None)
+    )
+    return target_group is not None and _is_group_mentor(user, target_group.id)
+
+
 def can_manage_chat_message(user, message) -> bool:
     """Authorize edit or delete of an existing chat message.
 

@@ -20,9 +20,10 @@ This module covers the engagement-aware replacement:
 import smtplib
 from unittest.mock import patch, MagicMock
 
+from django.core import mail
 from django.core.mail import get_connection as _real_get_connection
-from django.db import transaction
-from django.test import TestCase, override_settings
+from django.db import connection, transaction
+from django.test import TestCase, TransactionTestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -39,6 +40,7 @@ from apps.announcements.models import (
 from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
 from apps.users.models import User
 from apps.users.models.admin_scope import AdminScope
+from tests.email_helpers import delivered_destinations
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -764,9 +766,14 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
     def test_html_body_links_to_announcement_detail(self):
         outbox, announcement = self._send()
         html_body, _ = outbox[0].alternatives[0]
-        # We don't pin the exact host (settings-driven) — just assert
-        # the id is in the URL and that the link is wrapped in an anchor.
-        self.assertIn(f"/{announcement.id}", html_body)
+        # The host is settings-driven and delivered links are instrumented, so
+        # assert the decoded destination rather than the tracking URL itself.
+        self.assertTrue(
+            any(
+                destination.endswith(f"/#/announcements/{announcement.id}")
+                for destination in delivered_destinations(html_body)
+            )
+        )
         self.assertIn("<a href=", html_body)
         self.assertIn("View this announcement on the platform", html_body)
         self.assertNotIn("Read full announcement", html_body)
@@ -841,7 +848,8 @@ class AnnouncementSystemEmailTests(TestCase):
         self.assertEqual(message.subject, "New: Poster session")
         html_body, _ = message.alternatives[0]
         self.assertIn("<p>Friday in the Great Hall.</p>", html_body)
-        self.assertIn(f"/#/announcements/{self.announcement.id}", html_body)
+        self.assertIn("/api/v1/services/email/track/click/", html_body)
+        self.assertIn("/api/v1/services/email/track/open/", html_body)
 
     def test_edited_email_can_embed_the_full_body(self):
         # An admin who edits the wording opts into the whole announcement with
@@ -885,7 +893,6 @@ class AnnouncementSystemEmailTests(TestCase):
         self.assertEqual(mail.outbox, [])
 
 
-@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class AnnouncementRetryTests(TestCase):
     """A send that fails is tried once more, once everyone has been tried."""
 
@@ -1005,3 +1012,101 @@ class AnnouncementEmailMergeTagTests(TestCase):
         message = next(m for m in mail.outbox if m.to == ["ada@example.com"])
         self.assertIn("Hi Ada,", message.body)
         self.assertNotIn("{{ first_name }}", message.body)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementResponseWaitsForSendingTests(TransactionTestCase):
+    """Create / update with ``send_email`` respond only once sending is done (AM7).
+
+    The admin UI shows "Sending emails…" for exactly as long as the request is
+    in flight, which is only truthful while sending finishes before the
+    response. It does today: the send runs from ``on_commit`` of the service's
+    own transaction, inside the request.
+
+    ``TransactionTestCase`` on purpose: ``TestCase`` wraps each test in a
+    transaction that would hold the ``on_commit`` send until the test ends.
+    Here nothing is left to commit after the request, so a delivery that is
+    already complete when the client gets the response was sent during it.
+    Mail goes to the locmem backend, so nothing leaves the process. If sending
+    ever moves to a queue or thread these fail, and the indicator must change.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email="am7-admin@example.com", password="testpass")
+        AdminScope.objects.create(user=self.admin)
+        # A global announcement goes to every active user.
+        User.objects.create_user(email="am7-reader@example.com", password="testpass")
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+        mail.outbox = []
+
+    def assert_sending_finished_before_response(self, response, expected_status):
+        self.assertEqual(response.status_code, expected_status, response.data)
+        self.assertEqual(
+            AnnouncementDelivery.objects.count(), 1,
+            "the response came back before any delivery was recorded",
+        )
+        delivery = AnnouncementDelivery.objects.get()
+        self.assertEqual(delivery.status, AnnouncementDelivery.Status.SUCCESS)
+        self.assertIsNotNone(delivery.completed_at)
+        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["am7-admin@example.com", "am7-reader@example.com"])
+        # Nothing still queued to run after the response.
+        self.assertEqual(connection.run_on_commit, [])
+
+    def test_create_with_send_email_responds_after_sending_finishes(self):
+        response = self.client.post(
+            "/api/v1/admin/announcement/",
+            {"title": "Term dates", "body": "<p>Body</p>", "send_email": True},
+            format="json",
+        )
+        self.assert_sending_finished_before_response(response, status.HTTP_201_CREATED)
+
+    def test_update_with_send_email_responds_after_sending_finishes(self):
+        announcement = Announcement.objects.create(
+            author_user=self.admin, title="Term dates", body="<p>Body</p>", visibility_scope="global",
+        )
+        response = self.client.put(
+            f"/api/v1/admin/announcement/{announcement.id}/",
+            {"title": "Term dates (updated)", "send_email": True},
+            format="json",
+        )
+        self.assert_sending_finished_before_response(response, status.HTTP_200_OK)
+
+    def test_send_email_with_nothing_to_send_still_saves(self):
+        # The form treats a successful save as "sending has finished". When a
+        # send is skipped (no recipients, or announcement emails switched off)
+        # the save must still succeed rather than surface as a failure that an
+        # admin would retry, publishing the announcement twice.
+        from apps.resources.models import Roles
+        from apps.services.models import SystemEmailTemplate
+
+        empty_role = Roles.objects.create(role_name="am7-nobody")
+        response = self.client.post(
+            "/api/v1/admin/announcement/",
+            {"title": "No audience", "body": "<p>Body</p>", "send_email": True, "role_ids": [empty_role.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        SystemEmailTemplate.objects.create(key="announcement", is_enabled=False)
+        announcement = Announcement.objects.create(
+            author_user=self.admin, title="Switched off", body="<p>Body</p>", visibility_scope="global",
+        )
+        response = self.client.put(
+            f"/api/v1/admin/announcement/{announcement.id}/",
+            {"title": "Switched off (updated)", "send_email": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+        self.assertFalse(AnnouncementDelivery.objects.exists())
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(connection.run_on_commit, [])
+
+    def test_save_without_send_email_sends_nothing(self):
+        response = self.client.post(
+            "/api/v1/admin/announcement/", {"title": "Quiet", "body": "<p>Body</p>"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertFalse(AnnouncementDelivery.objects.exists())
+        self.assertEqual(mail.outbox, [])

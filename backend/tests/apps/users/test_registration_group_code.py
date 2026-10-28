@@ -64,26 +64,43 @@ class GroupCodeExpiryTests(TestCase):
         return GroupCodeReservation.objects.get(code=response.json()["code"])
 
     def test_a_held_code_lasts_until_registration_closes(self):
-        closes = timezone.now() + timedelta(days=30)
+        closes = timezone.now() + timedelta(days=200)
         RegistrationWindow.objects.create(year=self.year, closes_at=closes)
         self.assertEqual(self.hold().expires_at, closes)
 
+    def test_a_held_code_lasts_4_months_at_least(self):
+        # As a registered group's is: even when registration closes sooner.
+        RegistrationWindow.objects.create(year=self.year, closes_at=timezone.now() + timedelta(days=30))
+        held = self.hold()
+        self.assertEqual(held.expires_at, held.created_at + timedelta(days=122))
+
     def test_with_no_closing_date_a_held_code_lasts_the_year(self):
-        self.assertEqual(self.hold().expires_at, datetime(self.year + 1, 1, 1, tzinfo=dt_timezone.utc))
+        held = self.hold()
+        self.assertEqual(held.expires_at, max(
+            datetime(self.year + 1, 1, 1, tzinfo=dt_timezone.utc), held.created_at + timedelta(days=122),
+        ))
 
     def test_a_held_code_moves_with_the_closing_date(self):
-        RegistrationWindow.objects.create(year=self.year, closes_at=timezone.now() + timedelta(days=30))
+        RegistrationWindow.objects.create(year=self.year, closes_at=timezone.now() + timedelta(days=200))
         held = self.hold()
         admin = User.objects.create_user(email="staff@example.com", password="pw-123456789", is_staff=True)
         client = APIClient()
         client.force_login(admin)
-        later = timezone.now() + timedelta(days=60)
+        later = timezone.now() + timedelta(days=300)
         response = client.post(
             "/api/v1/registration-management/", {"action": "window", "closes_at": later.isoformat()}, format="json",
         )
         self.assertEqual(response.status_code, 200, response.data)
         held.refresh_from_db()
         self.assertEqual(held.expires_at, later)
+        # Brought nearer than 4 months from when it was held: those 4 months.
+        sooner = timezone.now() + timedelta(days=10)
+        response = client.post(
+            "/api/v1/registration-management/", {"action": "window", "closes_at": sooner.isoformat()}, format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        held.refresh_from_db()
+        self.assertEqual(held.expires_at, held.created_at + timedelta(days=122))
 
 
 class StudentGroupCodeTests(MultiStudentSetup, TestCase):
@@ -152,6 +169,39 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
             GroupMembership.objects.filter(group=group, user__email="learner50@students.example.test").exists()
         )
         self.assertEqual(Groups.objects.count(), 1)
+
+    def test_joining_inherits_the_groups_recorded_nomination(self):
+        code = self.registered_group()
+        body = self.joiner(code)
+        del body["payload"]["supervisor"]
+        response = self.post_batch(body)
+        self.assertEqual(response.status_code, 201, response.data)
+        from apps.users.models import RegistrationSubmission
+        original, joined = RegistrationSubmission.objects.order_by("created_at", "pk")
+        self.assertEqual(joined.supervisor_details, original.supervisor_details)
+
+    def test_joining_uses_the_groups_assigned_supervisor(self):
+        code = self.registered_group()
+        group = Groups.objects.get(code=code)
+        GroupMembership.objects.create(
+            group=group, user=self.supervisor,
+            membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR,
+        )
+        body = self.joiner(code)
+        del body["payload"]["supervisor"]
+        response = self.post_batch(body)
+        self.assertEqual(response.status_code, 201, response.data)
+        from apps.users.models import StudentProfile
+        self.assertEqual(StudentProfile.objects.get(user__email="learner50@students.example.test").supervisor, self.profile)
+
+    def test_joining_a_legacy_group_without_a_supervisor_saves_nothing(self):
+        group = Groups.create_with_code()
+        body = self.joiner(group.code)
+        del body["payload"]["supervisor"]
+        response = self.post_batch(body)
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("group.joinCode", response.data["fields"])
+        self.assertFalse(User.objects.filter(email="learner50@students.example.test").exists())
 
     def test_an_unknown_code_saves_nothing(self):
         response = self.post_batch(self.joiner("999999"))

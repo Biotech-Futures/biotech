@@ -91,7 +91,8 @@ class GroupActivityAnalyticsApiTests(APITestCase):
             user=self.mentor,
             membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         )
-        # Each mentor assignment represents one group's mentor-to-student ratio.
+        # The same mentor can support multiple groups; the ratio counts that
+        # person once so it reflects their total student workload.
         GroupMembership.objects.create(
             group=self.empty_group,
             user=self.mentor,
@@ -214,7 +215,7 @@ class GroupActivityAnalyticsApiTests(APITestCase):
         )
         self.assertEqual(response.data["data"]["mentor_count"], 1)
         self.assertEqual(response.data["data"]["student_count"], 2)
-        self.assertEqual(response.data["data"]["students_per_mentor"], 1.0)
+        self.assertEqual(response.data["data"]["students_per_mentor"], 2.0)
         self.assertEqual(
             response.data["data"]["query_range"],
             {"start": None, "end": None},

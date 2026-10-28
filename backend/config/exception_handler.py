@@ -7,6 +7,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
+from apps.system_logs.context import current_request_id
+
 logger = logging.getLogger(__name__)
 
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -23,10 +25,16 @@ def custom_exception_handler(exc: Exception, context: dict) -> Optional[Response
 def _resolve_request_id(context: dict) -> str:
     request = context.get("request")
     if request is not None:
+        # The id RequestContextMiddleware gave this request (the client's
+        # X-Request-ID, cleaned), so the one in the error response finds its
+        # rows on the System Logs page.
+        stored = getattr(request, "system_log_request_id", None)
+        if isinstance(stored, str) and stored:
+            return stored
         incoming = request.headers.get(REQUEST_ID_HEADER)
         if incoming:
             return incoming
-    return uuid.uuid4().hex[:12]
+    return current_request_id() or uuid.uuid4().hex[:12]
 
 
 def _build_unhandled_error_response(exc: Exception, context: dict, request_id: str) -> Response:
