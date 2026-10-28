@@ -834,6 +834,7 @@ import type { UserAnalyticsYear } from '@/types/analytics'
 import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
 import type { AdminUser } from '@/utils/liveAnalyticsApi'
 import type { ParticipantAnalyticsBundle } from '@/utils/liveAnalyticsData'
+import { mapCountryName, worldRegionForCountry } from '@/utils/worldRegions'
 import {
   ACTIVE_WINDOW_DAYS,
   DETAILS_OPTION,
@@ -1497,18 +1498,6 @@ const worldMapPath = `M896.5,305.7L900.0,305.5L896.8,306.8L896.5,305.7ZM894.2,30
 
 type WorldShapeSegment = { d: string; cx: number; cy: number; countryName: string | null; worldRegion: string | null; value: number }
 
-const countryRegionLookup = new Map<string, string>([
-  ...['Canada', 'Greenland', 'United States', 'Mexico', 'Guatemala', 'Cuba', 'Dominican Republic'].map((name) => [name, 'North America'] as const),
-  ...['Colombia', 'Venezuela', 'Ecuador', 'Peru', 'Bolivia', 'Brazil', 'Chile', 'Argentina', 'Uruguay'].map((name) => [name, 'South America'] as const),
-  ...['Iceland', 'Ireland', 'United Kingdom', 'Portugal', 'Spain', 'France', 'Belgium', 'Netherlands', 'Germany', 'Switzerland', 'Italy', 'Austria', 'Poland', 'Czechia', 'Hungary', 'Romania', 'Greece', 'Norway', 'Sweden', 'Finland', 'Ukraine'].map((name) => [name, 'Europe'] as const),
-  ...['Morocco', 'Algeria', 'Tunisia', 'Libya', 'Egypt', 'Senegal', 'Ghana', 'Nigeria', 'Ethiopia', 'Kenya', 'Tanzania', 'Democratic Republic of the Congo', 'Angola', 'Zambia', 'Zimbabwe', 'South Africa', 'Madagascar'].map((name) => [name, 'Africa'] as const),
-  ...['Russia', 'Turkey', 'Saudi Arabia', 'United Arab Emirates', 'Iran', 'Iraq', 'Israel', 'Kazakhstan', 'Pakistan', 'India', 'Bangladesh', 'Sri Lanka', 'Nepal', 'China', 'Mongolia', 'North Korea', 'South Korea', 'Japan', 'Myanmar', 'Thailand', 'Vietnam', 'Cambodia', 'Malaysia', 'Singapore', 'Indonesia', 'Timor-Leste', 'Philippines'].map((name) => [name, 'Asia'] as const),
-  ...['Australia', 'New Zealand', 'Papua New Guinea'].map((name) => [name, 'Oceania'] as const),
-])
-
-const getWorldRegionForCountry = (countryName: string | null): string | null =>
-  countryName ? (countryRegionLookup.get(countryName) ?? null) : null
-
 const inferWorldRegionFromMapPosition = (x: number, y: number): string | null => {
   if (x < 405 && y >= 205) return 'South America'
 
@@ -1559,7 +1548,7 @@ const worldShapeSegments = computed<WorldShapeSegment[]>(() => {
       worldRegion:
         (cx >= 744 && cx <= 792 && cy >= 266 && cy <= 308)
           ? 'Asia'
-          : (getWorldRegionForCountry(countryName) ?? inferWorldRegionFromMapPosition(cx, cy)),
+          : (worldRegionForCountry(countryName) ?? inferWorldRegionFromMapPosition(cx, cy)),
       value: countryName ? (values.get(countryName) ?? 0) : 0,
     }
   })
@@ -1567,7 +1556,7 @@ const worldShapeSegments = computed<WorldShapeSegment[]>(() => {
 
 const internationalLocations = computed(() =>
   data.value.regions.filter(
-    (item) => !australianStateNames.has(item.name) && item.name !== 'Unknown' && item.name !== 'International',
+    (item) => !isAustralianLocation(item.name) && item.name !== 'Unknown' && item.name !== 'International',
   ),
 )
 
@@ -1579,13 +1568,16 @@ const countryRankedLocations = computed(() => {
   const totals = new Map<string, number>()
 
   const australiaTotal = domesticLocations.value
-    .filter((item) => australianStateNames.has(item.name))
+    .filter((item) => isAustralianLocation(item.name))
     .reduce((sum, item) => sum + item.value, 0)
 
   totals.set('Australia', australiaTotal)
 
+  // Keyed by the map's country names, so "United States of America" users
+  // show on the map's "United States".
   for (const item of internationalLocations.value) {
-    totals.set(item.name, (totals.get(item.name) ?? 0) + item.value)
+    const name = mapCountryName(item.name)
+    totals.set(name, (totals.get(name) ?? 0) + item.value)
   }
 
   return [...totals.entries()]
@@ -1672,41 +1664,24 @@ const worldRegionMeta = [
   { code: 'OC', name: 'Oceania', x: 788, y: 330 },
 ]
 
-const countryToWorldRegion: Record<string, string> = {
-  China: 'Asia',
-  India: 'Asia',
-  Japan: 'Asia',
-  Singapore: 'Asia',
-  Malaysia: 'Asia',
-  Indonesia: 'Asia',
-
-  'United Kingdom': 'Europe',
-  Germany: 'Europe',
-  France: 'Europe',
-
-  'United States': 'North America',
-  Canada: 'North America',
-
-  Brazil: 'South America',
-
-  'South Africa': 'Africa',
-
-  'New Zealand': 'Oceania',
-}
-
 const australianStateNames = new Set(['NSW', 'VIC', 'QLD', 'WA', 'SA', 'ACT', 'TAS', 'NT'])
+
+// Australian users without a state recorded are listed under the country name.
+function isAustralianLocation(name: string) {
+  return australianStateNames.has(name) || name === 'Australia'
+}
 
 const regionSummaryCards = computed(() => {
   const totals = new Map(worldRegionMeta.map((item) => [item.name, 0]))
 
   for (const item of domesticLocations.value) {
-    if (australianStateNames.has(item.name)) {
+    if (isAustralianLocation(item.name)) {
       totals.set('Oceania', (totals.get('Oceania') ?? 0) + item.value)
     }
   }
 
   for (const item of internationalLocations.value) {
-    const regionName = countryToWorldRegion[item.name]
+    const regionName = worldRegionForCountry(item.name)
     if (regionName) {
       totals.set(regionName, (totals.get(regionName) ?? 0) + item.value)
     }
