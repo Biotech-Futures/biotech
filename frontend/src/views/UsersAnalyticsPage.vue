@@ -807,6 +807,52 @@
         </div>
     </section>
 
+    <section class="analytics-card schools-card" aria-labelledby="schools-card-title">
+      <div class="card-title-row">
+        <div>
+          <h2 id="schools-card-title">Users by School</h2>
+          <p class="schools-card-subtitle">
+            Students and supervisors registered by {{ selectedYear }}, by school. A school in Australia shows its
+            state; one elsewhere shows its country, taken from where most of its users are.
+          </p>
+        </div>
+        <span class="year-chip">{{ data.schools.length }} {{ data.schools.length === 1 ? 'school' : 'schools' }}</span>
+      </div>
+
+      <div v-if="data.schools.length" class="schools-table-wrap">
+        <table class="schools-table">
+          <colgroup>
+            <col class="school-col-name" />
+            <col class="school-col-location" />
+            <col class="school-col-count" />
+            <col class="school-col-count" />
+            <col class="school-col-count" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">School</th>
+              <th scope="col">State / Country</th>
+              <th scope="col">Students</th>
+              <th scope="col">Supervisors</th>
+              <th scope="col">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="school in data.schools" :key="school.name">
+              <th scope="row">{{ school.name }}</th>
+              <td>{{ schoolLocationLabel(school.location) }}</td>
+              <td>{{ school.students }}</td>
+              <td>{{ school.supervisors }}</td>
+              <td><strong>{{ school.total }}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-else class="schools-empty">
+        No students or supervisors registered by {{ selectedYear }} have a school recorded.
+      </p>
+    </section>
+
     <ChartTooltip
       :visible="tooltip.visible"
       :x="tooltip.x"
@@ -885,6 +931,7 @@ const liveData = ref<UserAnalyticsYear>({
   registration: { students: [], mentors: [], supervisors: [] },
   regions: [],
   interests: [],
+  schools: [],
 })
 const unavailableSources = ref<AnalyticsSource[]>([])
 const loadError = ref('')
@@ -1596,6 +1643,11 @@ const australianRegionFullNames: Record<string, string> = {
   NT: 'Northern Territory',
 }
 
+// A school's location is a state code in Australia, or a country name.
+function schoolLocationLabel(location: string) {
+  return australianRegionFullNames[location] ?? location
+}
+
 const compactRegionLocations = computed(() =>
   data.value.regions
     .filter((item) => item.name !== 'International')
@@ -1856,6 +1908,10 @@ function usersSummary() {
       figure('Areas of interest (Mentors)', interest.name, interest.mentors, 'users'),
     ]),
     ...current.regions.map((region) => figure('Users by region', region.name, region.value, 'users')),
+    ...current.schools.map((school) => figure(
+      'Users by school', school.name, school.total, 'users',
+      `${schoolLocationLabel(school.location)}; Students: ${school.students}; Supervisors: ${school.supervisors}`,
+    )),
     ...current.dailyActivity.labels.map((label, index) =>
       figure('Daily activity', label, current.dailyActivity.total[index] ?? 0, 'users'),
     ),
@@ -5524,6 +5580,74 @@ nline-expanded-region .world-map {
   border-top: 1px solid var(--analytics-ui-border, #e4ebe8);
   color: var(--analytics-ui-muted, #536762);
 }
+
+/* Users by School: a full-width table that scrolls once it is long. */
+.users-analytics-page .schools-card {
+  height: auto;
+  margin-bottom: 18px;
+}
+
+.users-analytics-page .schools-card .year-chip {
+  flex: none;
+  white-space: nowrap;
+}
+
+.users-analytics-page .schools-card-subtitle,
+.users-analytics-page .schools-empty {
+  margin: 5px 0 0;
+  color: var(--analytics-ui-muted, #667873);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.users-analytics-page .schools-table-wrap {
+  max-height: 420px;
+  margin-top: 14px;
+  overflow: auto;
+  border: 1px solid var(--analytics-ui-border, #e0e8e5);
+  border-radius: 12px;
+}
+
+.users-analytics-page .schools-table {
+  width: 100%;
+  min-width: 560px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.users-analytics-page .schools-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px;
+  background: var(--analytics-ui-soft, #edf4ef);
+  color: var(--analytics-ui-text, #174243);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.users-analytics-page .schools-table tbody th,
+.users-analytics-page .schools-table td {
+  padding: 11px 12px;
+  border-top: 1px solid var(--analytics-ui-border, #e4ebe8);
+  color: var(--analytics-ui-muted, #536762);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.users-analytics-page .schools-table tbody th {
+  color: var(--analytics-ui-text, #174243);
+  font-weight: 600;
+}
+
+.users-analytics-page .schools-table td strong {
+  color: var(--analytics-ui-text, #174243);
+}
+
+.users-analytics-page .school-col-name { width: 40%; }
+.users-analytics-page .school-col-location { width: 24%; }
+.users-analytics-page .school-col-count { width: 12%; }
 
 .users-analytics-page .status-role-name { width: 31%; }
 .users-analytics-page .status-role-value { width: 19%; }

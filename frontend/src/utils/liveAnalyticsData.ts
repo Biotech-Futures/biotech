@@ -427,6 +427,54 @@ function monthlyCumulative(users: AdminUser[], role: ActivityRole, year: number)
   return result
 }
 
+// The most frequent key; a tie goes to the alphabetically first.
+function mostCommon(counts: Map<string, number>): string | null {
+  let best: string | null = null
+  for (const [key, count] of counts) {
+    const bestCount = best === null ? 0 : counts.get(best)!
+    if (best === null || count > bestCount || (count === bestCount && key.localeCompare(best) < 0)) best = key
+  }
+  return best
+}
+
+/**
+ * Students and supervisors per school. Schools are typed in by hand, so names
+ * differing only in case or spacing are one school, shown as most users wrote
+ * it. There is no school address: a school is placed where most of its users
+ * are, by state in Australia (or "Australia" without one) and by country
+ * elsewhere, and "Unknown" when none of them gave a location.
+ */
+export function schoolCounts(users: AdminUser[]): UserAnalyticsYear['schools'] {
+  const schools = new Map<string, {
+    spellings: Map<string, number>
+    locations: Map<string, number>
+    students: number
+    supervisors: number
+  }>()
+  for (const user of users) {
+    const role = roleTitle(user.role)
+    const name = user.schoolName?.trim().replace(/\s+/g, ' ')
+    if (!name || (role !== 'Student' && role !== 'Supervisor')) continue
+    const key = name.toLocaleLowerCase()
+    const school = schools.get(key) ?? { spellings: new Map(), locations: new Map(), students: 0, supervisors: 0 }
+    schools.set(key, school)
+    school.spellings.set(name, (school.spellings.get(name) ?? 0) + 1)
+    const location = user.state?.stateName || user.country?.countryName
+    if (location) school.locations.set(location, (school.locations.get(location) ?? 0) + 1)
+    if (role === 'Student') school.students += 1
+    else school.supervisors += 1
+  }
+  return [...schools.values()]
+    .map((school) => ({
+      name: mostCommon(school.spellings)!,
+      location: mostCommon(school.locations) ?? 'Unknown',
+      students: school.students,
+      supervisors: school.supervisors,
+      total: school.students + school.supervisors,
+    }))
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+}
+
 export function usersAnalyticsAsOf(bundle: ParticipantAnalyticsBundle, year: number) {
   const activityDatesInYear = bundle.loginActivity?.by_day
     .map((row) => row.date)
@@ -581,6 +629,7 @@ export function buildUsersAnalytics(
     interests: [...interestMap.entries()]
       .map(([name, counts]) => ({ name, ...counts }))
       .sort((a, b) => b.students + b.mentors - (a.students + a.mentors)),
+    schools: schoolCounts(users),
   }
 }
 

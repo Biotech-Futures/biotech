@@ -158,6 +158,8 @@ export type UserAnalyticsYear = {
   registration: { students: number[]; mentors: number[]; supervisors: number[] }
   regions: Array<{ name: string; value: number }>
   interests: Array<{ name: string; students: number; mentors: number }>
+  // location is an Australian state code, or a country name outside Australia.
+  schools: Array<{ name: string; location: string; students: number; supervisors: number; total: number }>
 }
 
 export type MentorStatus = 'active' | 'inactive' | 'onboarding'

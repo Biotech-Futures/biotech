@@ -45,6 +45,8 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = undefined
   vi.useRealTimers()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 async function showUsersPage(users: api.AdminUser[]) {
@@ -59,6 +61,27 @@ async function openWorldMap(users: api.AdminUser[]) {
   const w = await showUsersPage(users)
   await w.get('[aria-label="Expand region card"]').trigger('click')
   return w
+}
+
+// Exports the Summary CSV and returns its text.
+async function summaryCsv(w: VueWrapper) {
+  let captured: Blob | undefined
+  const BrowserURL = URL
+  vi.stubGlobal('URL', class extends BrowserURL {
+    static createObjectURL = vi.fn((blob: Blob) => { captured = blob; return 'blob:analytics' })
+    static revokeObjectURL = vi.fn()
+  })
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  await w.get('.export-button').trigger('click')
+  await w.findAll('[role="menuitem"]').find((node) => node.text().startsWith('Summary'))!.trigger('click')
+  expect(captured).toBeInstanceOf(Blob)
+  // jsdom's Blob has no text(), so read it the way a browser could.
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(captured!)
+  })
 }
 
 const regionCounts = (w: VueWrapper) => Object.fromEntries(
@@ -140,5 +163,52 @@ describe('World Registration Map region totals', () => {
     // One value label per country on the map: neither is dropped.
     expect(w.findAll('.small-map-value').map((label) => label.text())).toEqual(['1', '1'])
     expect(regionCounts(w)['North America']).toBe(1)
+  })
+})
+
+describe('Users by School', () => {
+  const schoolRows = (w: VueWrapper) =>
+    w.findAll('.schools-table tbody tr').map((row) => row.findAll('th, td').map((cell) => cell.text()))
+
+  it('lists each school with its state in Australia or its country elsewhere', async () => {
+    const w = await showUsersPage([
+      from(1, { country: { countryName: 'Australia' }, state: { stateName: 'NSW' } }),
+      from(2, { country: { countryName: 'Australia' }, state: { stateName: 'NSW' } }),
+      from(3, { country: { countryName: 'Australia' }, state: { stateName: 'SA' } }),
+      from(4, { country: { countryName: 'Nigeria' }, state: null }),
+      from(5, { country: { countryName: 'Australia' }, state: { stateName: 'NSW' } }),
+    ].map((user, index) => ({
+      ...user,
+      schoolName: ['Hill High', 'Hill High', 'Adelaide College', 'Lagos Academy', 'Hill High'][index],
+      role: index === 4 ? 'supervisor' : 'student',
+    })))
+
+    expect(w.get('#schools-card-title').text()).toBe('Users by School')
+    expect(w.get('.schools-card .year-chip').text()).toBe('3 schools')
+    expect(schoolRows(w)).toEqual([
+      ['Hill High', 'New South Wales', '2', '1', '3'],
+      ['Adelaide College', 'South Australia', '1', '0', '1'],
+      ['Lagos Academy', 'Nigeria', '1', '0', '1'],
+    ])
+  })
+
+  it('says so when no student or supervisor has a school', async () => {
+    const w = await showUsersPage([from(1, { country: null, state: null })])
+
+    expect(w.find('.schools-table').exists()).toBe(false)
+    expect(w.get('.schools-empty').text()).toContain('have a school recorded')
+    expect(w.get('.schools-card .year-chip').text()).toBe('0 schools')
+  })
+
+  it('exports each school with its location in the summary CSV', async () => {
+    const w = await showUsersPage([
+      { ...from(1, { country: { countryName: 'Australia' }, state: { stateName: 'VIC' } }), schoolName: 'Bay College' },
+      { ...from(2, { country: { countryName: 'Australia' }, state: { stateName: 'VIC' } }), schoolName: 'Bay College', role: 'supervisor' },
+      { ...from(3, { country: { countryName: 'Nigeria' }, state: null }), schoolName: 'Lagos Academy' },
+    ])
+
+    const csv = await summaryCsv(w)
+    expect(csv).toContain('Users by school,Bay College,2,users,Victoria; Students: 1; Supervisors: 1\r\n')
+    expect(csv).toContain('Users by school,Lagos Academy,1,users,Nigeria; Students: 1; Supervisors: 0\r\n')
   })
 })
