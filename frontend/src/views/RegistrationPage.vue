@@ -264,11 +264,13 @@
         >
           <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
         </button>
-        <!-- The platform's own page heading; a supervisor's with the option's
-             description under it. -->
+        <!-- The platform's own page heading; a supervisor's, and a supervisor
+             registering themselves, with the option's description under it. -->
         <header class="page-header">
           <h1 class="page-title">{{ selectedJourney?.title }}</h1>
-          <p v-if="isSupervisorMode" class="page-subtitle">{{ selectedJourney?.description }}</p>
+          <p v-if="isSupervisorMode || journey === 'supervisor'" class="page-subtitle">
+            {{ selectedJourney?.description }}
+          </p>
           <!-- Register one student: who was just registered, the form empty
                again for the next. -->
           <p v-if="registeredNote" class="registered-note" role="status" data-test="registered-note">
@@ -310,7 +312,6 @@
         </div>
 
         <form novalidate :aria-busy="isSubmitting" @submit.prevent="handlePrimaryAction">
-          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
           <div v-if="serverError" class="server-error" role="alert" tabindex="-1">
             <strong>We couldn’t submit this registration.</strong>
             <span>{{ serverError }}</span>
@@ -327,7 +328,7 @@
             <div v-if="adminChoosesSupervisor && currentStep === 0" class="step-stack admin-supervisor">
               <div class="section-divider section-divider--first">
                 <h3>Supervisor</h3>
-                <p>Enter an existing supervisor's email or select a suggestion. A supervisor is required.</p>
+                <p>Enter an existing supervisor's email or select a suggestion. A supervisor can be a teacher or a parent.</p>
               </div>
               <SupervisorSearchField
                 id="admin-supervisor-email"
@@ -362,7 +363,7 @@
               <div v-else-if="currentStep === 2" class="step-stack">
                 <div class="section-divider section-divider--first">
                   <h3>Supervisor</h3>
-                  <p>Enter your supervisor's name and email. These details are required.</p>
+                  <p>Enter your supervisor's name and email. These details are required. Your supervisor can be a teacher or a parent.</p>
                 </div>
                 <div class="field-grid">
                   <RegistrationTextField
@@ -484,7 +485,7 @@
                   <!-- The group's supervisor, on a line below its code. -->
                   <div class="section-divider">
                     <h3>Supervisor</h3>
-                    <p>Enter your supervisor's name and email. These details are required.</p>
+                    <p>Enter your supervisor's name and email. These details are required. Your supervisor can be a teacher or a parent.</p>
                   </div>
                   <div class="field-grid">
                     <RegistrationTextField
@@ -1352,6 +1353,23 @@
             <p>
               No registration has been saved. Correct the details, or confirm each item to continue.
             </p>
+            <!-- A CSV's email address warnings, all at once; its school and
+                 name warnings stay one by one. -->
+            <label
+              v-if="csvEmailWarnings.length > 1"
+              class="registration-warnings__all"
+              data-test="confirm-all-email-warnings"
+            >
+              <input
+                type="checkbox"
+                :checked="allCsvEmailWarningsTicked"
+                :disabled="isSubmitting"
+                @change="tickCsvEmailWarnings"
+              />
+              <span
+                ><strong>Confirm all {{ csvEmailWarnings.length }} email address warnings</strong></span
+              >
+            </label>
             <label v-for="warning in registrationWarnings" :key="warning.overrideField">
               <input
                 v-model="warningAcknowledgements[warning.overrideField]"
@@ -1377,6 +1395,9 @@
               <li v-for="message in errorMessages" :key="message">{{ message }}</li>
             </ul>
           </div>
+
+          <!-- The email check Submit waits for, just above it. -->
+          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
 
           <!-- On the right; the steps above go back, and Back to the
                options. A group's students are added here. -->
@@ -1607,7 +1628,7 @@ const roleOptions: RoleOption[] = [
   {
     value: 'supervisor',
     title: 'Supervisor',
-    description: 'Sign up to register your students and follow their progress.',
+    description: 'Sign up to register your students and follow their progress. Supervisors can be teachers or parents.',
   },
 ]
 
@@ -1763,7 +1784,7 @@ const journeyOptions: JourneyOption[] = [
     value: 'supervisor',
     role: 'Supervisor',
     title: 'Register as a supervisor',
-    description: 'Share your contact details and school, and review information.',
+    description: 'Share your contact details and school, and review information. Supervisors can be teachers or parents.',
     steps: [
       {
         label: 'Contact',
@@ -2476,12 +2497,33 @@ const includedCsvRows = computed(() =>
     (row) => !forms.supervisorCsv.excludedRowNumbers.includes(row.rowNumber),
   ),
 )
+// A CSV's warnings about a student's or guardian's mailbox (not found, or
+// can't be confirmed), which one tick can confirm together.
+const CSV_EMAIL_OVERRIDES = new Set(['ConfirmEmailInvalidOverride', 'ConfirmGuardianEmailInvalidOverride'])
+const csvEmailWarnings = computed(() =>
+  journey.value === 'supervisor_csv'
+    ? registrationWarnings.value.filter((warning) =>
+        CSV_EMAIL_OVERRIDES.has(warning.overrideField.split('.').pop() ?? ''),
+      )
+    : [],
+)
+const allCsvEmailWarningsTicked = computed(() =>
+  csvEmailWarnings.value.every((warning) => warningAcknowledgements[warning.overrideField]),
+)
+const tickCsvEmailWarnings = (event: Event) => {
+  const ticked = (event.target as HTMLInputElement).checked
+  for (const warning of csvEmailWarnings.value) warningAcknowledgements[warning.overrideField] = ticked
+}
 const warningSubject = (warning: RegistrationWarning) => {
+  // A mentor's or self-registering supervisor's own email is theirs alone.
+  if (warning.field === 'mentor.email' || warning.field === 'supervisor.email') return 'Your email'
   const field = warning.field.endsWith('.school')
     ? 'School'
     : warning.field.endsWith('.guardian.email')
       ? 'Guardian email'
-      : 'Student email'
+      : warning.field.endsWith('.supervisor.email')
+        ? 'Supervisor email'
+        : 'Student email'
   const csvRow = /^supervisorCsv\.rows\.(\d+)\./.exec(warning.field)
   if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
   const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
@@ -3730,15 +3772,71 @@ if (!isSupervisorMode.value) {
     { deep: true },
   )
 }
+// Who each warning is about (its person's place in the forms, or a CSV row by
+// its number), and how their details stood when it was given. Kept while its
+// confirmation is, so either goes once those details change.
+const warnedAbout = new Map<string, { about: string; state: string }>()
+
+// A warning's person: its field's owner (a guardian's student, so a student's
+// own warnings go too), or the CSV row its index names among those included.
+const warningAbout = (field: string) => {
+  const csv = /^supervisorCsv\.rows\.(\d+)\./.exec(field)
+  if (csv) return `csv:${includedCsvRows.value[Number(csv[1])]?.rowNumber ?? ''}`
+  const parts = field.split('.').slice(0, -1)
+  if (parts[parts.length - 1] === 'guardian') parts.pop()
+  return parts.join('.')
+}
+
+// That person's details now: a CSV row's values (or that it's left out), or
+// their part of the forms, a mentor's signature aside.
+const stateOf = (about: string) => {
+  if (about.startsWith('csv:')) {
+    const rowNumber = Number(about.slice(4))
+    if (forms.supervisorCsv.excludedRowNumbers.includes(rowNumber)) return 'excluded'
+    return JSON.stringify(forms.supervisorCsv.rows.find((row) => row.rowNumber === rowNumber)?.values ?? null)
+  }
+  const found = about
+    .split('.')
+    .reduce<unknown>((value, key) => (value as Record<string, unknown> | undefined)?.[key], forms)
+  const { signature: _signature, ...details } = (found ?? {}) as Record<string, unknown>
+  return JSON.stringify(details)
+}
+
+watch(
+  registrationWarnings,
+  (warnings) => {
+    for (const warning of warnings) {
+      const about = warningAbout(warning.field)
+      warnedAbout.set(warning.overrideField, { about, state: stateOf(about) })
+    }
+  },
+  { flush: 'sync' },
+)
+
+// Editing someone's details takes back only their warnings and confirmations,
+// so the server checks them again; everyone else's ticks stay.
 watch(
   forms,
   () => {
-    registrationWarnings.value = []
-    warningOverrides.value = {}
-    Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
+    const changed = [...warnedAbout].filter(([, { about, state }]) => stateOf(about) !== state).map(([key]) => key)
+    if (!changed.length) return
+    for (const key of changed) {
+      warnedAbout.delete(key)
+      delete warningAcknowledgements[key]
+      delete warningOverrides.value[key]
+    }
+    registrationWarnings.value = registrationWarnings.value.filter((warning) => !changed.includes(warning.overrideField))
   },
   { deep: true },
 )
+
+// Another journey: none of this one's warnings apply.
+watch(journey, () => {
+  warnedAbout.clear()
+  registrationWarnings.value = []
+  warningOverrides.value = {}
+  Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
+})
 </script>
 
 <style scoped>
@@ -3774,6 +3872,12 @@ watch(
 .registration-warnings input {
   flex: none;
   margin-block-start: 0.2rem;
+}
+
+/* Confirm all: set apart from the warnings it ticks. */
+.registration-warnings__all {
+  padding-block-end: 0.75rem;
+  border-block-end: 1px solid rgba(156, 121, 64, 0.35);
 }
 
 .registration-page {

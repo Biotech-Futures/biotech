@@ -1072,7 +1072,7 @@ def save_own_guardian(user, data) -> None:
     # A new guardian only: not a placeholder, nor a student's account.
     if email != (current or "").strip().lower() and (problem := new_guardian_email_problem(email)):
         raise serializers.ValidationError({"email": [problem]})
-    if invalid := check_one_address(email, current=current):
+    if invalid := check_one_address(email, current=current, caller="guardian_update"):
         raise serializers.ValidationError(
             {"email": [invalid_address_message(invalid, "Your guardian's email address")]}
         )

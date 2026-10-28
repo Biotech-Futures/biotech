@@ -255,6 +255,72 @@ describe('HTTP registration gateway', () => {
     expect(result).not.toHaveProperty('warnings')
   })
 
+  const ownWarning = (who: string, override = 'ConfirmNameEmailOverride', field = `${who}.email`) =>
+    createHttpRegistrationGateway({
+      endpoint,
+      ensureCsrf,
+      fetchImpl: vi.fn(async () =>
+        response(
+          {
+            warnings: [
+              {
+                code: 'name_email_mismatch',
+                field,
+                override_field: `${who}.overrides.${override}`,
+                message: 'Check this email.',
+              },
+            ],
+          },
+          400,
+        ),
+      ),
+    })
+
+  it.each(['mentor', 'supervisor'] as const)(
+    "returns a %s's warnings about their own email, to confirm",
+    async (journey) => {
+      for (const override of ['ConfirmNameEmailOverride', 'ConfirmEmailInvalidOverride']) {
+        const result = await ownWarning(journey, override).submit(
+          buildRegistrationRequest(journey, createRegistrationForms()),
+        )
+        expect(result).toEqual({
+          ok: false,
+          message: 'Please check these registration warnings.',
+          warnings: [
+            {
+              code: 'name_email_mismatch',
+              field: `${journey}.email`,
+              overrideField: `${journey}.overrides.${override}`,
+              message: 'Check this email.',
+            },
+          ],
+        })
+      }
+    },
+  )
+
+  it.each([
+    ['a mentor warning on a student registration', 'student_individual', 'mentor'],
+    ["a supervisor's on a mentor registration", 'mentor', 'supervisor'],
+    ["a mentor's on a supervisor registration", 'supervisor', 'mentor'],
+  ] as const)('rejects %s', async (_case, journey, who) => {
+    const result = await ownWarning(who).submit(buildRegistrationRequest(journey, createRegistrationForms()))
+    expect(result.ok).toBe(false)
+    expect(result).not.toHaveProperty('warnings')
+  })
+
+  it.each([
+    ['an override they cannot be asked for', 'ConfirmSchoolOverride', 'mentor.email'],
+    ['a warning about another field', 'ConfirmNameEmailOverride', 'mentor.firstName'],
+    ['a longer path', 'ConfirmNameEmailOverride.extra', 'mentor.email'],
+  ])("rejects a mentor's warning with %s", async (_case, override, field) => {
+    const result = await ownWarning('mentor', override, field).submit(
+      buildRegistrationRequest('mentor', createRegistrationForms()),
+    )
+    expect(result.ok).toBe(false)
+    expect(result).not.toHaveProperty('warnings')
+  })
+
   it('maps normalized CSV fields back to the included row indexes', async () => {
     const gateway = createHttpRegistrationGateway({
       endpoint,

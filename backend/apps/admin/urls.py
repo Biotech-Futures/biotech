@@ -172,6 +172,7 @@ urlpatterns = [
     # EMAIL VERIFICATION ROUTES
     # ========================================================================
     path('email-verification/credits/', views.EmailVerificationCreditsView.as_view(), name='email-verification-credits'),
+    path('email-verification/requests/', views.EmailVerificationRequestsView.as_view(), name='email-verification-requests'),
 
     # ========================================================================
     # KNOWN UNIVERSITY ROUTES

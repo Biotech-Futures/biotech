@@ -1843,7 +1843,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
         # A new address only, so an older one can still be edited around.
         if new_email != (user.email or "").strip().lower() and is_placeholder_email(new_email):
             return {"msg": PLACEHOLDER_ADDRESS, "data": None}
-        if invalid := check_one_address(new_email, current=user.email):
+        if invalid := check_one_address(new_email, current=user.email, caller="admin_edit"):
             return {"msg": invalid_address_message(invalid), "data": None}
     email_changed = new_email != user.email.strip().lower()
 
@@ -1907,7 +1907,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     problem := new_guardian_email_problem(guardian_email)
                 ):
                     return {"msg": problem, "data": None}
-                if invalid := check_one_address(guardian_email, current=current_guardian):
+                if invalid := check_one_address(guardian_email, current=current_guardian, caller="admin_edit"):
                     return {"msg": invalid_address_message(invalid, "The guardian's email address"), "data": None}
     
     mentor_values: Dict[str, Any] = {}

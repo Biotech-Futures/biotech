@@ -74,7 +74,8 @@ class Lookups:
         if not address:
             return None
         if address not in self.answers:
-            self.answers[address] = email_verification.verify_email(address)
+            with email_verification.lookups_for("step_check"):
+                self.answers[address] = email_verification.verify_email(address)
         return self.answers[address]
 
 

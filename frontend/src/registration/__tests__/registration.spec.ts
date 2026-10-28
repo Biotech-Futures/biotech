@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   CSV_HEADERS,
   CSV_HEADER_LABELS,
+  GUARDIAN_INCOMPLETE,
+  GUARDIAN_TOGETHER,
   createPendingPeer,
   createRegistrationForms,
   findCrossRoleEmailConflicts,
@@ -243,6 +245,45 @@ describe('parseRegistrationCsv', () => {
 
     expect(result.rows.map((row) => row.category)).toEqual(['review-required', 'invalid'])
     expect(result.rows[0].issues[0]).toContain('Guardian details are deferred')
+  })
+
+  it("refuses a half-filled guardian on each missing field, as the server does", () => {
+    const base = Object.fromEntries(CSV_HEADERS.map((header) => [header, ''])) as Record<
+      (typeof CSV_HEADERS)[number],
+      string
+    >
+    const student = {
+      ...base,
+      first_name: 'Sam',
+      last_name: 'Lee',
+      email: 'sam@example.edu.au',
+      school: 'Example School',
+      year_level: '11',
+      country: 'Australia',
+      state: 'NSW',
+    }
+    const encode = (row: typeof student) => CSV_HEADERS.map((header) => row[header]).join(',')
+    const rows = [
+      { ...student, guardian_email: 'parent@example.com' },
+      {
+        ...student,
+        email: 'jo@example.edu.au',
+        guardian_first_name: 'Pat',
+        guardian_last_name: 'Lee',
+        guardian_email: 'parent@example.com',
+      },
+    ]
+    const result = parseRegistrationCsv([CSV_HEADERS.join(','), ...rows.map(encode)].join('\n'))
+
+    const [halfFilled, complete] = result.rows
+    expect(halfFilled!.category).toBe('invalid')
+    expect(halfFilled!.fieldErrors).toEqual({
+      guardian_first_name: GUARDIAN_TOGETHER,
+      guardian_last_name: GUARDIAN_TOGETHER,
+    })
+    // Once, and short, in the table's Status column.
+    expect(halfFilled!.issues).toEqual([GUARDIAN_INCOMPLETE])
+    expect(complete!.category).toBe('valid')
   })
 
   it('rejects files that do not use the prescribed headers', () => {

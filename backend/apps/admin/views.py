@@ -38,6 +38,7 @@ from apps.admin.services.user import (
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
 from apps.admin.services import guardian_consent
+from apps.admin.services.email_requests import RangeError, request_usage, usage_range
 from apps.admin.services.email_verification import get_credit_balance
 from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
@@ -2020,6 +2021,21 @@ class EmailVerificationCreditsView(APIView):
 
     def get(self, request):
         return Response(get_credit_balance())
+
+
+class EmailVerificationRequestsView(APIView):
+    """GET /api/v1/admin/email-verification/requests/?from=&to= — requests
+    made to QuickEmailVerification and the credits they cost, by UTC day, key
+    and outcome (apps.admin.services.email_requests). Read-only."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        try:
+            first, last = usage_range(request.query_params.get("from"), request.query_params.get("to"))
+        except RangeError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(request_usage(first, last))
 
 
 def _known_university_fields(data) -> dict:
