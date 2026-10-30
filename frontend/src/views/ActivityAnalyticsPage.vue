@@ -767,7 +767,7 @@ const liveUserData = ref<UserAnalyticsYear>({
   dailyActivity: { labels: [], total: [] },
   lastLogin: [], userLastLogins: [],
   registration: { students: [], mentors: [], supervisors: [] },
-  regions: [], interests: [],
+  regions: [], interests: [], schools: [],
 })
 const liveGroupData = ref<GroupsAnalyticsYear>({
   totalGroups: 0, groupGrowth: 0, averageGroupSize: 0,
