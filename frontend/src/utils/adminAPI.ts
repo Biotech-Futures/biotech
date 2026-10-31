@@ -663,6 +663,37 @@ export interface EmailCheckCredits {
 export const fetchEmailCheckCredits = () =>
   adminGet<AdminEnvelope<EmailCheckCredits>>('/email-verification/credits/').then((env) => env.data)
 
+export type EmailVerificationRequestKey = 'free' | 'paid'
+
+export interface EmailVerificationRequestDay {
+  /** UTC calendar day. */
+  date: string
+  key: EmailVerificationRequestKey
+  /** QEV answer or failure reason, for example valid or request_timeout. */
+  outcome: string
+  requests: number
+  credits: number
+}
+
+export interface EmailVerificationRequestUsage {
+  from: string
+  to: string
+  timezone: 'UTC'
+  days: EmailVerificationRequestDay[]
+  totals: {
+    requests: number
+    credits: number
+  }
+}
+
+/** Real provider requests only. Cached answers and sandbox checks are not
+ * recorded by the backend. A free-key request that falls back to the paid key
+ * is deliberately represented as two requests. */
+export const fetchEmailVerificationRequests = (range: { from?: string; to?: string } = {}) =>
+  adminGet<AdminEnvelope<EmailVerificationRequestUsage>>(
+    `/email-verification/requests/${buildAdminQuery(range)}`
+  ).then((env) => env.data)
+
 // ---------------------------------------------------------------------------
 // Known universities: names registration treats as a university, not a school
 // ---------------------------------------------------------------------------

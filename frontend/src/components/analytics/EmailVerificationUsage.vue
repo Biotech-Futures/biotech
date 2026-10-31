@@ -18,23 +18,27 @@
       Sandbox mode is active. Test lookups do not use credits and are excluded from usage figures.
     </p>
 
-    <div v-if="!credits && isLoading" class="verification-loading">Loading verification usage…</div>
+    <div v-if="!credits && !usage && isLoading" class="verification-loading">Loading verification usage…</div>
 
-    <template v-else-if="credits">
+    <template v-else-if="credits || usage">
       <div class="verification-grid">
         <article class="verification-metric daily-metric" data-test="verification-daily">
           <span class="metric-label">Verification Requests Today</span>
-          <strong :class="{ unavailable: !dailyTrackingAvailable }">
-            {{ dailyTrackingAvailable ? count(credits.lookupsToday) : 'Unavailable' }}
+          <strong :class="{ unavailable: !usage }">
+            {{ usage ? count(todayUsage.requests) : 'Unavailable' }}
           </strong>
-          <div v-if="dailyTrackingAvailable" class="daily-progress" aria-hidden="true">
+          <div v-if="usage && configuredDailyCap" class="daily-progress" aria-hidden="true">
             <span :style="{ width: `${dailyPercent}%` }"></span>
           </div>
-          <small v-if="dailyTrackingAvailable">
-            {{ count(credits.lookupsToday) }} of {{ count(credits.dailyCap) }} configured daily limit
+          <small v-if="usage && configuredDailyCap">
+            {{ count(todayUsage.requests) }} of {{ count(configuredDailyCap) }} configured daily limit
+          </small>
+          <small v-else-if="usage">
+            {{ count(todayUsage.free) }} free · {{ count(todayUsage.paid) }} paid ·
+            {{ count(todayUsage.credits) }} credits used (UTC)
           </small>
           <small v-else>
-            Accurate daily counting is not enabled yet. Cached and sandbox results are not real lookups.
+            Daily request history could not be loaded.
           </small>
         </article>
 
@@ -61,11 +65,53 @@
         </article>
       </div>
 
+      <section v-if="usage" class="verification-history" data-test="verification-history">
+        <div class="history-heading">
+          <div>
+            <h3>Daily Verification Requests</h3>
+            <p>{{ historyRangeLabel }}</p>
+          </div>
+          <div class="history-summary" aria-label="Request history totals">
+            <span><b>{{ count(usage.totals.requests) }}</b> requests</span>
+            <span><b>{{ count(usage.totals.credits) }}</b> credits used</span>
+          </div>
+        </div>
+
+        <div class="history-legend" aria-hidden="true">
+          <span><i class="free"></i>Free key</span>
+          <span><i class="paid"></i>Paid key</span>
+        </div>
+
+        <div class="history-chart" role="img" :aria-label="historyAriaLabel">
+          <div
+            v-for="day in historyDays"
+            :key="day.date"
+            class="history-column"
+            :title="day.tooltip"
+          >
+            <span class="history-value">{{ day.requests || '' }}</span>
+            <div class="history-bar-track">
+              <span
+                v-if="day.free"
+                class="history-bar free"
+                :style="{ height: `${day.freeHeight}%` }"
+              ></span>
+              <span
+                v-if="day.paid"
+                class="history-bar paid"
+                :style="{ height: `${day.paidHeight}%` }"
+              ></span>
+            </div>
+            <span class="history-date">{{ day.label }}</span>
+          </div>
+        </div>
+      </section>
+
       <div class="verification-note">
         <i class="fas fa-circle-info" aria-hidden="true"></i>
         <span>
-          Daily history will become available after a persistent counter is recorded for each real verification request.
-          The live provider balance remains available in the QuickEmailVerification account.
+          Daily history starts when request logging was enabled; earlier usage cannot be reconstructed.
+          Cached answers and sandbox requests are excluded. Provider balances are last-reported values, not live balances.
         </span>
       </div>
     </template>
@@ -75,7 +121,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import { fetchEmailCheckCredits, type EmailCheckCredits, type EmailCheckKey } from '@/utils/adminAPI'
+import {
+  fetchEmailCheckCredits,
+  fetchEmailVerificationRequests,
+  type EmailCheckCredits,
+  type EmailCheckKey,
+  type EmailVerificationRequestUsage,
+} from '@/utils/adminAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatShortDateTime } from '@/utils/date'
 
@@ -84,15 +136,96 @@ const props = withDefaults(defineProps<{ refreshToken?: number }>(), {
 })
 
 const credits = ref<EmailCheckCredits | null>(null)
+const usage = ref<EmailVerificationRequestUsage | null>(null)
 const isLoading = ref(false)
 const error = ref('')
 
 const count = (value: number) => value.toLocaleString('en-AU')
-const dailyTrackingAvailable = computed(() => (credits.value?.dailyCap ?? 0) > 0)
+const configuredDailyCap = computed(() => credits.value?.dailyCap ?? 0)
+
+function utcDay(date: Date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function requestRange() {
+  const toDate = new Date()
+  const fromDate = new Date(toDate)
+  fromDate.setUTCDate(fromDate.getUTCDate() - 29)
+  return { from: utcDay(fromDate), to: utcDay(toDate) }
+}
+
+type AggregatedDay = {
+  date: string
+  requests: number
+  credits: number
+  free: number
+  paid: number
+}
+
+const usageByDate = computed(() => {
+  const dates = new Map<string, AggregatedDay>()
+  for (const row of usage.value?.days ?? []) {
+    const day = dates.get(row.date) ?? { date: row.date, requests: 0, credits: 0, free: 0, paid: 0 }
+    day.requests += row.requests
+    day.credits += row.credits
+    day[row.key] += row.requests
+    dates.set(row.date, day)
+  }
+  return dates
+})
+
+const todayUsage = computed<AggregatedDay>(() => {
+  const today = utcDay(new Date())
+  return usageByDate.value.get(today) ?? { date: today, requests: 0, credits: 0, free: 0, paid: 0 }
+})
+
 const dailyPercent = computed(() => {
-  const data = credits.value
-  if (!data?.dailyCap) return 0
-  return Math.min(Math.round((data.lookupsToday / data.dailyCap) * 100), 100)
+  if (!configuredDailyCap.value) return 0
+  return Math.min(Math.round((todayUsage.value.requests / configuredDailyCap.value) * 100), 100)
+})
+
+function parseUtcDay(value: string) {
+  return new Date(`${value}T00:00:00Z`)
+}
+
+function shortUtcDate(value: string) {
+  return new Intl.DateTimeFormat('en-AU', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  }).format(parseUtcDay(value))
+}
+
+const historyDays = computed(() => {
+  const data = usage.value
+  if (!data) return []
+  const first = parseUtcDay(data.from)
+  const last = parseUtcDay(data.to)
+  const all: AggregatedDay[] = []
+  for (const cursor = new Date(first); cursor <= last; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const date = utcDay(cursor)
+    all.push(usageByDate.value.get(date) ?? { date, requests: 0, credits: 0, free: 0, paid: 0 })
+  }
+  const maximum = Math.max(1, ...all.map((day) => day.requests))
+  return all.map((day, index) => ({
+    ...day,
+    label: index === 0 || index === all.length - 1 || index % 5 === 0 ? shortUtcDate(day.date) : '',
+    freeHeight: (day.free / maximum) * 100,
+    paidHeight: (day.paid / maximum) * 100,
+    tooltip: `${shortUtcDate(day.date)}: ${day.requests} request${day.requests === 1 ? '' : 's'} `
+      + `(${day.free} free, ${day.paid} paid), ${day.credits} credit${day.credits === 1 ? '' : 's'} used`,
+  }))
+})
+
+const historyRangeLabel = computed(() => {
+  if (!usage.value) return ''
+  return `${shortUtcDate(usage.value.from)}–${shortUtcDate(usage.value.to)} ${usage.value.timezone}`
+})
+
+const historyAriaLabel = computed(() => {
+  if (!usage.value) return ''
+  return `Daily email verification requests from ${usage.value.from} to ${usage.value.to}. `
+    + `${usage.value.totals.requests} requests used ${usage.value.totals.credits} credits.`
 })
 
 function statusOf(key: EmailCheckKey) {
@@ -134,16 +267,23 @@ const keys = computed(() => {
 async function load() {
   isLoading.value = true
   error.value = ''
-  try {
-    credits.value = await fetchEmailCheckCredits()
-  } catch (unknownError) {
-    error.value = apiErrorFromUnknown(
-      unknownError,
-      'Email verification usage could not be loaded.',
-    ).message
-  } finally {
-    isLoading.value = false
+  const [creditsResult, usageResult] = await Promise.allSettled([
+    fetchEmailCheckCredits(),
+    fetchEmailVerificationRequests(requestRange()),
+  ])
+  const messages: string[] = []
+  if (creditsResult.status === 'fulfilled') {
+    credits.value = creditsResult.value
+  } else {
+    messages.push(apiErrorFromUnknown(creditsResult.reason, 'Verification balances could not be loaded.').message)
   }
+  if (usageResult.status === 'fulfilled') {
+    usage.value = usageResult.value
+  } else {
+    messages.push(apiErrorFromUnknown(usageResult.reason, 'Daily verification requests could not be loaded.').message)
+  }
+  error.value = [...new Set(messages)].join(' ')
+  isLoading.value = false
 }
 
 onMounted(load)
@@ -309,6 +449,140 @@ watch(() => props.refreshToken, () => { void load() })
   color: var(--analytics-ui-text, #174243);
 }
 
+.verification-history {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--analytics-ui-border, #d7e5e1);
+  border-radius: 13px;
+  background: var(--analytics-ui-surface, #fff);
+}
+
+.history-heading,
+.history-summary,
+.history-legend {
+  display: flex;
+  align-items: center;
+}
+
+.history-heading {
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.history-heading h3 {
+  margin: 0;
+  color: var(--analytics-ui-text, #174243);
+  font-size: 15px;
+}
+
+.history-heading p {
+  margin: 3px 0 0;
+  color: var(--analytics-ui-muted, #59706e);
+  font-size: 11px;
+}
+
+.history-summary {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.history-summary span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef4f2;
+  color: var(--analytics-ui-muted, #59706e);
+  font-size: 11px;
+}
+
+.history-summary b {
+  color: var(--analytics-ui-text, #174243);
+}
+
+.history-legend {
+  justify-content: flex-end;
+  gap: 14px;
+  margin: 8px 0 4px;
+  color: var(--analytics-ui-muted, #59706e);
+  font-size: 10px;
+}
+
+.history-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.history-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.history-chart {
+  display: grid;
+  height: 142px;
+  grid-template-columns: repeat(30, minmax(10px, 1fr));
+  gap: 4px;
+  align-items: end;
+  padding-top: 8px;
+  overflow-x: auto;
+}
+
+.history-column {
+  display: grid;
+  min-width: 10px;
+  height: 132px;
+  grid-template-rows: 18px 92px 22px;
+  align-items: end;
+  text-align: center;
+}
+
+.history-value {
+  align-self: center;
+  color: var(--analytics-ui-text, #174243);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.history-bar-track {
+  display: flex;
+  width: min(100%, 18px);
+  height: 88px;
+  align-self: end;
+  justify-self: center;
+  flex-direction: column-reverse;
+  overflow: hidden;
+  border-bottom: 1px solid var(--analytics-ui-border, #d7e5e1);
+  border-radius: 4px 4px 0 0;
+  background: #f2f6f4;
+}
+
+.history-bar {
+  display: block;
+  width: 100%;
+  min-height: 1px;
+}
+
+.history-bar.free,
+.history-legend i.free {
+  background: var(--analytics-ui-accent, #017151);
+}
+
+.history-bar.paid,
+.history-legend i.paid {
+  background: var(--analytics-ui-secondary, #39687b);
+}
+
+.history-date {
+  min-width: 34px;
+  align-self: start;
+  color: var(--analytics-ui-muted, #73837f);
+  font-size: 8px;
+  white-space: nowrap;
+  transform: translateX(calc((34px - 100%) / -2));
+}
+
 .verification-note {
   align-items: flex-start;
   gap: 10px;
@@ -360,6 +634,16 @@ watch(() => props.refreshToken, () => { void load() })
 
   .verification-heading p {
     margin-left: 0;
+  }
+
+  .history-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .history-summary,
+  .history-legend {
+    justify-content: flex-start;
   }
 
 }

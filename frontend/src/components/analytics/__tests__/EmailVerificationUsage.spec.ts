@@ -2,10 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import EmailVerificationUsage from '@/components/analytics/EmailVerificationUsage.vue'
-import { fetchEmailCheckCredits, type EmailCheckCredits } from '@/utils/adminAPI'
+import {
+  fetchEmailCheckCredits,
+  fetchEmailVerificationRequests,
+  type EmailCheckCredits,
+  type EmailVerificationRequestUsage,
+} from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
 
-vi.mock('@/utils/adminAPI', () => ({ fetchEmailCheckCredits: vi.fn() }))
+vi.mock('@/utils/adminAPI', () => ({
+  fetchEmailCheckCredits: vi.fn(),
+  fetchEmailVerificationRequests: vi.fn(),
+}))
 
 const response = (overrides: Partial<EmailCheckCredits> = {}): EmailCheckCredits => ({
   free: {
@@ -33,24 +41,40 @@ const response = (overrides: Partial<EmailCheckCredits> = {}): EmailCheckCredits
   ...overrides,
 })
 
+const today = new Date().toISOString().slice(0, 10)
+const usageResponse = (overrides: Partial<EmailVerificationRequestUsage> = {}): EmailVerificationRequestUsage => ({
+  from: '2026-10-01',
+  to: today,
+  timezone: 'UTC',
+  days: [
+    { date: today, key: 'free', outcome: 'valid', requests: 3, credits: 3 },
+    { date: today, key: 'paid', outcome: 'invalid', requests: 1, credits: 1 },
+  ],
+  totals: { requests: 4, credits: 4 },
+  ...overrides,
+})
+
 describe('EmailVerificationUsage', () => {
   beforeEach(() => {
     vi.mocked(fetchEmailCheckCredits).mockReset().mockResolvedValue(response())
+    vi.mocked(fetchEmailVerificationRequests).mockReset().mockResolvedValue(usageResponse())
   })
 
-  it('shows last-reported balances and configured daily usage', async () => {
+  it('shows request logging totals and last-reported balances', async () => {
     const wrapper = mount(EmailVerificationUsage)
     await flushPromises()
 
-    expect(wrapper.get('[data-test="verification-daily"]').text()).toContain('28 of 100')
+    expect(wrapper.get('[data-test="verification-daily"]').text()).toContain('4 of 100')
     expect(wrapper.get('[data-test="verification-free"]').text()).toContain('72')
     expect(wrapper.get('[data-test="verification-paid"]').text()).toContain('9,650')
     expect(wrapper.text()).toContain('Balance from last verification')
     expect(wrapper.get('[data-test="verification-paid"]').text()).toContain('500')
     expect(wrapper.get('[data-test="verification-paid"]').text()).toContain('100')
+    expect(wrapper.get('[data-test="verification-history"]').text()).toContain('4 requests')
+    expect(wrapper.get('[data-test="verification-history"]').text()).toContain('4 credits used')
   })
 
-  it('does not present zero as accurate usage when daily counting is disabled', async () => {
+  it('uses the persistent request log even when no legacy daily cap is configured', async () => {
     vi.mocked(fetchEmailCheckCredits).mockResolvedValue(response({
       lookupsToday: 0,
       dailyCap: 0,
@@ -60,8 +84,9 @@ describe('EmailVerificationUsage', () => {
     const wrapper = mount(EmailVerificationUsage)
     await flushPromises()
 
-    expect(wrapper.get('[data-test="verification-daily"]').text()).toContain('Unavailable')
-    expect(wrapper.get('[data-test="verification-daily"]').text()).toContain('not enabled yet')
+    expect(wrapper.get('[data-test="verification-daily"]').text()).toContain('4')
+    expect(wrapper.get('[data-test="verification-daily"]').text()).toContain('3 free')
+    expect(wrapper.get('[data-test="verification-daily"]').text()).toContain('1 paid')
     expect(wrapper.get('[data-test="verification-free"]').text()).toContain('Not reported yet')
   })
 
@@ -76,6 +101,19 @@ describe('EmailVerificationUsage', () => {
     await flushPromises()
 
     expect(wrapper.get('[role="alert"]').text()).toBe('Server error')
+    expect(wrapper.get('[data-test="verification-paid"]').text()).toContain('9,650')
+  })
+
+  it('keeps balances visible and explains when request history fails', async () => {
+    vi.mocked(fetchEmailVerificationRequests).mockRejectedValue(
+      new ApiError({ error: 'Request history unavailable', code: 'http_500', request_id: 'y' }, 500),
+    )
+
+    const wrapper = mount(EmailVerificationUsage)
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toBe('Request history unavailable')
+    expect(wrapper.get('[data-test="verification-daily"]').text()).toContain('Unavailable')
     expect(wrapper.get('[data-test="verification-paid"]').text()).toContain('9,650')
   })
 
