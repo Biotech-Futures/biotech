@@ -12,6 +12,8 @@ from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator
 from rest_framework.exceptions import ValidationError
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
@@ -80,6 +82,7 @@ class ResourceRowDict(TypedDict):
     slides_file_size: Optional[int]
     slides_storage_key: Optional[str]
     has_slides: Optional[bool]
+    recording_url: Optional[str]
     group_id: Optional[int]
     resource_type_id: Optional[int]
 
@@ -122,6 +125,7 @@ class CreateResourceInput(TypedDict):
     group_id: Optional[int]
     role_ids: Optional[List[int]]
     content_html: Optional[str]
+    recording_url: Optional[str]
 
 
 class UpdateResourceInput(TypedDict):
@@ -134,6 +138,7 @@ class UpdateResourceInput(TypedDict):
     group_id: Optional[int]
     role_ids: Optional[List[int]]
     content_html: Optional[str]
+    recording_url: Optional[str]
 
 
 # Helper functions
@@ -244,6 +249,22 @@ def build_storage_key(resource_id: int, file_name: Optional[str] = None) -> str:
     return f"resources/{stamp}-{resource_id}-{safe_name}"
 
 
+def normalize_recording_url(value: Any) -> Optional[str]:
+    """Validate and normalise a Recorded Session's external recording link."""
+    if value in (None, ""):
+        return None
+    link = str(value).strip()
+    if not link:
+        return None
+    try:
+        URLValidator(schemes=["https"])(link)
+    except DjangoValidationError:
+        raise ValidationError(
+            {'recording_url': "Recording link must be a valid HTTPS URL."}
+        )
+    return link
+
+
 def extract_file_name_from_storage_key(storage_key: Optional[str]) -> Optional[str]:
     """Extract original filename from storage key."""
     if not storage_key:
@@ -345,6 +366,7 @@ def resource_to_row(resource: Resources, include_page_content: bool = False) -> 
         'slides_file_size': resource.slides_file_size,
         'slides_storage_key': resource.slides_storage_key,
         'has_slides': bool(resource.slides_storage_key),
+        'recording_url': resource.recording_url,
     }
 
 
@@ -702,10 +724,16 @@ def create_resource(
         except ResourceType.DoesNotExist:
             resource_type_id = None
 
-    if resource_type_id:
-        rt = ResourceType.objects.filter(id=resource_type_id).first()
-        if rt and rt.type_name == "Recorded Session" and payload.get('resource_kind') == RESOURCE_KIND_PAGE:
-            raise ValidationError({'resource_kind': "Recorded Session resources cannot be pages."})
+    rt = ResourceType.objects.filter(id=resource_type_id).first() if resource_type_id else None
+    if rt and rt.type_name == "Recorded Session" and payload.get('resource_kind') == RESOURCE_KIND_PAGE:
+        raise ValidationError({'resource_kind': "Recorded Session resources cannot be pages."})
+
+    recording_url = normalize_recording_url(payload.get('recording_url'))
+    if recording_url:
+        if not rt or rt.type_name != "Recorded Session":
+            raise ValidationError(
+                {'recording_url': "Recording links are only supported for Recorded Session resources."}
+            )
 
     resource = Resources.objects.create(
         name=payload['resource_name'],
@@ -715,6 +743,7 @@ def create_resource(
         uploaded_by_id=uploader_profile['id'],
         visibility_scope=visibility_scope,
         group_id=payload.get('group_id'),
+        recording_url=recording_url,
         uploaded_at=timezone.now(),
     )
     
@@ -822,6 +851,8 @@ def replace_resource_file(
         resource.storage_key = next_storage_key
         resource.file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
         resource.file_size = payload.get('file_size', len(file_bytes))
+        # A new uploaded video replaces any external recording link.
+        resource.recording_url = None
 
     # Slides file replacement
     has_slides_file = bool(payload.get('slides_file_bytes') or payload.get('slides_file'))
@@ -1080,10 +1111,37 @@ def update_resource(
         target_type_id = updates['resource_type_id']
 
     target_kind = updates.get('resource_kind', resource.kind)
-    if target_type_id:
-        rt_obj = ResourceType.objects.filter(id=target_type_id).first()
-        if rt_obj and rt_obj.type_name == "Recorded Session" and target_kind == RESOURCE_KIND_PAGE:
-            raise ValidationError({'resource_kind': "Recorded Session resources cannot be pages."})
+    rt_obj = ResourceType.objects.filter(id=target_type_id).first() if target_type_id else None
+    if rt_obj and rt_obj.type_name == "Recorded Session" and target_kind == RESOURCE_KIND_PAGE:
+        raise ValidationError({'resource_kind': "Recorded Session resources cannot be pages."})
+
+    # A Recorded Session has one recording source: an uploaded video or an
+    # external link. Setting a link removes the uploaded video, and clearing
+    # the link (on its own) leaves the uploaded video untouched.
+    if 'recording_url' in updates:
+        recording_url = normalize_recording_url(updates.get('recording_url'))
+        if recording_url:
+            if not rt_obj or rt_obj.type_name != "Recorded Session":
+                raise ValidationError(
+                    {'recording_url': "Recording links are only supported for Recorded Session resources."}
+                )
+            if target_kind == RESOURCE_KIND_PAGE:
+                raise ValidationError(
+                    {'recording_url': "Page resources cannot have a recording link."}
+                )
+            if resource.storage_key:
+                previous_key = resource.storage_key
+                if is_managed_storage_key(previous_key):
+                    try:
+                        RESOURCE_FILE_SERVICE.delete(previous_key)
+                    except Exception:
+                        pass
+                resource.storage_key = None
+                resource.file_mime_type = None
+                resource.file_size = None
+        resource.recording_url = recording_url
+    elif resource.recording_url and (not rt_obj or rt_obj.type_name != "Recorded Session"):
+        resource.recording_url = None
 
     resource.save()
     

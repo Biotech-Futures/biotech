@@ -1,6 +1,6 @@
 <template>
   <div class="admin-recorded-session-fields">
-    <!-- Video File Section (Required) -->
+    <!-- Video File Section (Required unless a recording link is used) -->
     <div class="admin-resource-form__field-wrap">
       <label class="form-label" for="admin-resource-video-file">Session Video Recording *</label>
       <div class="admin-resource-file-upload">
@@ -16,19 +16,21 @@
           <button
             type="button"
             class="btn btn-outline btn-sm"
+            :disabled="saving"
             @click="triggerVideoInput"
           >
             <i class="fas fa-video" aria-hidden="true"></i>
-            <span>{{ videoFile || currentVideoName ? 'Change Video' : 'Browse Video' }}</span>
+            <span>{{ hasVideo ? 'Change Video' : 'Upload Video' }}</span>
           </button>
           <button
-            v-if="videoFile"
+            v-if="hasVideo"
             type="button"
             class="btn btn-outline btn-sm"
-            @click="clearVideo"
+            :disabled="saving"
+            @click="removeVideo"
           >
             <i class="fas fa-times" aria-hidden="true"></i>
-            <span>Clear</span>
+            <span>{{ videoFile ? 'Clear' : 'Remove' }}</span>
           </button>
         </div>
 
@@ -64,6 +66,24 @@
 
         <p class="admin-resource-form__hint">
           Accepted: MP4, WebM, MOV &bull; Files over 25 MB need confirmation
+        </p>
+      </div>
+
+      <!-- Recording URL alternative -->
+      <div class="admin-resource-recording-url">
+        <label class="form-label" for="admin-resource-recording-url">Or Recording URL</label>
+        <input
+          id="admin-resource-recording-url"
+          :value="recordingUrl || ''"
+          type="url"
+          class="form-input app-input"
+          placeholder="https://example.com/recording"
+          :disabled="saving || hasVideo"
+          @input="onRecordingUrlInput"
+        />
+        <p class="admin-resource-form__hint">
+          Paste a secure (https://) link if the recording is hosted elsewhere. Clear the uploaded
+          video first to use a link.
         </p>
       </div>
     </div>
@@ -132,6 +152,7 @@ const OVERSIZE_THRESHOLD_BYTES = 25 * 1024 * 1024
 const props = defineProps<{
   videoFile: File | null
   slidesFile: File | null
+  recordingUrl: string | null
   currentVideoName?: string | null
   currentVideoSize?: number | null
   currentSlidesName?: string | null
@@ -144,11 +165,16 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:video-file', file: File | null): void
   (e: 'update:slides-file', file: File | null): void
+  (e: 'update:recording-source', source: 'upload' | 'link'): void
+  (e: 'update:recording-url', url: string): void
   (e: 'update:acknowledged-oversized', val: boolean): void
+  (e: 'remove-video'): void
 }>()
 
 const videoInputRef = ref<HTMLInputElement | null>(null)
 const slidesInputRef = ref<HTMLInputElement | null>(null)
+
+const hasVideo = computed(() => Boolean(props.videoFile || props.currentVideoName))
 
 watch(
   () => props.videoFile,
@@ -200,6 +226,12 @@ const setSlidesFile = (file: File | null) => {
   emit('update:slides-file', file)
 }
 
+const onRecordingUrlInput = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  emit('update:recording-url', input.value)
+  emit('update:recording-source', input.value.trim() ? 'link' : 'upload')
+}
+
 const setAcknowledgedOversized = (val: boolean) => {
   emit('update:acknowledged-oversized', val)
 }
@@ -207,6 +239,11 @@ const setAcknowledgedOversized = (val: boolean) => {
 const onVideoChange = (e: Event) => {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0] || null
+  if (file) {
+    // Picking a video replaces any recording link.
+    emit('update:recording-source', 'upload')
+    emit('update:recording-url', '')
+  }
   setVideoFile(file)
   setAcknowledgedOversized(false)
 }
@@ -236,6 +273,14 @@ const clearVideo = () => {
   setAcknowledgedOversized(false)
 }
 
+const removeVideo = () => {
+  clearVideo()
+  emit('remove-video')
+  // Like removing an event banner, clearing the video also clears the link
+  // field so the admin can choose either source from a clean state.
+  emit('update:recording-url', '')
+}
+
 const clearSlides = () => {
   slidesError.value = ''
   if (slidesInputRef.value) slidesInputRef.value.value = ''
@@ -259,6 +304,13 @@ const onAckChange = (e: Event) => {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.admin-resource-recording-url {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
 }
 
 .form-label {

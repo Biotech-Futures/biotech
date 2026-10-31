@@ -528,6 +528,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 "access_url": access_url,
                 "download_url": download_url,
                 "external_url": None,
+                "recording_url": resource.recording_url,
                 "file_name": file_name,
                 "file_mime_type": mime_type,
                 "file_size": file_size,
@@ -543,12 +544,21 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # directly downloadable, opens as an external page, or is not yet wired to storage.
         storage_key = (resource.storage_key or "").strip()
         external_url = self._validated_external_resource_url(storage_key)
+        recording_url = self._validated_external_resource_url(resource.recording_url)
         invalid_external_url = bool(storage_key) and is_external_storage_key(storage_key) and external_url is None
+        invalid_recording_url = bool(resource.recording_url) and recording_url is None
         mime_type = (resource.file_mime_type or "").lower()
         body_html = None
-        if not storage_key:
+        if not storage_key and recording_url:
+            access_mode = "external_recording"
+            detail = None
+        elif not storage_key:
             access_mode = "unavailable"
-            detail = "This resource does not have a configured storage target yet."
+            detail = (
+                "This resource has an invalid recording link."
+                if invalid_recording_url
+                else "This resource does not have a configured storage target yet."
+            )
         elif invalid_external_url:
             access_mode = "unavailable"
             detail = "This resource has an invalid external URL."
@@ -579,6 +589,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
             "access_url": resource_data["access_url"],
             "download_url": resource_data["download_url"],
             "external_url": external_url,
+            "recording_url": recording_url,
             "file_name": resource_data["file_name"],
             "file_mime_type": resource.file_mime_type,
             "file_size": resource.file_size,
@@ -701,6 +712,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
             if content_length:
                 response["Content-Length"] = content_length
             return response
+        if payload["access_mode"] == "external_recording" and payload.get("recording_url"):
+            return HttpResponseRedirect(payload["recording_url"])
         if payload["access_mode"] == "unavailable":
             return Response(
                 {"detail": payload["detail"]},

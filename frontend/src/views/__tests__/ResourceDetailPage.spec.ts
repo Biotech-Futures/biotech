@@ -129,6 +129,68 @@ describe('ResourceDetailPage & Recorded Session', () => {
     await slidesBtn!.trigger('click')
     expect(clickSpy).toHaveBeenCalled()
   })
+
+  it('opens an externally hosted recording and still offers its slides', async () => {
+    const recordingUrl = 'https://example.com/recordings/keynote'
+
+    vi.spyOn(resourcesApi, 'fetchResource').mockResolvedValue({
+      id: 201,
+      name: 'Keynote Session',
+      description: 'Recording hosted externally',
+      kind: 'file',
+      type_name: 'Recorded Session',
+      recording_url: recordingUrl,
+      uploaded_at: '2026-03-01T10:00:00Z',
+      file_name: 'Keynote Session',
+      has_slides: true,
+      slides_mime_type: 'application/pdf',
+      slides_file_size: 2 * 1024 * 1024,
+      slides_download_url: '/resources/resource-files/201/download/?field=slides'
+    })
+
+    vi.spyOn(resourcesApi, 'fetchResourceAccess').mockResolvedValue({
+      resource_id: 201,
+      kind: 'file',
+      storage_status: 'external_url',
+      access_mode: 'external_recording',
+      access_url: null,
+      download_url: null,
+      external_url: null,
+      recording_url: recordingUrl,
+      file_name: 'Keynote Session',
+      file_mime_type: null,
+      file_size: null,
+      detail: null,
+      has_slides: true,
+      slides_mime_type: 'application/pdf',
+      slides_file_size: 2 * 1024 * 1024,
+      slides_download_url: '/resources/resource-files/201/download/?field=slides'
+    })
+
+    wrapper = mount(ResourceDetailPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Keynote Session')
+    expect(wrapper.text()).toContain('Open Recording')
+    expect(wrapper.text()).toContain('External link')
+    expect(wrapper.text()).not.toContain('File type')
+    expect(wrapper.text()).not.toContain('File size')
+    const downloadButtons = wrapper
+      .findAll('button')
+      .filter((button) => button.text().trim() === 'Download')
+    expect(downloadButtons).toHaveLength(0)
+
+    const recordingLinks = wrapper.findAll('a').filter((link) => link.text().includes('Open Recording'))
+    expect(recordingLinks.length).toBeGreaterThan(0)
+    expect(recordingLinks[0].attributes('href')).toBe(recordingUrl)
+    expect(recordingLinks[0].attributes('target')).toBe('_blank')
+    expect(recordingLinks[0].attributes('rel')).toContain('noopener')
+
+    // The external recording cannot be previewed inline, but slides still can.
+    expect(wrapper.find('video.preview-media').exists()).toBe(false)
+    expect(wrapper.text()).toContain('hosted externally')
+    expect(wrapper.text()).toContain('Download Slides')
+  })
 })
 
 describe('AdminRecordedSessionFields', () => {
@@ -147,6 +209,7 @@ describe('AdminRecordedSessionFields', () => {
         isEditing: false,
         videoFile: null,
         slidesFile: null,
+        recordingUrl: null,
         needsOversizeAck: false,
         acknowledgedOversized: false
       }
@@ -158,12 +221,83 @@ describe('AdminRecordedSessionFields', () => {
     expect(wrapper.text()).toContain('PDF only')
   })
 
+  it('shows upload and recording URL together and requires clearing the video first', async () => {
+    wrapper = mount(AdminRecordedSessionFields, {
+      props: {
+        isEditing: false,
+        videoFile: new File(['video'], 'session.mp4', { type: 'video/mp4' }),
+        slidesFile: null,
+        recordingUrl: null,
+        needsOversizeAck: false,
+        acknowledgedOversized: false
+      }
+    })
+
+    expect(wrapper.find('#admin-resource-video-file').exists()).toBe(true)
+    const linkInput = wrapper.find('#admin-resource-recording-url')
+    expect(linkInput.exists()).toBe(true)
+    // A selected video and a recording URL cannot both be active.
+    expect((linkInput.element as HTMLInputElement).disabled).toBe(true)
+    // Slides remain available with either recording source.
+    expect(wrapper.find('#admin-resource-slides-file').exists()).toBe(true)
+
+    const clearButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().trim() === 'Clear')
+    expect(clearButton).toBeDefined()
+    await clearButton!.trigger('click')
+
+    expect(wrapper.emitted('update:video-file')?.[0]).toEqual([null])
+    expect(wrapper.emitted('remove-video')).toHaveLength(1)
+
+    await wrapper.setProps({ videoFile: null, currentVideoName: null })
+    expect((linkInput.element as HTMLInputElement).disabled).toBe(false)
+
+    await linkInput.setValue('https://example.com/recordings/session')
+    expect(wrapper.emitted('update:recording-url')?.at(-1)).toEqual([
+      'https://example.com/recordings/session'
+    ])
+    expect(wrapper.emitted('update:recording-source')?.[0]).toEqual(['link'])
+  })
+
+  it('clears the link when a replacement video is selected', async () => {
+    wrapper = mount(AdminRecordedSessionFields, {
+      props: {
+        isEditing: false,
+        videoFile: null,
+        slidesFile: null,
+        recordingUrl: 'https://example.com/recordings/session',
+        needsOversizeAck: false,
+        acknowledgedOversized: false
+      }
+    })
+
+    const linkInput = wrapper.find('#admin-resource-recording-url')
+    expect((linkInput.element as HTMLInputElement).disabled).toBe(false)
+    expect((linkInput.element as HTMLInputElement).value).toBe(
+      'https://example.com/recordings/session'
+    )
+
+    const replacement = new File(['video'], 'replacement.mp4', { type: 'video/mp4' })
+    const videoInput = wrapper.find('#admin-resource-video-file')
+    Object.defineProperty(videoInput.element, 'files', {
+      value: [replacement],
+      configurable: true
+    })
+    await videoInput.trigger('change')
+
+    expect(wrapper.emitted('update:video-file')?.[0]).toEqual([replacement])
+    expect(wrapper.emitted('update:recording-source')?.[0]).toEqual(['upload'])
+    expect(wrapper.emitted('update:recording-url')?.[0]).toEqual([''])
+  })
+
   it('validates and rejects non-PDF file for slides', async () => {
     wrapper = mount(AdminRecordedSessionFields, {
       props: {
         isEditing: false,
         videoFile: null,
         slidesFile: null,
+        recordingUrl: null,
         needsOversizeAck: false,
         acknowledgedOversized: false
       }
@@ -188,6 +322,7 @@ describe('AdminRecordedSessionFields', () => {
         isEditing: false,
         videoFile: null,
         slidesFile: null,
+        recordingUrl: null,
         needsOversizeAck: false,
         acknowledgedOversized: false
       }

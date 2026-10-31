@@ -1,5 +1,6 @@
 from pathlib import PurePosixPath
 import re
+from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema_field
 from django.conf import settings
@@ -56,6 +57,7 @@ class ResourceAccessSerializer(serializers.Serializer):
     file_size = serializers.IntegerField(allow_null=True)
     body_html = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     detail = serializers.CharField(allow_null=True)
+    recording_url = serializers.URLField(allow_null=True, required=False)
     has_slides = serializers.BooleanField(required=False, default=False)
     slides_mime_type = serializers.CharField(allow_null=True, required=False)
     slides_file_size = serializers.IntegerField(allow_null=True, required=False)
@@ -160,6 +162,7 @@ class _ResourcePublicFieldsMixin(serializers.Serializer):
     labels = ResourceLabelSerializer(many=True, read_only=True)
     has_slides = serializers.SerializerMethodField()
     slides_download_url = serializers.SerializerMethodField()
+    recording_url = serializers.URLField(read_only=True, allow_null=True)
 
     def get_uploader_name(self, obj):
         if obj.uploaded_by_id is None:
@@ -199,7 +202,7 @@ class _ResourcePublicFieldsMixin(serializers.Serializer):
 
     def get_storage_status(self, obj):
         if not obj.storage_key:
-            return "unavailable"
+            return "external_url" if obj.recording_url else "unavailable"
         if str(obj.storage_key).startswith(("http://", "https://")):
             return "external_url"
         return "managed_key"
@@ -233,6 +236,9 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
     )
     uploaded_file = serializers.FileField(write_only=True, required=False, allow_null=True)
     slides_file = serializers.FileField(write_only=True, required=False, allow_null=True)
+    # Overrides the read-only field on the public mixin so admins can set a
+    # recording link when creating or editing a Recorded Session.
+    recording_url = serializers.URLField(required=False, allow_null=True)
     audiences = ResourceAudienceSerializer(many=True, read_only=True)
     audience_rules = ResourceAudienceWriteSerializer(many=True, write_only=True, required=False)
 
@@ -257,6 +263,7 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
             'slides_file',
             'has_slides',
             'slides_download_url',
+            'recording_url',
             'group',
             'visibility_scope',
             'uploaded_at',
@@ -337,6 +344,14 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
             ),
         )
 
+    def validate_recording_url(self, value):
+        if value in (None, ""):
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise serializers.ValidationError("Recording link must be a valid HTTPS URL.")
+        return value
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
@@ -356,6 +371,25 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
         if slides_file is not None and not is_recorded_session:
             raise serializers.ValidationError(
                 {"slides_file": "Slides files are only supported for Recorded Session resources."}
+            )
+
+        recording_url = attrs.get("recording_url")
+        if recording_url and not is_recorded_session:
+            raise serializers.ValidationError(
+                {"recording_url": "Recording links are only supported for Recorded Session resources."}
+            )
+        if recording_url and uploaded_file is not None:
+            raise serializers.ValidationError(
+                {"recording_url": "Choose either a video file or a recording link, not both."}
+            )
+        if (
+            is_recorded_session
+            and self.instance is None
+            and uploaded_file is None
+            and not recording_url
+        ):
+            raise serializers.ValidationError(
+                {"recording_url": "Choose a video file or a recording link for this recorded session."}
             )
 
         if uploaded_file and (kind not in [Resources.ResourceKind.FILE, Resources.ResourceKind.ATTACHMENT]):
@@ -470,6 +504,17 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
         old_slides_storage_key = instance.slides_storage_key
         incoming_slides_storage_key = validated_data.get("slides_storage_key", instance.slides_storage_key)
 
+        # A recorded session has one recording source: an uploaded video or a
+        # link. Uploading a new video clears an existing link, and setting a
+        # link clears the uploaded video.
+        if uploaded_file is not None:
+            validated_data["recording_url"] = None
+        elif validated_data.get("recording_url"):
+            if instance.storage_key:
+                validated_data["storage_key"] = None
+                validated_data["file_mime_type"] = None
+                validated_data["file_size"] = None
+
         def _do_update(inst, v_data):
             res = super(ResourcesSerializer, self).update(inst, v_data)
             self._replace_audiences(res, role_ids=role_ids, audience_rules=audience_rules)
@@ -542,6 +587,7 @@ class ResourcePublicListSerializer(_BaseResourcePublicSerializer):
             'slides_mime_type',
             'slides_file_size',
             'slides_download_url',
+            'recording_url',
         ]
 
 
@@ -567,4 +613,5 @@ class ResourcePublicDetailSerializer(_BaseResourcePublicSerializer):
             'slides_mime_type',
             'slides_file_size',
             'slides_download_url',
+            'recording_url',
         ]

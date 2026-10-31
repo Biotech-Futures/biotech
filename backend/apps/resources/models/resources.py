@@ -32,6 +32,10 @@ class Resources(models.Model):
     slides_file_size = models.BigIntegerField(null=True, blank=True)
     slides_storage_key = models.CharField(max_length=255, null=True, blank=True)
 
+    # Recorded Sessions can either upload the video (storage_key) or link to
+    # where it is hosted. The two are mutually exclusive.
+    recording_url = models.URLField(max_length=500, null=True, blank=True)
+
     group = models.ForeignKey("groups.Groups", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
     labels = models.ManyToManyField("ResourceLabel", blank=True, related_name="resources")
     visibility_scope = models.CharField(

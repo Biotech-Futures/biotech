@@ -247,3 +247,184 @@ class RecordedSessionTests(StorageCleanupMixin, TestCase):
         no_slides_id = no_slides_resp.data["data"]["id"]
         dl_no_slides = self.client.get(f"/resources/resource-files/{no_slides_id}/download/?field=slides")
         self.assertEqual(dl_no_slides.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_upload_recorded_session_with_link_and_slides(self):
+        self.client.force_authenticate(user=self.admin)
+        slides_file = SimpleUploadedFile("slides.pdf", b"%PDF-1.4 linked slides", content_type="application/pdf")
+        recording_url = "https://example.com/recordings/workshop-1"
+
+        response = self.client.post(
+            "/api/v1/admin/resource/upload/",
+            {
+                "name": "Linked Workshop Recording",
+                "description": "Recording hosted externally",
+                "kind": "file",
+                "resource_type_id": self.recorded_session_type.id,
+                "role_ids": [self.student_role.id],
+                "recording_url": recording_url,
+                "slides_file": slides_file,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        res_data = response.data.get("data")
+        self.assertEqual(res_data["recording_url"], recording_url)
+        self.assertIsNone(res_data["storage_key"])
+        self.assertIsNone(res_data["file_size"])
+        self.assertTrue(res_data["has_slides"])
+        self.assertEqual(res_data["slides_mime_type"], "application/pdf")
+
+        resource = Resources.objects.get(id=res_data["id"])
+        self.assertEqual(resource.recording_url, recording_url)
+        self.assertFalse(resource.storage_key)
+        self.assertIsNotNone(resource.slides_storage_key)
+
+    def test_recording_link_and_uploaded_video_are_mutually_exclusive(self):
+        self.client.force_authenticate(user=self.admin)
+        video_file = SimpleUploadedFile("workshop.mp4", b"fake video content", content_type="video/mp4")
+
+        response = self.client.post(
+            "/api/v1/admin/resource/upload/",
+            {
+                "name": "Both Sources Session",
+                "description": "Not allowed",
+                "kind": "file",
+                "resource_type_id": self.recorded_session_type.id,
+                "role_ids": [self.student_role.id],
+                "file": video_file,
+                "recording_url": "https://example.com/recordings/both",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_recording_link_rejected_for_non_recorded_session(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            "/api/v1/admin/resource/upload/",
+            {
+                "name": "Linked Document",
+                "description": "Not a recorded session",
+                "kind": "file",
+                "resource_type_id": self.document_type.id,
+                "role_ids": [self.student_role.id],
+                "recording_url": "https://example.com/recordings/doc",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_recording_link_requires_https(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            "/api/v1/admin/resource/upload/",
+            {
+                "name": "Insecure Linked Session",
+                "description": "HTTP link",
+                "kind": "file",
+                "resource_type_id": self.recorded_session_type.id,
+                "role_ids": [self.student_role.id],
+                "recording_url": "http://example.com/recordings/session",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_linked_recorded_session_access_and_slides(self):
+        self.client.force_authenticate(user=self.admin)
+        slides_file = SimpleUploadedFile("slides.pdf", b"%PDF-1.4 linked slides", content_type="application/pdf")
+        recording_url = "https://example.com/recordings/access"
+
+        upload_resp = self.client.post(
+            "/api/v1/admin/resource/upload/",
+            {
+                "name": "Linked Access Session",
+                "description": "External recording with slides",
+                "kind": "file",
+                "resource_type_id": self.recorded_session_type.id,
+                "role_ids": [self.student_role.id],
+                "recording_url": recording_url,
+                "slides_file": slides_file,
+            },
+            format="multipart",
+        )
+        resource_id = upload_resp.data["data"]["id"]
+
+        access_resp = self.client.get(f"/resources/resource-files/{resource_id}/access/")
+        self.assertEqual(access_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(access_resp.data["access_mode"], "external_recording")
+        self.assertEqual(access_resp.data["recording_url"], recording_url)
+        self.assertEqual(access_resp.data["storage_status"], "external_url")
+        self.assertTrue(access_resp.data["has_slides"])
+
+        slides_resp = self.client.get(f"/resources/resource-files/{resource_id}/download/?field=slides")
+        self.assertEqual(slides_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(slides_resp.streaming_content), b"%PDF-1.4 linked slides")
+
+    def test_switching_uploaded_video_to_link_removes_stored_video(self):
+        self.client.force_authenticate(user=self.admin)
+        video_file = SimpleUploadedFile("workshop.mp4", b"fake video content", content_type="video/mp4")
+
+        upload_resp = self.client.post(
+            "/api/v1/admin/resource/upload/",
+            {
+                "name": "Session To Link",
+                "description": "Uploaded then linked",
+                "kind": "file",
+                "resource_type_id": self.recorded_session_type.id,
+                "role_ids": [self.student_role.id],
+                "file": video_file,
+            },
+            format="multipart",
+        )
+        resource_id = upload_resp.data["data"]["id"]
+        self.assertTrue(Resources.objects.get(id=resource_id).storage_key)
+
+        recording_url = "https://example.com/recordings/switched"
+        update_resp = self.client.put(
+            f"/api/v1/admin/resource/{resource_id}/",
+            {"recording_url": recording_url},
+            format="json",
+        )
+
+        self.assertEqual(update_resp.status_code, status.HTTP_200_OK)
+        resource = Resources.objects.get(id=resource_id)
+        self.assertEqual(resource.recording_url, recording_url)
+        self.assertFalse(resource.storage_key)
+
+    def test_uploading_video_clears_existing_recording_link(self):
+        self.client.force_authenticate(user=self.admin)
+        recording_url = "https://example.com/recordings/linked-then-uploaded"
+
+        upload_resp = self.client.post(
+            "/api/v1/admin/resource/upload/",
+            {
+                "name": "Session To Upload",
+                "description": "Linked then uploaded",
+                "kind": "file",
+                "resource_type_id": self.recorded_session_type.id,
+                "role_ids": [self.student_role.id],
+                "recording_url": recording_url,
+            },
+            format="multipart",
+        )
+        resource_id = upload_resp.data["data"]["id"]
+        self.assertEqual(Resources.objects.get(id=resource_id).recording_url, recording_url)
+
+        video_file = SimpleUploadedFile("workshop.mp4", b"fake video content", content_type="video/mp4")
+        replace_resp = self.client.post(
+            f"/api/v1/admin/resource/{resource_id}/upload/",
+            {"file": video_file},
+            format="multipart",
+        )
+
+        self.assertEqual(replace_resp.status_code, status.HTTP_200_OK)
+        resource = Resources.objects.get(id=resource_id)
+        self.assertIsNone(resource.recording_url)
+        self.assertTrue(resource.storage_key)
