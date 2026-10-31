@@ -829,7 +829,9 @@ onBeforeUnmount(clearPreview)
   text-align: center;
 }
 
-.preview-empty i {
+/* Only the placeholder icon; button icons inside preview-empty should keep
+   their normal .btn sizing and colour. */
+.preview-empty > i {
   color: var(--dark-green);
   font-size: 2rem;
 }
