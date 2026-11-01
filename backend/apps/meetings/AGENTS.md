@@ -45,6 +45,12 @@ The role is **per group**, not the user's global role. Supervisors became read-o
 - **Infrastructure:** Django Channels on ASGI (`config/asgi.py`). Set `REDIS_URL` in production; without it the in-memory channel layer only works with one worker.
 - `apps.live` is a separate, generic co-editing app used by submissions. Meetings does not use it yet (issue #539).
 
+## Scheduled jobs
+
+Meetings has no timed job of its own. Meeting reminders are the platform's RSVP reminders, which run hourly in the in-app scheduler (`apps/management/scheduler.py`, job `rsvp_reminders`) since 22 October 2026. GitHub's `rsvp-reminders.yml` is now manual-only; its last scheduled run was on 24 October.
+
+So meetings is **not** affected by issue #575. That issue is about the ticket digest and the AI screening catch-up, which still run on GitHub Actions schedules and ran hours late in the week to 1 November 2026. It does depend on the in-app scheduler being on: if `SCHEDULER_ENABLED` is not `true` (with Always On) in production, no meeting reminders are sent at all. If reminders stop, check that first.
+
 ## Rules
 
 1. Check the role **in this group** for every write. Do not use the user's global role.
