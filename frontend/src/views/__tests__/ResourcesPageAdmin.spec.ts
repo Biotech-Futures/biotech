@@ -819,6 +819,190 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       sheetWrapper.unmount()
     })
 
+    const recordedSessionTypes = [
+      { id: 10, type_name: 'Recorded Session', type_description: 'Recordings' }
+    ]
+
+    const mountRecordedSessionSheet = async (resource: resourcesApi.Resource | null = null) => {
+      vi.spyOn(resourcesApi, 'fetchResourceTypes').mockResolvedValue(recordedSessionTypes)
+      const sheetWrapper = await mountSheet(resource)
+      await pickAppSelect(sheetWrapper, '#res-type', 'Recorded Session')
+      return sheetWrapper
+    }
+
+    const fillRecordedSessionBasics = async (sheetWrapper: VueWrapper, name: string) => {
+      await sheetWrapper.find('#res-name').setValue(name)
+      await sheetWrapper.find('#res-desc').setValue('A recorded workshop session.')
+      await sheetWrapper.findAll('fieldset input[type="checkbox"]')[0].setValue(true)
+    }
+
+    it('creates a recorded session from a link and slides without a video file', async () => {
+      const sheetWrapper = await mountRecordedSessionSheet()
+      await fillRecordedSessionBasics(sheetWrapper, 'Linked Workshop')
+
+      const recordingUrl = 'https://example.com/recordings/workshop'
+      await sheetWrapper.find('#admin-resource-recording-url').setValue(recordingUrl)
+      await flushPromises()
+
+      const slides = makeFile('workshop_slides.pdf', SMALL)
+      const slidesInput = sheetWrapper.find('#admin-resource-slides-file')
+      Object.defineProperty(slidesInput.element, 'files', { value: [slides], configurable: true })
+      await slidesInput.trigger('change')
+
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(adminApi.uploadAdminResource).toHaveBeenCalledTimes(1)
+      const formData = uploadedFormData()
+      expect(formData.get('recording_url')).toBe(recordingUrl)
+      expect(formData.get('file')).toBeNull()
+      expect(formData.get('slides_file')).toBe(slides)
+
+      sheetWrapper.unmount()
+    })
+
+    it('rejects a non-HTTPS recording link before submitting', async () => {
+      const sheetWrapper = await mountRecordedSessionSheet()
+      await fillRecordedSessionBasics(sheetWrapper, 'Insecure Link')
+
+      await sheetWrapper.find('#admin-resource-recording-url').setValue('http://example.com/recording')
+      await flushPromises()
+
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(sheetWrapper.find('.admin-resource-form__error').text()).toContain(
+        'The recording link must be a valid HTTPS URL.'
+      )
+      expect(adminApi.uploadAdminResource).not.toHaveBeenCalled()
+
+      sheetWrapper.unmount()
+    })
+
+    it('updates a linked recorded session with its recording link and no file replacement', async () => {
+      const recordingUrl = 'https://example.com/recordings/existing'
+      const linkedDetail: adminApi.AdminResourceDetail = {
+        id: 108,
+        resource_name: 'Linked Workshop Session',
+        resource_description: 'Hosted externally.',
+        resource_kind: 'file',
+        resource_type: 'Recorded Session',
+        resource_type_id: 10,
+        visibility_scope: 'role_based',
+        uploaded_at: '2026-03-01T10:00:00Z',
+        deleted_at: null,
+        file_name: null,
+        file_mime_type: null,
+        file_size: null,
+        recording_url: recordingUrl,
+        audiences: [{ id: 1, role_id: 1, role: { id: 1, slug: 'student', type_name: 'Student' } }]
+      }
+
+      vi.spyOn(resourcesApi, 'fetchResourceTypes').mockResolvedValue(recordedSessionTypes)
+      vi.spyOn(adminApi, 'fetchAdminResource').mockResolvedValue(linkedDetail)
+      const replaceSpy = vi.spyOn(adminApi, 'replaceAdminResourceFile').mockResolvedValue(linkedDetail)
+      const updateSpy = vi.spyOn(adminApi, 'updateAdminResource').mockResolvedValue(linkedDetail)
+
+      const linkedResource: resourcesApi.Resource = {
+        id: 108,
+        name: 'Linked Workshop Session',
+        description: 'Hosted externally.',
+        kind: 'file',
+        type_name: 'Recorded Session',
+        recording_url: recordingUrl,
+        uploaded_at: '2026-03-01T10:00:00Z',
+        labels: []
+      }
+
+      const sheetWrapper = await mountSheet(linkedResource)
+      await flushPromises()
+
+      // The existing link is pre-filled and the URL field is available.
+      const linkInput = sheetWrapper.find('#admin-resource-recording-url')
+      expect((linkInput.element as HTMLInputElement).value).toBe(recordingUrl)
+      expect((linkInput.element as HTMLInputElement).disabled).toBe(false)
+      expect(sheetWrapper.text()).not.toContain('Current:')
+
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(updateSpy).toHaveBeenCalledWith(
+        108,
+        expect.objectContaining({ recording_url: recordingUrl })
+      )
+      expect(replaceSpy).not.toHaveBeenCalled()
+
+      sheetWrapper.unmount()
+    })
+
+    it('switches an uploaded recording session to an external link on edit', async () => {
+      const uploadedDetail: adminApi.AdminResourceDetail = {
+        id: 109,
+        resource_name: 'Video Workshop Session',
+        resource_description: 'Currently uploaded.',
+        resource_kind: 'file',
+        resource_type: 'Recorded Session',
+        resource_type_id: 10,
+        visibility_scope: 'role_based',
+        uploaded_at: '2026-03-01T10:00:00Z',
+        deleted_at: null,
+        file_name: 'workshop.mp4',
+        file_mime_type: 'video/mp4',
+        file_size: 1024,
+        audiences: [{ id: 1, role_id: 1, role: { id: 1, slug: 'student', type_name: 'Student' } }]
+      }
+
+      vi.spyOn(resourcesApi, 'fetchResourceTypes').mockResolvedValue(recordedSessionTypes)
+      vi.spyOn(adminApi, 'fetchAdminResource').mockResolvedValue(uploadedDetail)
+      const replaceSpy = vi.spyOn(adminApi, 'replaceAdminResourceFile').mockResolvedValue(uploadedDetail)
+      const updateSpy = vi.spyOn(adminApi, 'updateAdminResource').mockResolvedValue(uploadedDetail)
+
+      const uploadedResource: resourcesApi.Resource = {
+        id: 109,
+        name: 'Video Workshop Session',
+        description: 'Currently uploaded.',
+        kind: 'file',
+        type_name: 'Recorded Session',
+        file_name: 'workshop.mp4',
+        file_mime_type: 'video/mp4',
+        file_size: 1024,
+        uploaded_at: '2026-03-01T10:00:00Z',
+        labels: []
+      }
+
+      const sheetWrapper = await mountSheet(uploadedResource)
+      await flushPromises()
+
+      expect(sheetWrapper.text()).toContain('Current: workshop.mp4')
+      const linkInput = sheetWrapper.find('#admin-resource-recording-url')
+      expect((linkInput.element as HTMLInputElement).disabled).toBe(true)
+
+      // Clear the uploaded video before attaching the replacement link.
+      const removeButton = sheetWrapper
+        .findAll('button')
+        .find((button) => button.text().trim() === 'Remove')
+      expect(removeButton).toBeDefined()
+      await removeButton!.trigger('click')
+      await flushPromises()
+
+      expect(sheetWrapper.text()).not.toContain('Current: workshop.mp4')
+      expect((linkInput.element as HTMLInputElement).disabled).toBe(false)
+
+      const recordingUrl = 'https://example.com/recordings/new-host'
+      await linkInput.setValue(recordingUrl)
+
+      await sheetWrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(updateSpy).toHaveBeenCalledWith(
+        109,
+        expect.objectContaining({ recording_url: recordingUrl })
+      )
+      expect(replaceSpy).not.toHaveBeenCalled()
+
+      sheetWrapper.unmount()
+    })
+
     it('enables submit when large video is acknowledged in AdminRecordedSessionFields', async () => {
       const recordedSessionDetail: adminApi.AdminResourceDetail = {
         id: 107,

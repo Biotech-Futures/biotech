@@ -25,13 +25,17 @@
           <h1>{{ resource.name }}</h1>
           <p class="detail-description">{{ resource.description }}</p>
           <dl v-if="!isPageResource" class="detail-file-facts" aria-label="File details">
-            <div>
+            <div v-if="!recordingUrl">
               <dt>File type</dt>
               <dd>{{ fileTypeLabel }}</dd>
             </div>
-            <div>
+            <div v-if="!recordingUrl">
               <dt>File size</dt>
               <dd>{{ fileSizeLabel }}</dd>
+            </div>
+            <div v-if="recordingUrl">
+              <dt>Recording</dt>
+              <dd>External link</dd>
             </div>
             <div v-if="hasSlides">
               <dt>Slides</dt>
@@ -48,6 +52,15 @@
           </p>
         </div>
         <div class="detail-actions">
+          <a
+            v-if="recordingUrl"
+            class="btn btn-primary"
+            :href="recordingUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <i class="fas fa-up-right-from-square" aria-hidden="true"></i> Open Recording
+          </a>
           <button
             v-if="downloadTarget"
             type="button"
@@ -81,8 +94,17 @@
           <div v-else-if="previewError" class="preview-empty">
             <i class="fas fa-file-download" aria-hidden="true"></i>
             <p>{{ previewError }}</p>
+            <a
+              v-if="recordingUrl"
+              class="btn btn-primary"
+              :href="recordingUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <i class="fas fa-up-right-from-square" aria-hidden="true"></i> Open Recording
+            </a>
             <button
-              v-if="isPdfResource ? pdfPreviewTarget : downloadTarget"
+              v-if="!recordingUrl && (isPdfResource ? pdfPreviewTarget : downloadTarget)"
               type="button"
               class="btn btn-primary"
               @click="isPdfResource ? previewPdfResource() : downloadResource()"
@@ -242,9 +264,14 @@ const fileSizeLabel = computed(() =>
 
 const accessMode = computed<ResourceAccessMode | ''>(() => access.value?.access_mode || '')
 
+const recordingUrl = computed(
+  () => access.value?.recording_url || resource.value?.recording_url || '',
+)
+
 const resourceIcon = computed(() => {
   if (resource.value?.kind === 'page') return 'fas fa-globe'
   if (resource.value?.kind === 'attachment') return 'fas fa-paperclip'
+  if (recordingUrl.value) return 'fas fa-video'
   if (mimeType.value.includes('pdf')) return 'fas fa-file-pdf'
   if (mimeType.value.startsWith('image/')) return 'fas fa-file-image'
   if (mimeType.value.startsWith('video/')) return 'fas fa-file-video'
@@ -291,12 +318,9 @@ const slidesDownloadEndpoint = computed(() => {
 
 const slidesDownloadTarget = computed(() => {
   if (!hasSlides.value || !access.value || accessError.value) return null
+  if (accessMode.value === 'unavailable') return null
 
-  if (accessMode.value === 'managed_file' || accessMode.value === 'managed_page') {
-    return slidesDownloadEndpoint.value ? buildResourceUrl(slidesDownloadEndpoint.value) : null
-  }
-
-  return null
+  return slidesDownloadEndpoint.value ? buildResourceUrl(slidesDownloadEndpoint.value) : null
 })
 
 const cacheBustQuery = computed(() => {
@@ -378,6 +402,11 @@ const preparePreview = async (): Promise<void> => {
     previewError.value = access.value.external_url
       ? 'Open this resource in a new tab.'
       : access.value.detail || 'This resource does not have an external page URL.'
+    return
+  }
+
+  if (accessMode.value === 'external_recording') {
+    previewError.value = 'This recording is hosted externally. Open it in a new tab to watch.'
     return
   }
 
@@ -800,7 +829,9 @@ onBeforeUnmount(clearPreview)
   text-align: center;
 }
 
-.preview-empty i {
+/* Only the placeholder icon; button icons inside preview-empty should keep
+   their normal .btn sizing and colour. */
+.preview-empty > i {
   color: var(--dark-green);
   font-size: 2rem;
 }

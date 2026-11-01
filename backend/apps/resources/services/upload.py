@@ -78,7 +78,10 @@ def _resource_kind(data: Mapping[str, Any]) -> str:
 def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], user) -> Resources:
     """Create a file resource from multipart admin upload data."""
     uploaded_file = _get_first(files, "file")
-    if uploaded_file is None:
+    recording_url = _get_first(data, "recording_url")
+    if recording_url in ("", None):
+        recording_url = None
+    if uploaded_file is None and not recording_url:
         raise ValueError("No file was uploaded.")
 
     role_ids = _get_list(data, "role_ids")
@@ -99,12 +102,8 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
         or default_name,
         "description": _get_first(data, "description")
         or _get_first(data, "resource_description")
-        or f"Resource attachment: {file_name}",
+        or (f"Resource attachment: {file_name}" if uploaded_file is not None else "Recorded session"),
         "kind": kind,
-        "file_mime_type": getattr(uploaded_file, "content_type", None)
-        or "application/octet-stream",
-        "file_size": getattr(uploaded_file, "size", None),
-        "uploaded_file": uploaded_file,
         "visibility_scope": _visibility_scope(
             _get_first(data, "visibility_scope"),
             role_ids=role_ids,
@@ -112,6 +111,15 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
         # Raw value; ResourcesSerializer.validate_uploaded_file parses it.
         "acknowledged_oversized": _get_first(data, "acknowledged_oversized"),
     }
+
+    if uploaded_file is not None:
+        serializer_data["file_mime_type"] = (
+            getattr(uploaded_file, "content_type", None) or "application/octet-stream"
+        )
+        serializer_data["file_size"] = getattr(uploaded_file, "size", None)
+        serializer_data["uploaded_file"] = uploaded_file
+    if recording_url:
+        serializer_data["recording_url"] = recording_url
 
     slides_file = _get_first(files, "slides_file") or _get_first(files, "slides")
     if slides_file is not None:

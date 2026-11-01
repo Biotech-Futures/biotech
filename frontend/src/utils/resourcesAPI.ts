@@ -149,6 +149,7 @@ export interface Resource {
   slides_mime_type?: string | null
   slides_file_size?: number | null
   slides_download_url?: string | null
+  recording_url?: string | null
   visible_roles?: Array<{
     id: number
     role_name: string
@@ -169,6 +170,7 @@ export interface ResourceAccess {
   file_size: number | null
   body_html?: string | null
   detail: string | null
+  recording_url?: string | null
   has_slides?: boolean
   slides_mime_type?: string | null
   slides_file_size?: number | null

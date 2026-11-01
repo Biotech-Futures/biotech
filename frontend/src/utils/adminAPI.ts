@@ -1394,6 +1394,7 @@ export interface AdminResourceDetail {
   slides_file_size?: number | null
   slides_storage_key?: string | null
   has_slides?: boolean
+  recording_url?: string | null
   content_html?: string | null
   storage_key?: string | null
   labels?: Array<{ id: number; name: string }>
@@ -1421,6 +1422,7 @@ export interface CreateAdminResourcePayload {
   resource_type?: string | null
   label_names?: string[]
   content_html?: string
+  recording_url?: string | null
   group_id?: number | null
 }
 
@@ -1433,6 +1435,7 @@ export interface UpdateAdminResourcePayload {
   resource_type?: string | null
   label_names?: string[]
   content_html?: string | null
+  recording_url?: string | null
 }
 
 export const fetchAdminResources = (params: Record<string, unknown> = {}) =>

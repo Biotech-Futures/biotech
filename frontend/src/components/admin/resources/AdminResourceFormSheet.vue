@@ -116,6 +116,7 @@
           v-if="isRecordedSession"
           v-model:video-file="selectedFile"
           v-model:slides-file="selectedSlidesFile"
+          v-model:recording-url="recordingUrl"
           v-model:acknowledged-oversized="acknowledgedOversized"
           :current-video-name="currentFileName"
           :current-video-size="currentFileSize"
@@ -125,7 +126,10 @@
           :is-editing="isEditing"
           @update:video-file="selectedFile = $event"
           @update:slides-file="selectedSlidesFile = $event"
+          @update:recording-source="recordingSource = $event"
+          @update:recording-url="recordingUrl = $event"
           @update:acknowledged-oversized="acknowledgedOversized = $event"
+          @remove-video="videoRemoved = true"
         />
         <div v-else class="admin-resource-file-upload">
             <div class="admin-resource-file-upload__controls">
@@ -331,6 +335,9 @@ const typeOptions = computed<AppSelectOption[]>(() => [
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
 const selectedSlidesFile = ref<File | null>(null)
+const recordingSource = ref<'upload' | 'link'>('upload')
+const recordingUrl = ref('')
+const videoRemoved = ref(false)
 
 // Files over this size are allowed, but only after the admin confirms they
 // know it's large; the backend rejects them without that confirmation.
@@ -341,13 +348,19 @@ const isOversized = computed(() => (selectedFile.value?.size ?? 0) > LARGE_FILE_
 const needsOversizeAck = computed(() => isOversized.value && !acknowledgedOversized.value)
 
 const currentFileName = computed(() => {
+  if (videoRemoved.value) return null
+  if (adminDetail.value?.recording_url) return null
   if (adminDetail.value?.file_name) return adminDetail.value.file_name
   if (!props.resource) return null
   const raw = props.resource as any
+  // A link-only recorded session has no uploaded video, even though the
+  // public serializer falls back to the resource name for ``file_name``.
+  if (raw.recording_url) return null
   return raw.file_name || null
 })
 
 const currentFileSize = computed(() => {
+  if (videoRemoved.value) return null
   if (adminDetail.value?.file_size) return adminDetail.value.file_size
   if (!props.resource) return null
   const raw = props.resource as any
@@ -400,6 +413,15 @@ const formatFileSize = (bytes?: number | null): string => {
     idx++
   }
   return `${size.toFixed(size >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`
+}
+
+const isHttpsUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && Boolean(url.hostname)
+  } catch {
+    return false
+  }
 }
 
 const loadLookups = async () => {
@@ -475,6 +497,12 @@ const applyResourceData = (raw: any) => {
   if (raw.content_html !== undefined && raw.content_html !== null) {
     form.contentHtml = raw.content_html || ''
   }
+
+  const rawRecordingUrl = typeof raw.recording_url === 'string' ? raw.recording_url.trim() : ''
+  if (rawRecordingUrl) {
+    recordingUrl.value = rawRecordingUrl
+    recordingSource.value = 'link'
+  }
 }
 
 watch(resourceTypes, (types) => {
@@ -494,6 +522,9 @@ const initForm = async (currentResource?: Resource | AdminResourceDetail | null)
   formError.value = ''
   selectedFile.value = null
   selectedSlidesFile.value = null
+  recordingSource.value = 'upload'
+  recordingUrl.value = ''
+  videoRemoved.value = false
   acknowledgedOversized.value = false
   pageNeedsOversizeAck.value = false
   adminDetail.value = null
@@ -603,10 +634,22 @@ const validateForm = (): boolean => {
     formError.value = 'Please select at least one visible role.'
     return false
   }
-  if (!isEditing.value && form.kind !== 'page' && !selectedFile.value) {
-    formError.value = isRecordedSession.value
-      ? 'Please select a video file for this recorded session.'
-      : 'Please select a file to upload.'
+  if (form.kind !== 'page' && isRecordedSession.value) {
+    if (recordingSource.value === 'link') {
+      if (!recordingUrl.value.trim()) {
+        formError.value = 'Please add the link to this recorded session.'
+        return false
+      }
+      if (!isHttpsUrl(recordingUrl.value.trim())) {
+        formError.value = 'The recording link must be a valid HTTPS URL.'
+        return false
+      }
+    } else if (!selectedFile.value && !currentFileName.value) {
+      formError.value = 'Please select a video file or attach a recording link.'
+      return false
+    }
+  } else if (!isEditing.value && form.kind !== 'page' && !selectedFile.value) {
+    formError.value = 'Please select a file to upload.'
     return false
   }
   if (form.kind !== 'page' && needsOversizeAck.value) {
@@ -663,7 +706,9 @@ const submitForm = async () => {
       } else {
         // Multipart upload for file / attachment
         const formData = new FormData()
-        if (selectedFile.value) {
+        if (isRecordedSession.value && recordingSource.value === 'link') {
+          formData.append('recording_url', recordingUrl.value.trim())
+        } else if (selectedFile.value) {
           formData.append('file', selectedFile.value)
         }
         if (selectedSlidesFile.value) {
@@ -701,6 +746,16 @@ const submitForm = async () => {
         resource_type_id: form.typeId,
         label_names: labelsList,
         content_html: form.kind === 'page' ? form.contentHtml : null
+      }
+
+      if (isRecordedSession.value) {
+        // Sending null clears a link when the admin switches back to an
+        // uploaded video; the upload below then replaces the video file.
+        updatePayload.recording_url =
+          recordingSource.value === 'link' ? recordingUrl.value.trim() : null
+      } else if (adminDetail.value?.recording_url) {
+        // The type changed away from Recorded Session, so a stale link must go.
+        updatePayload.recording_url = null
       }
 
       await updateAdminResource(props.resource.id, updatePayload)
