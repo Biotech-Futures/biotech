@@ -55,11 +55,11 @@ Frontend: see `frontend/src/components/admin/tickets/AGENTS.md`.
 
 ## Scheduled job
 
-The daily digest (E5) is triggered by `.github/workflows/ticket-digest.yml` at 9:00 Australia/Sydney, calling `POST /api/v1/admin/tickets/digest/send/` with header `X-Email-Jobs-Token` (`EMAIL_JOBS_TOKEN`). It is not yet in the in-app scheduler (`apps/management/scheduler.py`); see issue #575.
+The daily digest (E5) is triggered by `.github/workflows/ticket-digest.yml` at 9:00 Australia/Sydney, calling `POST /api/v1/admin/tickets/digest/send/` with header `X-Email-Jobs-Token` (`EMAIL_JOBS_TOKEN`). GitHub does not run schedules on time: in the week to 1 November 2026 the digest went out between 1 h 50 min and 3 h 35 min late every day. The platform's own jobs moved to the in-app scheduler (`apps/management/scheduler.py`) on 22 October; moving the digest there is issue #575.
 
 ## Not built, on purpose
 
-- **Inbound email.** `TicketChannel.EMAIL` is reserved. Replies are made in the portal only; the client confirmed this. See issue #580.
+- **Inbound email.** `TicketChannel.EMAIL` is reserved. Replies are made in the portal only; the client confirmed this.
 - No auto-close, no satisfaction survey, no business-hours SLA, no ticket restore, and no delete button in the UI (the API delete is admin only).
 - The old support roster page was removed at the client's request (C-15); the `support-scope/` endpoints remain.
 

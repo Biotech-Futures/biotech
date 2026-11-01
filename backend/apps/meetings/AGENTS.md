@@ -56,7 +56,7 @@ The role is **per group**, not the user's global role. Supervisors became read-o
 
 `backend/tests/apps/meetings/` (67 tests; fixtures in `support.py`: mentor, supervisor, two students, outsider, admin). `test_note_concurrency.py` only runs on PostgreSQL (`--settings=config.settings_test_postgres`). The WebSocket tests replace `channels.db.close_old_connections` in `setUp`; without that they fail on PostgreSQL with "the connection is closed". The meeting pages have no frontend unit tests.
 
-## Known gaps (issues #578, #539)
+## Known gaps
 
 - `GroupMeetingsPage.vue:22,31` shows "Schedule meeting" by the **global** mentor role. Admins never see it; a global mentor who is not this group's mentor sees it and gets 403. Use the server's permission instead.
 - The summary autosaves one second after typing starts and always publishes (`GroupMeetingDetailPage.vue:571`); leaving within that second drops the last edits.

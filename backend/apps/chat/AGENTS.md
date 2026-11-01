@@ -46,7 +46,7 @@ Frontend: the review section is in `frontend/src/components/admin/tickets/detail
 
 `backend/tests/apps/chat/` files whose names contain `screen` (63 tests), plus `backend/tests/apps/tickets/test_handoff.py`. Tests never call OpenAI: they patch `apps.chat.services.screening.requests.post`. Locally you can point `AI_SCREENING_OPENAI_URL` at a fake moderation server.
 
-## Known gaps (issues #575, #576, #577)
+## Known gaps
 
 - Messages are broadcast before the verdict, so other members can see a flagged message for a few seconds, or up to about 30 minutes if OpenAI is down.
 - Messages sent from the admin console (`apps/admin/services/group.py`) are not screened.
@@ -54,4 +54,4 @@ Frontend: the review section is in `frontend/src/components/admin/tickets/detail
 - The lock is per process, so two workers can call OpenAI for the same row (only one ticket results).
 - If a message is edited while queued, the old text's verdict is applied to the edited message.
 - `handoff.py` mentions a "rule" layer that does not exist; every verdict has `layer="llm"`.
-- The retry job still runs on GitHub Actions, not in the in-app scheduler (`apps/management/scheduler.py`).
+- **The catch-up job runs late (issue #575).** It still runs on a GitHub Actions schedule, and GitHub does not keep time: in the 7.5 days to 1 November 2026 it ran 40 times instead of about 360, with gaps of up to 7.2 hours. Messages missed while the backend restarts or OpenAI is down can therefore stay visible for hours. The fix is to add it to `JOBS` in `apps/management/scheduler.py` and make the workflow manual-only.
