@@ -119,6 +119,7 @@
         Each group gets one email, its students and mentors in To, with every certificate in the
         group attached, so students get each other's and their mentor's certificates. Resending
         emails only those who missed it. Anyone in multiple groups gets one email for each group.
+        Resend To Everyone emails them all again.
       </p>
       <template v-if="details">
         <p
@@ -149,14 +150,14 @@
         <p v-for="reason in blockedReasons" :key="reason" class="release-results__blocked">
           {{ reason }}
         </p>
-        <!-- Each email on a line of its own: send it, or only to those missed. -->
+        <!-- Each email on a line of its own: send it, only to those missed, or to everyone again. -->
         <div class="release-results__send-rows">
           <div v-for="audience in AUDIENCES" :key="audience.value" class="release-results__actions">
             <button
               type="button"
               class="btn btn-primary btn-field"
               :disabled="starting !== null || !canSend[audience.value]"
-              @click="confirming = { audience: audience.value, missed: false }"
+              @click="confirming = { audience: audience.value, which: '' }"
             >
               {{ starting === audience.value ? 'Sending…' : `Email ${audience.noun}` }}
             </button>
@@ -164,9 +165,18 @@
               type="button"
               class="btn btn-outline btn-field"
               :disabled="starting !== null || !canSend[audience.value] || !details.missed[audience.value].count"
-              @click="confirming = { audience: audience.value, missed: true }"
+              @click="confirming = { audience: audience.value, which: 'missed' }"
             >
               {{ starting === `${audience.value}-missed` ? 'Sending…' : 'Resend Email To Missed Individuals' }}
+            </button>
+            <!-- Everyone again, already emailed or not: re-issuing after a template changes. -->
+            <button
+              type="button"
+              class="btn btn-outline btn-field"
+              :disabled="starting !== null || !canResend[audience.value]"
+              @click="confirming = { audience: audience.value, which: 'all' }"
+            >
+              {{ starting === `${audience.value}-all` ? 'Sending…' : 'Resend To Everyone' }}
             </button>
             <span
               v-if="runOf(audience.value).sending && runOf(audience.value).run"
@@ -490,14 +500,30 @@ const canSend = computed(() => {
   return { groups: can('groups'), supervisors: can('supervisors') }
 })
 
-// The send awaiting confirmation: an email, to everyone due or only those
-// missed; null = dialog closed.
-type ResultsSend = { audience: ResultsAudience; missed: boolean }
+// Resend To Everyone: as Send, once any have been emailed, though none may be due.
+const canResend = computed(() => {
+  const can = (audience: ResultsAudience) =>
+    details.value !== null &&
+    !releaseReason.value &&
+    !audienceReason(audience) &&
+    details.value[audience].emailed > 0
+  return { groups: can('groups'), supervisors: can('supervisors') }
+})
+
+// The send awaiting confirmation: an email, to everyone due, only those
+// missed, or everyone again; null = dialog closed.
+type ResultsSend = { audience: ResultsAudience; which: '' | 'missed' | 'all' }
 const confirming = ref<ResultsSend | null>(null)
 const confirmText = computed(() => {
   if (!confirming.value) return ''
-  const { audience, missed } = confirming.value
-  if (missed) {
+  const { audience, which } = confirming.value
+  if (which === 'all') {
+    const total = details.value?.[audience].total ?? 0
+    return audience === 'groups'
+      ? `This emails the students and mentors of all ${plural(total, 'group')} again, including those already emailed, with certificates made from the templates as they are now.`
+      : `This emails all ${plural(total, 'supervisor')} again, including those already emailed, with certificates made from the templates as they are now.`
+  }
+  if (which === 'missed') {
     const { count, people } = details.value?.missed[audience] ?? { count: 0, people: 0 }
     return audience === 'groups'
       ? `This emails only the ${plural(people, 'person', 'people')} earlier sends missed, on ${plural(count, 'group')}.`
@@ -514,12 +540,12 @@ const confirmText = computed(() => {
 // sends on the server.
 const starting = ref<string | null>(null)
 
-const send = async ({ audience, missed }: ResultsSend) => {
+const send = async ({ audience, which }: ResultsSend) => {
   confirming.value = null
   actionError.value = ''
-  starting.value = missed ? `${audience}-missed` : audience
+  starting.value = which ? `${audience}-${which}` : audience
   try {
-    details.value = await (missed ? startResultsEmail(audience, 'missed') : startResultsEmail(audience))
+    details.value = await (which ? startResultsEmail(audience, which) : startResultsEmail(audience))
     // A run with little or nothing to send can be over by the reply.
     const state = details.value.runs[audience]
     if (state.queued) flashAction(queuedMessage(state.ahead))

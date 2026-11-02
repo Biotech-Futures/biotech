@@ -54,6 +54,7 @@ from apps.users.models import StudentProfile
 
 from ..models import (
     CertificatesRelease,
+    EmailDelivery,
     GradingSettings,
     MarksRelease,
     ResultsEmailSettings,
@@ -74,6 +75,7 @@ from .docx import (
     sample_marks_summary_context,
     signature_images,
 )
+from . import certificate_pdf
 from .delivery import send_each, send_group, still_due
 from .finalist_notify import NOT_SET, symposium_today
 from .symposium_emails import reached_ids, role_counts
@@ -356,11 +358,23 @@ def render_supervisor_email(supervisor_name: str, year: int) -> RenderedEmail:
 
 @dataclass
 class ResultsFile:
-    """One attachment: its name, and how to make it when the email is sent."""
+    """One attachment: its name, and how to make it when the email is sent.
+    A certificate is sent as a PDF while the converter is set (certificate_pdf)."""
 
     name: str
     mimetype: str
     make: Callable[[], bytes]
+    certificate: bool = False
+
+
+def attachments(planned: list[ResultsFile]) -> list[tuple[str, bytes, str]]:
+    """Each file made, as ``(name, data, mimetype)``: the certificates
+    converted together (certificate_pdf), each a Word file if it can't be."""
+    made = [(f.name, f.make(), f.mimetype, f.certificate) for f in planned]
+    if not certificate_pdf.enabled():
+        return [(name, data, mimetype) for name, data, mimetype, _ in made]
+    converted = iter(certificate_pdf.many_as_pdf([(n, d, m) for n, d, m, certificate in made if certificate]))
+    return [next(converted) if certificate else (n, d, m) for n, d, m, certificate in made]
 
 
 def file_name(year: int, kind: str, name: str, extension: str) -> str:
@@ -438,9 +452,10 @@ class Documents:
 def _certificates(docs: Documents, students) -> list[ResultsFile]:
     return [
         ResultsFile(
-            file_name(docs.year, "Student_Certificate", person_name(student), "docx"),
+            file_name(docs.year, "Student_Certificate", person_name(student), certificate_pdf.extension()),
             DOCX,
             lambda student=student, team=team: docs.certificate(student, team),
+            certificate=True,
         )
         for student, team in students
     ]
@@ -493,9 +508,10 @@ def sample_marks_sheet() -> bytes:
 def _mentor_certificates(docs: Documents, audience: ResultsAudience, teams) -> list[ResultsFile]:
     return [
         ResultsFile(
-            file_name(docs.year, "Mentor_Certificate", person_name(mentor), "docx"),
+            file_name(docs.year, "Mentor_Certificate", person_name(mentor), certificate_pdf.extension()),
             DOCX,
             lambda mentor=mentor, team=team: docs.mentor_certificate(mentor, team),
+            certificate=True,
         )
         for team in teams
         for mentor in audience.team_mentors.get(team.id, [])
@@ -617,8 +633,8 @@ def document_for(kind: str, value: str, template: bytes | None = None) -> tuple[
 
 def example_file_names(audience: str, year: int) -> list[str]:
     """The attachments' names for a preview while nobody is due the email."""
-    student = file_name(year, "Student_Certificate", "Name", "docx")
-    mentor = file_name(year, "Mentor_Certificate", "Name", "docx")
+    student = file_name(year, "Student_Certificate", "Name", certificate_pdf.extension())
+    mentor = file_name(year, "Mentor_Certificate", "Name", certificate_pdf.extension())
     if audience == GROUPS:
         return [student, mentor, file_name(year, "Marks", "Team name", "docx")]
     return [student, mentor, file_name(year, "Student_Marks", "Supervisor name", "xlsx")]
@@ -677,7 +693,7 @@ def _send_item(
             rendered = render_supervisor_email(person_name(item), result.year)
             planned = supervisor_files(docs, result, item)
         # Made once, for the one email.
-        files = [(f.name, f.make(), f.mimetype) for f in planned]
+        files = attachments(planned)
     except Exception:  # noqa: BLE001
         logger.exception("results email: failed to render %s", who)
         return [{"who": label, "reason": NOT_SENT} for label in people.values()]
@@ -763,9 +779,21 @@ def missed_count(result: ResultsAudience, audience: str) -> dict:
 
 def start_send(actor, audience: str, which: str = "") -> None:
     """Queue a run emailing ``audience`` ("groups" or "supervisors") to every
-    group or supervisor not yet emailed, or with ``which="missed"`` only those
-    an earlier send missed (see ``send_guard.queue_send``)."""
+    group or supervisor not yet emailed, with ``which="missed"`` only those
+    an earlier send missed, or with ``which="all"`` every one of them again
+    (see ``send_guard.queue_send``)."""
     queue_send(EMAIL_KEYS[audience], actor, {"which": which})
+
+
+def _forget_emailed(audience: str, result: ResultsAudience) -> None:
+    """Resend to everyone: this year's record of who has the email goes, so
+    each group or supervisor is due it again, with documents made from the
+    templates as they are now. A run then records them afresh, as the first did."""
+    if audience == GROUPS:
+        ResultsTeamEmail.objects.filter(group__in=result.teams).delete()
+        EmailDelivery.objects.filter(email=EMAIL_KEYS[GROUPS], group__in=result.teams).delete()
+    else:
+        ResultsSupervisorEmail.objects.filter(year=result.year).delete()
 
 
 def _work(audience: str, actor, options: dict) -> list[Work]:
@@ -773,6 +801,10 @@ def _work(audience: str, actor, options: dict) -> list[Work]:
     or supervisors due then, or only those an earlier send missed."""
     details = ResultsEmailSettings.load()
     result = results_audience()
+    if options.get("which") == "all":
+        # When its turn comes, not when pressed, so it can't cross a send running then.
+        _forget_emailed(audience, result)
+        result = results_audience()
     if options.get("which") == "missed":
         pending = missed_items(result, audience)
     elif audience == GROUPS:

@@ -69,6 +69,8 @@ MAIL_SERVER_DOWN_SECONDS = 0
 # environment (its HTTP is mocked anyway), and its checks run inline.
 QEV_API_KEY = "test-dummy-key"
 QEV_PAID_API_KEY = "test-dummy-paid-key"
+# No certificate converter unless a test sets one (apps.management.services.certificate_pdf).
+CERTIFICATE_PDF_URL = ""
 # Off whatever the environment says; the tests that need it turn it on.
 EMAIL_PRECHECK_ENABLED = False
 SCHEDULER_ENABLED = False

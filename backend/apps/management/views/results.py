@@ -185,8 +185,8 @@ class ResultsEmailSendView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         which = request.data.get("which") or ""
-        if which not in ("", "missed"):
-            return Response({"detail": "which must be missed"}, status=status.HTTP_400_BAD_REQUEST)
+        if which not in ("", "missed", "all"):
+            return Response({"detail": 'which must be "missed" or "all"'}, status=status.HTTP_400_BAD_REQUEST)
         reason = results_notify.send_blocked_reason(ResultsEmailSettings.load(), audience)
         if reason:
             return Response({"detail": reason}, status=status.HTTP_400_BAD_REQUEST)

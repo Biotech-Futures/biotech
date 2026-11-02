@@ -1076,8 +1076,12 @@ export async function downloadSupervisorMarksSheet(supervisorId: string): Promis
 // supervisors; call again with the returned cursor until done.
 // POST /api/v1/management/results-email/send/ — start a run on the server that
 // emails ``audience``, so the page can be closed; the details, with its progress.
-// With 'missed', only those an earlier send missed.
-export function startResultsEmail(audience: ResultsAudience, which?: 'missed'): Promise<ResultsEmailDetails> {
+// With 'missed', only those an earlier send missed; with 'all', everyone again,
+// already emailed or not (re-issuing, say after a template changes).
+export function startResultsEmail(
+  audience: ResultsAudience,
+  which?: 'missed' | 'all',
+): Promise<ResultsEmailDetails> {
   return requestJson<ResultsEmailDetails>('/api/v1/management/results-email/send/', {
     method: 'POST',
     body: JSON.stringify(which ? { audience, which } : { audience })
