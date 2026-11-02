@@ -22,7 +22,7 @@ from apps.services.retry import send_with_retry
 from apps.services.system_email import RenderedEmail, build_message, sender_connection, sender_for
 
 from ..models import FinalistEmailSettings, ResultsEmailSettings
-from . import results_notify, symposium_emails
+from . import certificate_pdf, results_notify, symposium_emails
 from .finalist_notify import EMAIL_KEY as FINALIST_EMAIL_KEY
 from .finalist_notify import render_finalist_email
 from .send_guard import person_name
@@ -181,7 +181,11 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
     if test.audience and not results_notify.templates_ready()[test.audience]:
         raise TestEmailError(results_notify.TEMPLATES_MISSING[test.audience])
     rendered, planned = test.render(recipient, fields)
-    files = [(f.name, f.make(), f.mimetype) for f in planned]
+    # Made as the real email's are, a certificate from a PDF template a PDF.
+    try:
+        files = results_notify.attachments(planned)
+    except certificate_pdf.CertificatePdfError as exc:
+        raise TestEmailError(str(exc)) from exc
     # From the email's sender, as the real one goes.
     sender = sender_for(test.email)
     message = build_message(

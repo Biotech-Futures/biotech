@@ -359,7 +359,7 @@ def render_supervisor_email(supervisor_name: str, year: int) -> RenderedEmail:
 @dataclass
 class ResultsFile:
     """One attachment: its name, and how to make it when the email is sent.
-    A certificate is sent as a PDF while the converter is set (certificate_pdf)."""
+    A certificate from a PDF template is a PDF (certificate_pdf)."""
 
     name: str
     mimetype: str
@@ -368,13 +368,14 @@ class ResultsFile:
 
 
 def attachments(planned: list[ResultsFile]) -> list[tuple[str, bytes, str]]:
-    """Each file made, as ``(name, data, mimetype)``: the certificates
-    converted together (certificate_pdf), each a Word file if it can't be."""
-    made = [(f.name, f.make(), f.mimetype, f.certificate) for f in planned]
-    if not certificate_pdf.enabled():
-        return [(name, data, mimetype) for name, data, mimetype, _ in made]
-    converted = iter(certificate_pdf.many_as_pdf([(n, d, m) for n, d, m, certificate in made if certificate]))
-    return [next(converted) if certificate else (n, d, m) for n, d, m, certificate in made]
+    """Each file made, as ``(name, data, mimetype)``, a certificate named
+    and typed as what it was made as (certificate_pdf)."""
+    made = []
+    for file in planned:
+        data = file.make()
+        made.append(certificate_pdf.as_file(file.name, data, file.mimetype) if file.certificate else
+                    (file.name, data, file.mimetype))
+    return made
 
 
 def file_name(year: int, kind: str, name: str, extension: str) -> str:
@@ -411,6 +412,12 @@ class Documents:
             with open_template(getattr(self._grading, field_name)) as fh:
                 self._templates[field_name] = fh.read()
         return self._templates[field_name]
+
+    def extension(self, field_name: str) -> str:
+        """Its certificates' extension: a picked file's by what it is, a saved one's by its name."""
+        if field_name in self._templates:
+            return "pdf" if certificate_pdf.is_pdf(self._templates[field_name]) else "docx"
+        return certificate_pdf.extension(getattr(self._grading, field_name))
 
     def _signatures(self) -> dict:
         if self._images is None:
@@ -452,7 +459,9 @@ class Documents:
 def _certificates(docs: Documents, students) -> list[ResultsFile]:
     return [
         ResultsFile(
-            file_name(docs.year, "Student_Certificate", person_name(student), certificate_pdf.extension()),
+            file_name(
+                docs.year, "Student_Certificate", person_name(student), docs.extension("certificate_template"),
+            ),
             DOCX,
             lambda student=student, team=team: docs.certificate(student, team),
             certificate=True,
@@ -508,7 +517,9 @@ def sample_marks_sheet() -> bytes:
 def _mentor_certificates(docs: Documents, audience: ResultsAudience, teams) -> list[ResultsFile]:
     return [
         ResultsFile(
-            file_name(docs.year, "Mentor_Certificate", person_name(mentor), certificate_pdf.extension()),
+            file_name(
+                docs.year, "Mentor_Certificate", person_name(mentor), docs.extension("mentor_certificate_template"),
+            ),
             DOCX,
             lambda mentor=mentor, team=team: docs.mentor_certificate(mentor, team),
             certificate=True,
@@ -622,19 +633,20 @@ def document_for(kind: str, value: str, template: bytes | None = None) -> tuple[
         raise ValueError("That person isn't on this year's list.")
     if kind == "mentor-certificate":
         return (
-            file_name(year, "Mentor_Certificate", person_name(person), "docx"),
+            file_name(year, "Mentor_Certificate", person_name(person), docs.extension(field_name)),
             docs.mentor_certificate(person, team),
         )
     return (
-        file_name(year, "Student_Certificate", person_name(person), "docx"),
+        file_name(year, "Student_Certificate", person_name(person), docs.extension(field_name)),
         docs.certificate(person, team),
     )
 
 
 def example_file_names(audience: str, year: int) -> list[str]:
     """The attachments' names for a preview while nobody is due the email."""
-    student = file_name(year, "Student_Certificate", "Name", certificate_pdf.extension())
-    mentor = file_name(year, "Mentor_Certificate", "Name", certificate_pdf.extension())
+    docs = Documents(year)
+    student = file_name(year, "Student_Certificate", "Name", docs.extension("certificate_template"))
+    mentor = file_name(year, "Mentor_Certificate", "Name", docs.extension("mentor_certificate_template"))
     if audience == GROUPS:
         return [student, mentor, file_name(year, "Marks", "Team name", "docx")]
     return [student, mentor, file_name(year, "Student_Marks", "Supervisor name", "xlsx")]
@@ -694,9 +706,11 @@ def _send_item(
             planned = supervisor_files(docs, result, item)
         # Made once, for the one email.
         files = attachments(planned)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.exception("results email: failed to render %s", who)
-        return [{"who": label, "reason": NOT_SENT} for label in people.values()]
+        # A certificate that can't be made says why (a name its fonts can't print).
+        reason = str(exc) if isinstance(exc, certificate_pdf.CertificatePdfError) else NOT_SENT
+        return [{"who": label, "reason": reason} for label in people.values()]
     # A group's one email is recorded per person, so a retry skips who has
     # it; a supervisor's email has the one address.
     if audience == GROUPS:

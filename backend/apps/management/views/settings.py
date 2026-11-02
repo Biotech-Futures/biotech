@@ -72,14 +72,23 @@ class GradingSettingsSerializer(serializers.ModelSerializer):
         )
 
     def validate_certificate_template(self, value):
-        return self._checked_upload(
+        return self._named_for_content(self._checked_upload(
             value, lambda svc, data: svc.check_template_upload("certificate", data)
-        )
+        ))
 
     def validate_mentor_certificate_template(self, value):
-        return self._checked_upload(
+        return self._named_for_content(self._checked_upload(
             value, lambda svc, data: svc.check_template_upload("mentor-certificate", data)
-        )
+        ))
+
+    @staticmethod
+    def _named_for_content(uploaded):
+        """A certificate template saved as .pdf or .docx by what it is, which
+        is what its certificates' names are told from (certificate_pdf.extension)."""
+        if uploaded:
+            uploaded.name = certificate_pdf.upload_name(os.path.basename(uploaded.name or ""), uploaded.read(5))
+            uploaded.seek(0)
+        return uploaded
 
     def validate_director_1_signature(self, value):
         return self._checked_upload(value, lambda svc, data: svc.check_signature_upload(data))
@@ -185,11 +194,11 @@ def _read_candidate(request, kind: str):
 
 
 def _docx_response(payload: bytes, kind: str, filename: str | None = None) -> HttpResponse:
-    name = filename or f"test-{kind}.docx"
-    content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    # A certificate as it will be sent: a PDF while the converter is set.
-    if kind in ("certificate", "mentor-certificate") and certificate_pdf.enabled():
-        name, payload, content_type = certificate_pdf.as_pdf(name, payload, content_type)
+    # A certificate from a PDF template is a PDF.
+    name, payload, content_type = certificate_pdf.as_file(
+        filename or f"test-{kind}.docx", payload,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
     resp = HttpResponse(payload, content_type=content_type)
     resp["Content-Disposition"] = content_disposition_header(as_attachment=True, filename=name)
     return resp
@@ -259,13 +268,11 @@ class TemplateDownloadView(APIView):
                 payload = fh.read()
         except FileNotFoundError:
             return Response({"detail": "The saved template file is missing."}, status=404)
-        resp = HttpResponse(
-            payload,
-            content_type=(
-                "application/vnd.openxmlformats-officedocument"
-                ".wordprocessingml.document"
-            ),
+        # A fillable PDF certificate template comes back as the PDF it is.
+        filename, payload, content_type = certificate_pdf.as_file(
+            filename, payload, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
+        resp = HttpResponse(payload, content_type=content_type)
         # Always the same name, whatever the uploaded file was called.
         resp["Content-Disposition"] = content_disposition_header(as_attachment=True, filename=filename)
         return resp
@@ -325,6 +332,8 @@ class TemplateTestRenderView(APIView):
                 return Response({"detail": "unknown template kind"}, status=404)
         except docx_service.TemplateNotConfigured:
             return Response({"detail": "No template uploaded yet."}, status=404)
+        except certificate_pdf.CertificatePdfError as exc:
+            return Response({"detail": str(exc)}, status=400)
         return _docx_response(payload, kind)
 
     def post(self, request, kind: str):

@@ -156,7 +156,7 @@
 
           <div class="grading-settings__template">
             <div class="grading-settings__field">
-              <span>Student Certificate template (.docx)</span>
+              <span>Student Certificate template (.docx or fillable .pdf)</span>
               <button
                 type="button"
                 class="btn btn-outline btn-field btn-field--small grading-settings__download"
@@ -171,10 +171,10 @@
                 </button>
                 <span class="grading-settings__file-name">{{ certTpl?.name || baseName(settings.certificate_template) || 'No file selected.' }}</span>
               </div>
-              <input ref="certInput" type="file" accept=".docx" class="grading-settings__file-input" @change="pickTemplate('certificate', $event)" />
+              <input ref="certInput" type="file" accept=".docx,.pdf" class="grading-settings__file-input" @change="pickTemplate('certificate', $event)" />
             </div>
             <p class="grading-settings__note">
-              Expected variables:<br />
+              Expected variables (in a fillable PDF, a text field named after each, without the braces):<br />
               <span class="grading-settings__found-hint">Highlighted ones are found in the selected file:</span>
             </p>
             <ul class="grading-settings__tokens">
@@ -224,7 +224,7 @@
 
           <div class="grading-settings__template">
             <div class="grading-settings__field">
-              <span>Mentor Certificate template (.docx)</span>
+              <span>Mentor Certificate template (.docx or fillable .pdf)</span>
               <button
                 type="button"
                 class="btn btn-outline btn-field btn-field--small grading-settings__download"
@@ -239,10 +239,10 @@
                 </button>
                 <span class="grading-settings__file-name">{{ mentorTpl?.name || baseName(settings.mentor_certificate_template) || 'No file selected.' }}</span>
               </div>
-              <input ref="mentorInput" type="file" accept=".docx" class="grading-settings__file-input" @change="pickTemplate('mentor-certificate', $event)" />
+              <input ref="mentorInput" type="file" accept=".docx,.pdf" class="grading-settings__file-input" @change="pickTemplate('mentor-certificate', $event)" />
             </div>
             <p class="grading-settings__note">
-              Expected variables:<br />
+              Expected variables (in a fillable PDF, a text field named after each, without the braces):<br />
               <span class="grading-settings__found-hint">Highlighted ones are found in the selected file:</span>
             </p>
             <ul class="grading-settings__tokens">

@@ -71,9 +71,10 @@ def _people(group) -> list[tuple[str, object]]:
     ]
 
 
-def _certificate_name(year: int, kind: str, user) -> str:
+def _certificate_name(docs: results_notify.Documents, kind: str, user) -> str:
     label = "Student_Certificate" if kind == "student" else "Mentor_Certificate"
-    return results_notify.file_name(year, label, person_name(user), certificate_pdf.extension())
+    extension = docs.extension("certificate_template" if kind == "student" else "mentor_certificate_template")
+    return results_notify.file_name(docs.year, label, person_name(user), extension)
 
 
 def _docx(payload: bytes, filename: str, content_type: str = results_notify.DOCX) -> HttpResponse:
@@ -83,11 +84,9 @@ def _docx(payload: bytes, filename: str, content_type: str = results_notify.DOCX
 
 
 def _certificate(payload: bytes, filename: str) -> HttpResponse:
-    """A certificate download: a PDF while the converter is set, else the Word file."""
-    if certificate_pdf.enabled():
-        filename, payload, content_type = certificate_pdf.as_pdf(filename, payload, results_notify.DOCX)
-        return _docx(payload, filename, content_type)
-    return _docx(payload, filename)
+    """A certificate download: a PDF from a PDF template, else the Word file."""
+    filename, payload, content_type = certificate_pdf.as_file(filename, payload, results_notify.DOCX)
+    return _docx(payload, filename, content_type)
 
 
 def _results_part(part: dict) -> dict:
@@ -152,6 +151,7 @@ class GroupResultsView(APIView):
             state["certificates_released"] and state["has_submission"] and not state["certificates_withheld"]
         )
         components = grades_payload(group) if shows_marks else []
+        docs = results_notify.Documents(year)
         parts = [_results_part(component) for component in components if component["code"] in RELEASED_PARTS]
         return Response({
             **state,
@@ -166,7 +166,7 @@ class GroupResultsView(APIView):
                     "user_id": user.id,
                     "name": person_name(user),
                     "kind": kind,
-                    "file_name": _certificate_name(year, kind, user),
+                    "file_name": _certificate_name(docs, kind, user),
                 }
                 for kind, user in (_people(group) if shows_certificates else [])
             ],
@@ -218,4 +218,6 @@ class GroupResultsCertificateView(APIView):
             payload = docs.certificate(user, group) if kind == "student" else docs.mentor_certificate(user, group)
         except TemplateNotConfigured:
             return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-        return _certificate(payload, _certificate_name(group.year, kind, user))
+        except certificate_pdf.CertificatePdfError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return _certificate(payload, _certificate_name(docs, kind, user))
