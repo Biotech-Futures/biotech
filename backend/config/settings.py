@@ -972,6 +972,11 @@ EMAIL_PRECHECK_QUEUED_STALL_SECONDS = config("EMAIL_PRECHECK_QUEUED_STALL_SECOND
 # admin edits a user or a student changes their guardian. Off unless set.
 EMAIL_CHECK_ON_EDIT = config("EMAIL_CHECK_ON_EDIT", default="false", cast=env_bool)
 
+# The Gotenberg converter results certificates are made PDFs by (a sidecar beside the backend,
+# e.g. http://localhost:3000); empty, they stay Word files (apps.management.services.certificate_pdf).
+CERTIFICATE_PDF_URL = config("CERTIFICATE_PDF_URL", default="")
+CERTIFICATE_PDF_TIMEOUT_SECONDS = config("CERTIFICATE_PDF_TIMEOUT_SECONDS", default=30, cast=float)
+
 # Hours a stored "couldn't be verified" email answer is reused, so a check at
 # preview and at Submit don't both pay for it.
 QEV_UNKNOWN_MAX_AGE_HOURS = config("QEV_UNKNOWN_MAX_AGE_HOURS", default=24, cast=int)

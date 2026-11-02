@@ -122,7 +122,8 @@ describe('layout', () => {
     const hints = wrapper.findAll('.release-results__send .release-results__hint').map((p) => p.text())
     expect(hints).toEqual([
       "For groups that submitted, and their students' supervisors, once their results are out.",
-      'Each group and each supervisor is emailed once.',
+      'Each group and each supervisor is emailed once. Resend To Everyone emails them all again, for ' +
+        'example after a certificate template changes.',
       "Each group gets one email, its students and mentors in To, with every certificate in the group " +
         "attached, so students get each other's and their mentor's certificates. Resending emails only those " +
         'who missed it. Anyone in multiple groups gets one email for each group.'
@@ -410,11 +411,32 @@ describe('sending', () => {
     const wrapper = await mountPage()
     const rows = wrapper.findAll('.release-results__send-rows .release-results__actions')
     expect(rows.map((row) => row.findAll('button').map((b) => b.text()))).toEqual([
-      ['Email Groups', 'Resend Email To Missed Individuals'],
-      ['Email Supervisors', 'Resend Email To Missed Individuals']
+      ['Email Groups', 'Resend Email To Missed Individuals', 'Resend To Everyone'],
+      ['Email Supervisors', 'Resend Email To Missed Individuals', 'Resend To Everyone']
     ])
-    // Nobody missed yet: both Resend buttons are off.
-    for (const row of rows) expect(row.findAll('button')[1]!.attributes('disabled')).toBeDefined()
+    // Nobody missed, nor emailed, yet: both Resends are off on each line.
+    for (const row of rows) {
+      expect(row.findAll('button')[1]!.attributes('disabled')).toBeDefined()
+      expect(row.findAll('button')[2]!.attributes('disabled')).toBeDefined()
+    }
+  })
+
+  it('Resend To Everyone emails every group again, once any has had it', async () => {
+    const emailed = { groups: { total: 3, emailed: 3 }, supervisors: { total: 2, emailed: 1 } }
+    detailsMock.mockResolvedValue(details(emailed))
+    sendMock.mockResolvedValueOnce(details({ ...emailed, runs: { groups: finishedRun({ due: 5, emailed: 5 }), supervisors: IDLE } }))
+    const wrapper = await mountPage()
+    const [groupsRow, supervisorsRow] = wrapper.findAll('.release-results__send-rows .release-results__actions')
+    expect(supervisorsRow!.findAll('button')[2]!.attributes('disabled')).toBeUndefined()
+
+    await groupsRow!.findAll('button')[2]!.trigger('click')
+    expect(wrapper.find('[role="dialog"]').text()).toContain(
+      'This emails the students and mentors of all 3 groups again, including those already emailed, ' +
+        'with certificates made from the templates as they are now.'
+    )
+    await buttonNamed(wrapper, /^Send$/).trigger('click')
+    await flushPromises()
+    expect(sendMock).toHaveBeenCalledWith('groups', 'all')
   })
 
   it('Resend Email To Missed Individuals names who was missed and asks for only them', async () => {

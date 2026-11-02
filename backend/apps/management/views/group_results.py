@@ -21,7 +21,7 @@ from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 
 from ..models import CertificatesRelease, MarksRelease
-from ..services import results_notify
+from ..services import certificate_pdf, results_notify
 from ..services.docx import (
     TemplateNotConfigured,
     mark_text,
@@ -73,13 +73,21 @@ def _people(group) -> list[tuple[str, object]]:
 
 def _certificate_name(year: int, kind: str, user) -> str:
     label = "Student_Certificate" if kind == "student" else "Mentor_Certificate"
-    return results_notify.file_name(year, label, person_name(user), "docx")
+    return results_notify.file_name(year, label, person_name(user), certificate_pdf.extension())
 
 
-def _docx(payload: bytes, filename: str) -> HttpResponse:
-    response = HttpResponse(payload, content_type=results_notify.DOCX)
+def _docx(payload: bytes, filename: str, content_type: str = results_notify.DOCX) -> HttpResponse:
+    response = HttpResponse(payload, content_type=content_type)
     response["Content-Disposition"] = content_disposition_header(as_attachment=True, filename=filename)
     return response
+
+
+def _certificate(payload: bytes, filename: str) -> HttpResponse:
+    """A certificate download: a PDF while the converter is set, else the Word file."""
+    if certificate_pdf.enabled():
+        filename, payload, content_type = certificate_pdf.as_pdf(filename, payload, results_notify.DOCX)
+        return _docx(payload, filename, content_type)
+    return _docx(payload, filename)
 
 
 def _results_part(part: dict) -> dict:
@@ -210,4 +218,4 @@ class GroupResultsCertificateView(APIView):
             payload = docs.certificate(user, group) if kind == "student" else docs.mentor_certificate(user, group)
         except TemplateNotConfigured:
             return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-        return _docx(payload, _certificate_name(group.year, kind, user))
+        return _certificate(payload, _certificate_name(group.year, kind, user))

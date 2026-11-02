@@ -35,7 +35,7 @@ from apps.submissions.services import current_cohort
 from apps.users.models import StudentProfile, SupervisorProfile
 
 from ..models import CertificatesRelease, MarksRelease
-from ..services import results_notify
+from ..services import certificate_pdf, results_notify
 from ..services.docx import TemplateNotConfigured, marks_release_fields, marks_summary_context
 from ..services.send_guard import person_name
 
@@ -121,7 +121,7 @@ def _all_scope() -> _Scope:
 
 def _certificate_name(year: int, kind: str, person) -> str:
     label = "Student_Certificate" if kind == "student" else "Mentor_Certificate"
-    return results_notify.file_name(year, label, person_name(person), "docx")
+    return results_notify.file_name(year, label, person_name(person), certificate_pdf.extension())
 
 
 def _certificate(docs, kind: str, person, group) -> bytes:
@@ -157,6 +157,7 @@ def _certificate_files(scope: "_Scope", docs) -> list:
                 _certificate_name(scope.year, kind, person),
                 results_notify.DOCX,
                 lambda kind=kind, person=person, group=group: _certificate(docs, kind, person, group),
+                certificate=True,
             )
             for kind, person, holder_group in scope.holders()
             if holder_group.id == group.id
@@ -283,20 +284,25 @@ def _certificate_response(scope: _Scope, group_id: int, user_id: int):
         payload = _certificate(results_notify.Documents(scope.year), kind, person, group)
     except TemplateNotConfigured:
         return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-    return _file(payload, _certificate_name(scope.year, kind, person), results_notify.DOCX)
+    name, data, content_type = certificate_pdf.as_pdf(
+        _certificate_name(scope.year, kind, person), payload, results_notify.DOCX
+    )
+    return _file(data, name, content_type)
 
 
 def _zip_response(scope: _Scope, filename: str):
     """Every certificate in ``scope`` in one zip, a folder per group, but
     those held back."""
     files = _certificate_files(scope, results_notify.Documents(scope.year))
-    buffer = io.BytesIO()
     try:
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-            for file in files:
-                archive.writestr(file.name, file.make())
+        made = [(file.name, file.make(), file.mimetype) for file in files]
     except TemplateNotConfigured:
         return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
+    # PDFs while the converter is set, a few at a time; any it can't convert stay Word files.
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data, _mimetype in certificate_pdf.many_as_pdf(made):
+            archive.writestr(name, data)
     return _file(buffer.getvalue(), filename, "application/zip")
 
 

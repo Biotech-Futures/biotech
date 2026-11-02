@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from apps.common.rbac import IsStaffOrAdmin
 
 from ..models import GradingSettings
+from ..services import certificate_pdf
 from ..services import docx as docx_service
 from ..services import results_notify
 
@@ -184,16 +185,13 @@ def _read_candidate(request, kind: str):
 
 
 def _docx_response(payload: bytes, kind: str, filename: str | None = None) -> HttpResponse:
-    resp = HttpResponse(
-        payload,
-        content_type=(
-            "application/vnd.openxmlformats-officedocument"
-            ".wordprocessingml.document"
-        ),
-    )
-    resp["Content-Disposition"] = content_disposition_header(
-        as_attachment=True, filename=filename or f"test-{kind}.docx"
-    )
+    name = filename or f"test-{kind}.docx"
+    content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    # A certificate as it will be sent: a PDF while the converter is set.
+    if kind in ("certificate", "mentor-certificate") and certificate_pdf.enabled():
+        name, payload, content_type = certificate_pdf.as_pdf(name, payload, content_type)
+    resp = HttpResponse(payload, content_type=content_type)
+    resp["Content-Disposition"] = content_disposition_header(as_attachment=True, filename=name)
     return resp
 
 
