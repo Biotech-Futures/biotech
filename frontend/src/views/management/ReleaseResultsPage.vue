@@ -114,14 +114,12 @@
       <p class="release-results__hint">
         For groups that submitted, and their students' supervisors, once their results are out.
       </p>
-      <p class="release-results__hint">
-        Each group and each supervisor is emailed once. Resend To Everyone emails them all again, for
-        example after a certificate template changes.
-      </p>
+      <p class="release-results__hint">Each group and each supervisor is emailed once.</p>
       <p class="release-results__hint">
         Each group gets one email, its students and mentors in To, with every certificate in the
         group attached, so students get each other's and their mentor's certificates. Resending
         emails only those who missed it. Anyone in multiple groups gets one email for each group.
+        Resend To Everyone emails them all again.
       </p>
       <template v-if="details">
         <p
