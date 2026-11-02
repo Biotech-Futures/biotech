@@ -37,6 +37,7 @@ from apps.grading.services.xlsx import format_product_category, format_solution_
 from apps.submissions.services import current_cohort
 
 from ..models import CertificatesRelease, GradingSettings, MarksRelease
+from . import certificate_pdf
 
 
 logger = logging.getLogger(__name__)
@@ -457,9 +458,26 @@ def render_marks_summary(context: dict) -> bytes:
     return render_marks_summary_data(data, context)
 
 
+def _pdf_values(fields: dict) -> dict:
+    """Field values as a PDF certificate takes them: ``(text, raised)`` pieces."""
+    return {
+        name: [
+            (piece[1:-1], True) if piece.startswith(_RAISE_START) else (piece, False)
+            for piece in _RAISE_SPLIT_RE.split("" if value is None else str(value)) if piece
+        ]
+        for name, value in fields.items()
+    }
+
+
 def render_certificate_data(data: bytes, context: dict, images: dict | None = None) -> bytes:
     """Render certificate docx bytes — saved template or previewed candidate.
-    ``images`` as for ``render_marks_summary_data``."""
+    ``images`` as for ``render_marks_summary_data``. A PDF template makes a PDF."""
+    if certificate_pdf.is_pdf(data):
+        return certificate_pdf.fill(
+            data,
+            _pdf_values(certificate_fields(context)),
+            signature_images(GradingSettings.load()) if images is None else images,
+        )
     if _has_text_tokens(_document_xml(data)):
         return _render_token_template(
             data,
@@ -472,7 +490,13 @@ def render_certificate_data(data: bytes, context: dict, images: dict | None = No
 
 def render_mentor_certificate_data(data: bytes, context: dict, images: dict | None = None) -> bytes:
     """Render mentor certificate docx bytes — saved template or previewed
-    candidate. ``images`` as for ``render_marks_summary_data``."""
+    candidate. ``images`` as for ``render_marks_summary_data``. A PDF template makes a PDF."""
+    if certificate_pdf.is_pdf(data):
+        return certificate_pdf.fill(
+            data,
+            _pdf_values(mentor_certificate_fields(context)),
+            signature_images(GradingSettings.load()) if images is None else images,
+        )
     if _has_text_tokens(_document_xml(data)):
         return _render_token_template(
             data,
@@ -631,12 +655,16 @@ def scan_template_data(kind: str, data: bytes) -> dict:
     upload-time check, so both judge a template by exactly the same rules."""
     known = _known_placeholders(kind)
     found: set[str] = set()
-    with zipfile.ZipFile(io.BytesIO(data)) as z:
-        for name in z.namelist():
-            if not _TEXT_PART_RE.fullmatch(name):
-                continue
-            xml = z.read(name).decode("utf8", errors="ignore")
-            found.update(_token_name(m) for m in _TOKEN_RE.finditer(_visible_text(xml)))
+    if certificate_pdf.is_pdf(data):
+        # A fillable PDF's variables are its fields' names.
+        found.update(certificate_pdf.field_names(data))
+    else:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for name in z.namelist():
+                if not _TEXT_PART_RE.fullmatch(name):
+                    continue
+                xml = z.read(name).decode("utf8", errors="ignore")
+                found.update(_token_name(m) for m in _TOKEN_RE.finditer(_visible_text(xml)))
 
     return {
         "present": sorted(found & known),
@@ -673,15 +701,32 @@ def check_template_upload(kind: str, data: bytes) -> dict:
     break document generation — an old binary .doc, a renamed PDF, a
     truncated upload — is rejected while the working template is still in
     place. Raises ``ValueError`` with an admin-facing message; returns the
-    placeholder scan on success.
+    placeholder scan on success. A certificate may instead be a fillable PDF,
+    test-filled with the sample details and the saved signatures as it will be.
     """
+    if kind != "marks-summary" and certificate_pdf.is_pdf(data):
+        if not certificate_pdf.field_names(data):
+            raise ValueError(
+                "This PDF has no form fields, so every certificate would read the same; the current "
+                "template was left unchanged. Add a text field named after each variable (Name, say) "
+                "and upload it again."
+            )
+        sample = (
+            mentor_certificate_fields(sample_mentor_certificate_context())
+            if kind == "mentor-certificate"
+            else certificate_fields(sample_certificate_context())
+        )
+        certificate_pdf.fill(data, _pdf_values(sample), signature_images(GradingSettings.load()))
+        return scan_template_data(kind, data)
     try:
         Document(io.BytesIO(data))
     except Exception as exc:
         raise ValueError(
             "This file could not be opened as a .docx document, so the "
             "current template was left unchanged. Save it from Word as "
-            ".docx and upload it again."
+            ".docx"
+            + ("" if kind == "marks-summary" else ", or as a fillable PDF,")
+            + " and upload it again."
         ) from exc
     return scan_template_data(kind, data)
 
@@ -697,6 +742,8 @@ def check_signature_upload(data: bytes) -> None:
 
     try:
         DocxImage.from_blob(data)
+        # And one a PDF certificate can hold.
+        certificate_pdf.check_image(data)
     except Exception as exc:
         raise ValueError(
             "This file is not an image Word can embed (PNG or JPEG work "

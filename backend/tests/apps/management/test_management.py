@@ -541,10 +541,9 @@ class GradingSettingsViewTests(_GradingFixture):
         doc.save(buf)
         return buf.getvalue()
 
-    # 1x1 transparent PNG — the smallest thing python-docx accepts as an image.
+    # 1x1 transparent PNG, whole enough for Word and for a PDF certificate.
     _PNG = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAA"
-        "AgABc3UBGAAAAABJRU5ErkJggg=="
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg=="
     )
 
     def test_upload_rejects_file_that_is_not_a_docx(self):

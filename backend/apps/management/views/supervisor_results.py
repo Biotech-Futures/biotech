@@ -19,7 +19,6 @@ import io
 import zipfile
 from decimal import Decimal
 
-from django.conf import settings
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
 from rest_framework import permissions, status
@@ -120,9 +119,10 @@ def _all_scope() -> _Scope:
     return _Scope(current_cohort(), exclude_finalists=False)
 
 
-def _certificate_name(year: int, kind: str, person) -> str:
+def _certificate_name(docs: results_notify.Documents, kind: str, person) -> str:
     label = "Student_Certificate" if kind == "student" else "Mentor_Certificate"
-    return results_notify.file_name(year, label, person_name(person), certificate_pdf.extension())
+    extension = docs.extension("certificate_template" if kind == "student" else "mentor_certificate_template")
+    return results_notify.file_name(docs.year, label, person_name(person), extension)
 
 
 def _certificate(docs, kind: str, person, group) -> bytes:
@@ -155,10 +155,9 @@ def _certificate_files(scope: "_Scope", docs) -> list:
             folder = f"{folder}_{count}"
         for file in results_notify._numbered([
             results_notify.ResultsFile(
-                _certificate_name(scope.year, kind, person),
+                _certificate_name(docs, kind, person),
                 results_notify.DOCX,
                 lambda kind=kind, person=person, group=group: _certificate(docs, kind, person, group),
-                certificate=True,
             )
             for kind, person, holder_group in scope.holders()
             if holder_group.id == group.id
@@ -243,6 +242,7 @@ def _results(scope: _Scope, *, marks: bool, certificates: bool, sheet_file_name:
     when ``certificates``."""
     state = release_state()
     rows = _mark_rows(scope) if marks else []
+    docs = results_notify.Documents(scope.year)
     people = [
         {
             "user_id": person.id,
@@ -251,7 +251,7 @@ def _results(scope: _Scope, *, marks: bool, certificates: bool, sheet_file_name:
             "group_id": group.id,
             "group_name": group.group_name,
             "withheld": group.id in scope.withheld,
-            "file_name": _certificate_name(scope.year, kind, person),
+            "file_name": _certificate_name(docs, kind, person),
         }
         for kind, person, group in (scope.holders() if certificates else [])
     ]
@@ -281,12 +281,15 @@ def _certificate_response(scope: _Scope, group_id: int, user_id: int):
     kind, person, group = holder
     if group.id in scope.withheld:
         return Response({"detail": RELEASED_SEPARATELY}, status=status.HTTP_403_FORBIDDEN)
+    docs = results_notify.Documents(scope.year)
     try:
-        payload = _certificate(results_notify.Documents(scope.year), kind, person, group)
+        payload = _certificate(docs, kind, person, group)
     except TemplateNotConfigured:
         return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-    name, data, content_type = certificate_pdf.as_pdf(
-        _certificate_name(scope.year, kind, person), payload, results_notify.DOCX
+    except certificate_pdf.CertificatePdfError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    name, data, content_type = certificate_pdf.as_file(
+        _certificate_name(docs, kind, person), payload, results_notify.DOCX
     )
     return _file(data, name, content_type)
 
@@ -295,17 +298,16 @@ def _zip_response(scope: _Scope, filename: str):
     """Every certificate in ``scope`` in one zip, a folder per group, but
     those held back."""
     files = _certificate_files(scope, results_notify.Documents(scope.year))
+    buffer = io.BytesIO()
     try:
-        made = [(file.name, file.make(), file.mimetype) for file in files]
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for file in files:
+                name, data, _type = certificate_pdf.as_file(file.name, file.make(), file.mimetype)
+                archive.writestr(name, data)
     except TemplateNotConfigured:
         return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-    # PDFs while the converter is set, a few at a time; any it can't convert, or
-    # not in time to answer inside the request limit, stay Word files.
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        budget = float(getattr(settings, "CERTIFICATE_PDF_ZIP_BUDGET_SECONDS", 150))
-        for name, data, _mimetype in certificate_pdf.many_as_pdf(made, budget_seconds=budget):
-            archive.writestr(name, data)
+    except certificate_pdf.CertificatePdfError as exc:
+        return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     return _file(buffer.getvalue(), filename, "application/zip")
 
 

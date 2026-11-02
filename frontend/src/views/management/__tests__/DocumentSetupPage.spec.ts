@@ -289,7 +289,7 @@ describe('template picking and testing', () => {
     await flushPromises()
     expect(testStoredMock).toHaveBeenCalledWith('marks-summary', undefined)
 
-    await pickFile(wrapper, '.docx', 'candidate.docx', 1) // certificate slot
+    await pickFile(wrapper, '.docx,.pdf', 'candidate.docx', 0) // certificate slot
     const testButtons = wrapper.findAll('button').filter((b) => /^Download Sample (Marks|Certificate) Doc$/.test(b.text().trim()))
     await testButtons[1]!.trigger('click')
     await flushPromises()
@@ -329,7 +329,7 @@ describe('template picking and testing', () => {
     candidateScanMock.mockResolvedValueOnce(scan(['Name']))
     testCandidateMock.mockResolvedValueOnce()
     const wrapper = await mountPage()
-    await pickFile(wrapper, '.docx', 'BTF_Mentor.docx', 2)
+    await pickFile(wrapper, '.docx,.pdf', 'BTF_Mentor.docx', 1)
     await buttonNamed(wrapper, /^Download Mentor Certificate$/).trigger('click')
     await flushPromises()
     expect(testCandidateMock).toHaveBeenCalledWith('mentor-certificate', expect.any(File), '1:21')
@@ -371,8 +371,8 @@ describe('template picking and testing', () => {
       .map((s) => s.text())
     expect(labels).toEqual([
       'Marks summary template (.docx)',
-      'Student Certificate template (.docx)',
-      'Mentor Certificate template (.docx)'
+      'Student Certificate template (.docx or fillable .pdf)',
+      'Mentor Certificate template (.docx or fillable .pdf)'
     ])
   })
 
@@ -414,7 +414,7 @@ describe('template picking and testing', () => {
     testCandidateMock.mockResolvedValueOnce()
     updateMock.mockResolvedValueOnce(detail({ mentor_certificate_template: 'grading/templates/ab12/BTF_Mentor.docx' }))
     const wrapper = await mountPage()
-    await pickFile(wrapper, '.docx', 'BTF_Mentor.docx', 2)
+    await pickFile(wrapper, '.docx,.pdf', 'BTF_Mentor.docx', 1)
     expect(candidateScanMock).toHaveBeenCalledWith('mentor-certificate', expect.any(File))
     const mentor = wrapper.findAll('.grading-settings__template')[2]!
     expect(mentor.find('.grading-settings__file-name').text()).toBe('BTF_Mentor.docx')
