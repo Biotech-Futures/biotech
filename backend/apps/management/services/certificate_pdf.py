@@ -4,8 +4,8 @@ The client's certificate design, saved as a PDF with text fields named as the
 Word template's variables (Name, ProjectTitle, Date...), each field filled with
 its value and then removed, so the certificate can't be edited. A value is set
 in a bundled font (Noto Sans, or Noto Serif for a field whose font is a serif),
-bold for a bold field, at the field's size, colour and alignment, shrunk to fit
-its box. A field named Director1Signature or Director2Signature gets that
+bold and italic as the field's font is, at the field's size, colour and
+alignment, shrunk to fit its box. A field named Director1Signature or Director2Signature gets that
 signature, fitted to its box.
 """
 from __future__ import annotations
@@ -29,11 +29,16 @@ PDF = "application/pdf"
 logging.getLogger("fontTools").setLevel(logging.WARNING)
 
 _FONTS = Path(__file__).resolve().parent.parent / "fonts"
+# By family, bold, italic.
 _FACES = {
-    ("sans", False): "NotoSans-Regular.ttf",
-    ("sans", True): "NotoSans-Bold.ttf",
-    ("serif", False): "NotoSerif-Regular.ttf",
-    ("serif", True): "NotoSerif-Bold.ttf",
+    ("sans", False, False): "NotoSans-Regular.ttf",
+    ("sans", True, False): "NotoSans-Bold.ttf",
+    ("sans", False, True): "NotoSans-Italic.ttf",
+    ("sans", True, True): "NotoSans-BoldItalic.ttf",
+    ("serif", False, False): "NotoSerif-Regular.ttf",
+    ("serif", True, False): "NotoSerif-Bold.ttf",
+    ("serif", False, True): "NotoSerif-Italic.ttf",
+    ("serif", True, True): "NotoSerif-BoldItalic.ttf",
 }
 # Chinese, Japanese and Korean, for a name in them.
 _CJK = "NotoSansCJKsc-Subset.otf"
@@ -57,6 +62,9 @@ _DEPTH = 32
 _SERIF = ("times", "tiro", "tibo", "tiit", "tibi", "serif", "garamond", "georgia", "baskerville", "cambria",
           "palatino", "caslon", "didot", "bodoni", "minion", "playfair", "merriweather", "lora", "constantia")
 _BOLD = ("bold", "hebo", "tibo", "tibi", "black", "heavy", "semibold", "demi")
+# Acrobat's own names for its italic fonts, and "-It"/"-BoldIt" endings.
+_ITALIC_RESOURCES = {"TiIt", "TiBI", "HeOb", "HeBO", "CoOb", "CoBO"}
+_ITALIC_ENDING = re.compile(r"[-,][a-z]*it$")
 
 _DA_FONT = re.compile(r"/([^\s/\[\]()<>{}%]+)\s+([-+]?[\d.]+)\s+Tf")
 _DA_COLOUR = re.compile(r"((?:[-+]?[\d.]+\s+){1,4})(rg|g|k)(?![\w])")
@@ -75,7 +83,7 @@ class _Field:
     text: bool
     size: float
     rgb: tuple[int, int, int]
-    face: tuple[str, bool]
+    face: tuple[str, bool, bool]
     align: int
     multiline: bool
 
@@ -117,8 +125,8 @@ def _cmap(file: str) -> frozenset[int]:
 def _font_file(key: str) -> str:
     if key == "cjk":
         return _CJK
-    family, _, bold = key.partition("-")
-    return _FACES[(family, bold == "b")]
+    family, _, style = key.partition("-")
+    return _FACES[(family, "b" in style, "i" in style)]
 
 
 def _clean(segments: list[tuple[str, bool]]) -> list[tuple[str, bool]]:
@@ -137,10 +145,14 @@ def _clean(segments: list[tuple[str, bool]]) -> list[tuple[str, bool]]:
     return [(text, raised) for text, raised in cleaned if text]
 
 
-def _runs(name: str, segments: list[tuple[str, bool]], face: tuple[str, bool]) -> list[tuple[str, str, bool]]:
+def _runs(
+    name: str, segments: list[tuple[str, bool]], face: tuple[str, bool, bool],
+) -> list[tuple[str, str, bool]]:
     """The value as ``(font key, text, raised)`` runs: each character in the
     field's face, or the CJK font when the face lacks it."""
-    primary = f"{face[0]}-b" if face[1] else face[0]
+    family, bold, italic = face
+    style = ("b" if bold else "") + ("i" if italic else "")
+    primary = f"{family}-{style}" if style else family
     runs: list[tuple[str, str, bool]] = []
     for text, raised in segments:
         for ch in text:
@@ -224,10 +236,16 @@ def _base_font(resource: str, widget, acroform) -> str:
     return resource
 
 
-def _face(font_name: str) -> tuple[str, bool]:
+def _face(font_name: str) -> tuple[str, bool, bool]:
+    """``(family, bold, italic)`` for a field's "resource BaseFont" font name."""
+    resource, _, base = font_name.partition(" ")
     name = font_name.lower()
     serif = "sans" not in name and any(hint in name for hint in _SERIF)
-    return ("serif" if serif else "sans", any(hint in name for hint in _BOLD))
+    italic = (
+        resource in _ITALIC_RESOURCES or "italic" in name or "oblique" in name
+        or bool(_ITALIC_ENDING.search(base.lower().lstrip("/")))
+    )
+    return ("serif" if serif else "sans", any(hint in name for hint in _BOLD), italic)
 
 
 def _fields(reader: PdfReader) -> list[_Field]:
@@ -268,7 +286,7 @@ def _fields(reader: PdfReader) -> list[_Field]:
                 text=_inherited(widget, "/FT") == "/Tx",
                 size=max(0.0, _number(font.group(2))) if font else 0.0,
                 rgb=_colour(da),
-                face=_face(_base_font(font.group(1), widget, acroform)) if font else ("sans", False),
+                face=_face(_base_font(font.group(1), widget, acroform)) if font else ("sans", False, False),
                 align=int(_number(align if align is not None else _obj(acroform.get("/Q")))) % 3,
                 multiline=bool(int(_number(_inherited(widget, "/Ff"))) & _MULTILINE),
             ))

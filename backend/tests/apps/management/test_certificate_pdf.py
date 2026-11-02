@@ -46,6 +46,8 @@ def fillable(*fields, size=LANDSCAPE, origin=(0, 0), rotate=0, password=None, li
         NameObject("/Helv"): font("/Helvetica"),
         NameObject("/TiBo"): font("/Times-Bold"),
         NameObject("/F7"): font("/ABCDEF+Montserrat-SemiBold"),
+        NameObject("/F8"): font("/Georgia-Italic"),
+        NameObject("/F9"): font("/Arial,BoldItalic"),
     })})
     annots = ArrayObject()
     for spec in fields:
@@ -196,16 +198,32 @@ class FillTests(SimpleTestCase):
         out = certificate_pdf.fill(TEMPLATE, {"Name": plain("   "), "Date": []}, {})
         self.assertEqual([text for text, _x, _y in placed(out)], ["CERTIFICATE OF PARTICIPATION"])
 
-    def test_the_fields_font_picks_serif_and_bold(self):
+    def test_the_fields_font_picks_serif_bold_and_italic(self):
         fields = {f.name: f for f in certificate_pdf._fields(PdfReader(io.BytesIO(fillable(
             field("A", [0, 0, 100, 20], da="/TiBo 12 Tf 0 g"),
             field("B", [0, 30, 100, 50], da="/Helv 12 Tf 0 g"),
             field("C", [0, 60, 100, 80], da="/F7 12 Tf 0 g"),
+            field("D", [0, 90, 100, 110], da="/F8 12 Tf 0 g"),
+            field("E", [0, 120, 100, 140], da="/F9 12 Tf 0 g"),
+            field("F", [0, 150, 100, 170], da="/TiIt 12 Tf 0 g"),
         ))))}
-        self.assertEqual(fields["A"].face, ("serif", True))
-        self.assertEqual(fields["B"].face, ("sans", False))
-        self.assertEqual(fields["C"].face, ("sans", True))
+        self.assertEqual(fields["A"].face, ("serif", True, False))
+        self.assertEqual(fields["B"].face, ("sans", False, False))
+        self.assertEqual(fields["C"].face, ("sans", True, False))
+        self.assertEqual(fields["D"].face, ("serif", False, True))
+        self.assertEqual(fields["E"].face, ("sans", True, True))
+        self.assertEqual(fields["F"].face, ("serif", False, True))
         self.assertEqual(fields["A"].size, 12)
+        # Adobe's short endings, and names that merely end in "it".
+        self.assertEqual(certificate_pdf._face("F1 MinionPro-It"), ("serif", False, True))
+        self.assertEqual(certificate_pdf._face("F1 MinionPro-BoldIt"), ("serif", True, True))
+        self.assertEqual(certificate_pdf._face("F1 Summit"), ("sans", False, False))
+
+    def test_an_italic_field_is_set_in_italic(self):
+        template = fillable(field("Name", NAME_BOX, da="/F8 20 Tf 0 g"))
+        out = certificate_pdf.fill(template, {"Name": plain("Amy Chen")}, {})
+        self.assertIn(b"NotoSerifItalic", out)
+        self.assertIn("AmyChen", squashed(text_of(out)))
 
     def test_colours_are_read_from_gray_rgb_and_cmyk(self):
         self.assertEqual(certificate_pdf._colour("/Helv 0 Tf 0.5 g"), (128, 128, 128))

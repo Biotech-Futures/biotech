@@ -1,6 +1,6 @@
 The fonts certificates are filled in with (apps.management.services.certificate_pdf):
 
-NotoSans-Regular.ttf, NotoSans-Bold.ttf, NotoSerif-Regular.ttf, NotoSerif-Bold.ttf
+NotoSans and NotoSerif, each Regular, Bold, Italic and BoldItalic (.ttf)
 Copyright 2015 Google LLC. All Rights Reserved.
 
 NotoSansCJKsc-Subset.otf: Noto Sans CJK SC, cut down to its common Chinese, Japanese and Korean characters
