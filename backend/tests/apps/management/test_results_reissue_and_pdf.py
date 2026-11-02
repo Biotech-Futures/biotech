@@ -2,8 +2,12 @@
 certificates as PDFs in those emails and every download while the converter
 is set (apps.management.services.certificate_pdf), Word files otherwise."""
 import io
+import threading
+import time
 import zipfile
 from unittest import mock
+
+from fpdf import FPDF
 
 import requests
 from django.core import mail
@@ -22,13 +26,31 @@ from tests.apps.management import test_results_emails as base
 from tests.apps.management.test_results_emails import LOCMEM, SEND, _files
 
 CONVERTER = "http://localhost:3000"
-PDF_BYTES = b"%PDF-1.7 a certificate"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
-def converted(*_args, **_kwargs):
-    answer = mock.Mock(status_code=200, content=PDF_BYTES)
-    return answer
+def pdf_of(text: str) -> bytes:
+    """A real PDF reading ``text``, as a converter would make it."""
+    document = FPDF()
+    document.add_page()
+    document.set_font("helvetica", size=12)
+    document.multi_cell(0, 8, text.encode("latin-1", "replace").decode("latin-1") or " ")
+    return bytes(document.output())
+
+
+def converted(*_args, files=None, **_kwargs):
+    """Gotenberg, as far as it matters here: the certificate's own words, as a PDF."""
+    name, docx = files["files"]
+    return mock.Mock(status_code=200, content=pdf_of(certificate_pdf._docx_text(docx)))
+
+
+def is_pdf(data: bytes) -> bool:
+    return data.startswith(b"%PDF")
+
+
+def rest_cleared():
+    """The converter not resting after another test's failure."""
+    certificate_pdf._resting_until = 0.0
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM, CERTIFICATE_PDF_URL="")
@@ -38,6 +60,7 @@ class ResultsTestCase(_GradingFixture):
 
     def setUp(self):
         base.ResultsEmailTests.setUp(self)
+        rest_cleared()
 
     def send(self, audience, which=""):
         r = self.client.post(reverse(SEND), {"audience": audience, "which": which}, format="json")
@@ -98,7 +121,7 @@ class CertificatePdfTests(ResultsTestCase):
         files = _files(mail.outbox[0])
         self.assertTrue(self.certificates(files))
         self.assertTrue(all(name.endswith(".pdf") for name in self.certificates(files)))
-        self.assertTrue(all(files[name] == PDF_BYTES for name in self.certificates(files)))
+        self.assertTrue(all(is_pdf(files[name]) for name in self.certificates(files)))
         self.assertEqual([name for name in files if "Marks" in name and name.endswith(".docx")], [
             name for name in files if "Marks" in name
         ])
@@ -132,7 +155,7 @@ class CertificatePdfTests(ResultsTestCase):
                 names = archive.namelist()
                 self.assertTrue(names)
                 self.assertTrue(all(name.endswith(".pdf") for name in names), names)
-                self.assertTrue(all(archive.read(name) == PDF_BYTES for name in names))
+                self.assertTrue(all(is_pdf(archive.read(name)) for name in names))
 
             student = GroupMembership.objects.filter(group=self.group, membership_role="student").first().user
             one = self.client.get(reverse("management:all-results-certificate", args=[self.group.id, student.id]))
@@ -158,26 +181,89 @@ class CertificatePdfTests(ResultsTestCase):
         # Only certificates: the marks summary stays a Word file.
         self.assertEqual(marks["Content-Type"], DOCX_MIME)
 
-class ConverterTests(_GradingFixture):
-    @override_settings(CERTIFICATE_PDF_URL=CONVERTER + "/", CERTIFICATE_PDF_TIMEOUT_SECONDS=12)
-    def test_it_asks_gotenberg_and_takes_only_a_real_pdf(self):
-        with mock.patch.object(certificate_pdf.requests, "post", side_effect=converted) as post:
-            self.assertEqual(
-                certificate_pdf.as_pdf("2026_BTF_Student_Certificate_Amy.docx", b"PK word", DOCX_MIME),
-                ("2026_BTF_Student_Certificate_Amy.pdf", PDF_BYTES, certificate_pdf.PDF),
-            )
-        self.assertEqual(post.call_args.args[0], f"{CONVERTER}/forms/libreoffice/convert")
-        self.assertEqual(post.call_args.kwargs["timeout"], 12)
+def word_file(*paragraphs: str) -> bytes:
+    """A small certificate Word file holding ``paragraphs``."""
+    from docx import Document
 
-        not_pdf = mock.Mock(status_code=200, content=b"<html>error</html>")
-        with mock.patch.object(certificate_pdf.requests, "post", return_value=not_pdf):
-            self.assertEqual(
-                certificate_pdf.as_pdf("2026_BTF_Student_Certificate_Amy.pdf", b"PK word", DOCX_MIME),
-                ("2026_BTF_Student_Certificate_Amy.docx", b"PK word", DOCX_MIME),
-            )
+    document = Document()
+    for text in paragraphs:
+        document.add_paragraph(text)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+CERTIFICATE = word_file("Certificate of Participation", "Amy Chen", "A Soil Sensor for Small Farms")
+NAME = "2026_BTF_Student_Certificate_Amy_Chen.docx"
+
+
+@override_settings(CERTIFICATE_PDF_URL=CONVERTER + "/", CERTIFICATE_PDF_TIMEOUT_SECONDS=12)
+class ConverterTests(_GradingFixture):
+    def setUp(self):
+        rest_cleared()
+        pause = mock.patch.object(certificate_pdf.time, "sleep")
+        pause.start()
+        self.addCleanup(pause.stop)
+
+    def post(self, *answers):
+        return mock.patch.object(certificate_pdf.requests, "post", side_effect=list(answers))
+
+    def test_it_asks_gotenberg_and_takes_a_pdf_that_reads_as_the_certificate(self):
+        with mock.patch.object(certificate_pdf.requests, "post", side_effect=converted) as post:
+            name, data, mimetype = certificate_pdf.as_pdf(NAME, CERTIFICATE, DOCX_MIME)
+        self.assertEqual((name, mimetype), ("2026_BTF_Student_Certificate_Amy_Chen.pdf", certificate_pdf.PDF))
+        self.assertTrue(is_pdf(data))
+        self.assertEqual(post.call_args.args[0], f"{CONVERTER}/forms/libreoffice/convert")
+        self.assertEqual(post.call_args.kwargs["timeout"], (5, 12))
+
+    def test_a_pdf_whose_text_is_unreadable_is_not_sent(self):
+        # What a font the converter lacks can do: the words don't come through.
+        unreadable = mock.Mock(status_code=200, content=pdf_of("~~~ ### ~~~"))
+        with self.post(unreadable):
+            self.assertEqual(certificate_pdf.as_pdf(NAME, CERTIFICATE, DOCX_MIME), (NAME, CERTIFICATE, DOCX_MIME))
+        self.assertFalse(certificate_pdf.legible(CERTIFICATE, b"%PDF-1.7 not really"))
+
+    def test_text_reads_back_however_the_converter_spaced_it(self):
+        squashed = pdf_of("CertificateofParticipation AmyChen ASoilSensorforSmallFarms")
+        self.assertTrue(certificate_pdf.legible(CERTIFICATE, squashed))
+
+    def test_something_else_than_a_pdf_leaves_the_word_file(self):
+        with self.post(mock.Mock(status_code=200, content=b"<html>error</html>")):
+            self.assertEqual(certificate_pdf.as_pdf(NAME, CERTIFICATE, DOCX_MIME), (NAME, CERTIFICATE, DOCX_MIME))
+
+    def test_a_hiccup_is_tried_once_more(self):
+        with mock.patch.object(certificate_pdf.requests, "post", side_effect=[requests.ConnectionError("blip"), converted(files={"files": (NAME, CERTIFICATE)})]) as post:
+            name, _, _ = certificate_pdf.as_pdf(NAME, CERTIFICATE, DOCX_MIME)
+        self.assertEqual((name, post.call_count), ("2026_BTF_Student_Certificate_Amy_Chen.pdf", 2))
+
+    def test_after_a_failure_the_converter_is_left_alone_for_a_minute(self):
+        down = requests.ConnectionError("down")
+        with self.post(down, down) as post:
+            certificate_pdf.as_pdf(NAME, CERTIFICATE, DOCX_MIME)
+            # The next certificates go straight to Word, with no waiting on it.
+            for _ in range(3):
+                self.assertEqual(certificate_pdf.as_pdf(NAME, CERTIFICATE, DOCX_MIME)[0], NAME)
+        self.assertEqual(post.call_count, 2)
+
+        certificate_pdf._resting_until = time.monotonic() - 1
+        with mock.patch.object(certificate_pdf.requests, "post", side_effect=converted):
+            self.assertTrue(certificate_pdf.as_pdf(NAME, CERTIFICATE, DOCX_MIME)[0].endswith(".pdf"))
+
+    def test_a_batch_past_its_time_leaves_the_rest_as_word_files_in_order(self):
+        def slow(*args, files=None, **kwargs):
+            # A real wait: time.sleep is stubbed out for the retry's pause.
+            if files["files"][0].startswith("late"):
+                threading.Event().wait(0.6)
+            return converted(files=files)
+
+        batch = [(f"{when}{i}.docx", CERTIFICATE, DOCX_MIME) for i, when in enumerate(["quick", "quick", "late", "late"])]
+        with mock.patch.object(certificate_pdf.requests, "post", side_effect=slow):
+            started = time.monotonic()
+            done = certificate_pdf.many_as_pdf(batch, budget_seconds=0.3)
+        self.assertLess(time.monotonic() - started, 0.55)
+        self.assertEqual([name for name, _, _ in done], ["quick0.pdf", "quick1.pdf", "late2.docx", "late3.docx"])
 
     def test_names_follow_whether_the_converter_is_set(self):
         with override_settings(CERTIFICATE_PDF_URL=""):
             self.assertEqual(certificate_pdf.extension(), "docx")
-        with override_settings(CERTIFICATE_PDF_URL=CONVERTER):
-            self.assertEqual(certificate_pdf.extension(), "pdf")
+        self.assertEqual(certificate_pdf.extension(), "pdf")

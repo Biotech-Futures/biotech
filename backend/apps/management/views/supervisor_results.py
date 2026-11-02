@@ -19,6 +19,7 @@ import io
 import zipfile
 from decimal import Decimal
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
 from rest_framework import permissions, status
@@ -298,10 +299,12 @@ def _zip_response(scope: _Scope, filename: str):
         made = [(file.name, file.make(), file.mimetype) for file in files]
     except TemplateNotConfigured:
         return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-    # PDFs while the converter is set, a few at a time; any it can't convert stay Word files.
+    # PDFs while the converter is set, a few at a time; any it can't convert, or
+    # not in time to answer inside the request limit, stay Word files.
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for name, data, _mimetype in certificate_pdf.many_as_pdf(made):
+        budget = float(getattr(settings, "CERTIFICATE_PDF_ZIP_BUDGET_SECONDS", 150))
+        for name, data, _mimetype in certificate_pdf.many_as_pdf(made, budget_seconds=budget):
             archive.writestr(name, data)
     return _file(buffer.getvalue(), filename, "application/zip")
 

@@ -366,12 +366,15 @@ class ResultsFile:
     make: Callable[[], bytes]
     certificate: bool = False
 
-    def attachment(self) -> tuple[str, bytes, str]:
-        """``(name, data, mimetype)``, made now; a certificate converted, or its Word file if that fails."""
-        data = self.make()
-        if self.certificate and certificate_pdf.enabled():
-            return certificate_pdf.as_pdf(self.name, data, self.mimetype)
-        return self.name, data, self.mimetype
+
+def attachments(planned: list[ResultsFile]) -> list[tuple[str, bytes, str]]:
+    """Each file made, as ``(name, data, mimetype)``: the certificates
+    converted together (certificate_pdf), each a Word file if it can't be."""
+    made = [(f.name, f.make(), f.mimetype, f.certificate) for f in planned]
+    if not certificate_pdf.enabled():
+        return [(name, data, mimetype) for name, data, mimetype, _ in made]
+    converted = iter(certificate_pdf.many_as_pdf([(n, d, m) for n, d, m, certificate in made if certificate]))
+    return [next(converted) if certificate else (n, d, m) for n, d, m, certificate in made]
 
 
 def file_name(year: int, kind: str, name: str, extension: str) -> str:
@@ -690,7 +693,7 @@ def _send_item(
             rendered = render_supervisor_email(person_name(item), result.year)
             planned = supervisor_files(docs, result, item)
         # Made once, for the one email.
-        files = [f.attachment() for f in planned]
+        files = attachments(planned)
     except Exception:  # noqa: BLE001
         logger.exception("results email: failed to render %s", who)
         return [{"who": label, "reason": NOT_SENT} for label in people.values()]
