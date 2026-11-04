@@ -77,8 +77,14 @@ onBeforeUnmount(() => {
 <style scoped>
 .analytics-export-menu {
   position: relative;
+  z-index: 1000;
   display: inline-flex;
   align-self: flex-end;
+  box-sizing: border-box;
+  width: 142px;
+  height: 46px;
+  margin: 0;
+  padding: 0;
 }
 
 /* Pages style their own export button with scoped CSS, which does not reach
@@ -87,17 +93,31 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   gap: 8px;
+  width: 142px;
   min-width: 142px;
   height: 46px;
+  min-height: 46px;
+  max-height: 46px;
+  margin: 0;
   padding: 0 16px;
-  border: 1px solid var(--analytics-ui-control-border, #5ea99e);
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 12px;
   background: var(--analytics-ui-surface, #ffffff);
   color: var(--analytics-ui-accent, #017151);
   font: 700 14px Arial, sans-serif;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.export-button > .fas {
+  color: var(--analytics-ui-accent, #017151);
+  font-family: "Font Awesome 6 Free" !important;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .export-button:hover:not(:disabled) {
@@ -111,14 +131,14 @@ onBeforeUnmount(() => {
 
 .analytics-export-menu__chevron {
   margin-left: 2px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .analytics-export-menu__list {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 30;
+  z-index: 1100;
   display: grid;
   gap: 2px;
   width: 260px;
