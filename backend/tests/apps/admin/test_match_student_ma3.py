@@ -1,8 +1,13 @@
 """MA3: automatic student matching only ever forms brand new groups.
 
 Groups that already have members are off-limits to the matcher, no matter where
-they came from (CSV import, an admin, or an earlier run). Admins can still fill
-seats by hand through the groups app, which is a separate code path.
+they came from (CSV import, an admin, or an earlier run): match_student only
+ever proposes synthetic ``new-`` groups, and recommend_students_for_group
+refuses a group that has members.
+
+Admins fill seats by hand through the same confirm endpoint, and that is
+allowed. MA3 constrains what the matcher proposes, not what an admin may
+deliberately save.
 """
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError
@@ -93,7 +98,7 @@ class FormOnlyStudentMatchTests(TestCase):
         self.assertIn("groupsAtRunTime", run.rules_snapshot)
 
 
-class ConfirmRejectsFormedGroupsTests(TestCase):
+class ConfirmIntoFormedGroupsTests(TestCase):
     def setUp(self):
         self.formed_group = Groups.objects.create(group_name="Formed Group")
         self.empty_group = Groups.objects.create(group_name="Empty Group")
@@ -109,36 +114,45 @@ class ConfirmRejectsFormedGroupsTests(TestCase):
             membership_role=STUDENT_ROLE,
         )
 
-    def test_assignment_into_a_formed_group_is_refused(self):
-        with self.assertRaises(ValidationError) as caught:
+    def test_an_admin_can_add_an_ungrouped_student_to_a_group_with_members(self):
+        # The Add Students modal and the admin user screens place a standalone
+        # student into an existing group by hand, through this same endpoint.
+        # MA3 is about what the matcher proposes, so this is allowed to save.
+        result = confirm_student_assignments({
+            "assignments": [
+                {"studentId": self.students[1].id, "groupId": self.formed_group.id},
+            ]
+        })
+
+        self.assertEqual(result, {"assigned_count": 1})
+        self.assertEqual(
+            GroupMembership.objects.get(
+                user=self.students[1], left_at__isnull=True,
+            ).group_id,
+            self.formed_group.id,
+        )
+
+    def test_a_hand_add_still_cannot_push_a_group_past_five(self):
+        # check_room_for_students, not the removed guard, is what caps a group.
+        for index in range(4):
+            filler = User.objects.create_user(
+                email=f"filler{index}@example.com", first_name=f"F{index}",
+                last_name="Example", password="testpass",
+            )
+            GroupMembership.objects.create(
+                user=filler, group=self.formed_group, membership_role=STUDENT_ROLE,
+            )
+
+        with self.assertRaises(ValidationError):
             confirm_student_assignments({
                 "assignments": [
                     {"studentId": self.students[1].id, "groupId": self.formed_group.id},
                 ]
             })
 
-        self.assertIn("Formed Group", str(caught.exception))
-        self.assertFalse(
-            GroupMembership.objects.filter(user=self.students[1]).exists()
-        )
-
-    def test_one_formed_target_rejects_the_whole_payload(self):
-        with self.assertRaises(ValidationError):
-            confirm_student_assignments({
-                "assignments": [
-                    {
-                        "studentId": self.students[1].id,
-                        "groupId": f"new-{self.students[1].id}",
-                    },
-                    {"studentId": self.students[2].id, "groupId": self.formed_group.id},
-                ]
-            })
-
-        # Nothing was written: no new group, and neither student moved.
-        self.assertEqual(Groups.objects.count(), 2)
         self.assertFalse(
             GroupMembership.objects.filter(
-                user__in=self.students[1:3]
+                user=self.students[1], left_at__isnull=True,
             ).exists()
         )
 

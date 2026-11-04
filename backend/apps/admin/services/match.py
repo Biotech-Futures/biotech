@@ -713,69 +713,6 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     }
 
 
-def _reject_assignments_into_formed_groups(
-    assignments: List[Dict[str, Any]],
-    current: List[GroupMembership],
-) -> None:
-    """Refuse the whole confirm if any student is being placed into a group that
-    already has members (MA3).
-
-    The board is the only thing stopping this client-side, so the rule is enforced
-    here too — a hand-built request must not be able to merge a standalone student
-    into an existing group. Synthetic ``new-`` ids are the form path and are fine.
-    """
-    target_group_ids = set()
-    target_students_by_group: Dict[int, Set[int]] = defaultdict(set)
-    for item in assignments:
-        group_id = item['group_id']
-        if isinstance(group_id, str) and group_id.startswith('new-'):
-            continue
-        target_group_ids.add(group_id)
-        target_students_by_group[group_id].add(item['student_id'])
-
-    if not target_group_ids:
-        return
-
-    formed_group_ids = set(
-        GroupMembership.objects
-        .filter(group_id__in=target_group_ids, left_at__isnull=True)
-        .values_list('group_id', flat=True)
-    )
-    if not formed_group_ids:
-        return
-
-    current_by_group: Dict[int, Set[int]] = defaultdict(set)
-    target_by_student = {
-        item['student_id']: item['group_id']
-        for item in assignments
-    }
-    departing_group_ids = set()
-    for membership in current:
-        current_by_group[membership.group_id].add(membership.user_id)
-        if target_by_student.get(membership.user_id) != membership.group_id:
-            departing_group_ids.add(membership.group_id)
-
-    allowed_group_ids = departing_group_ids | {
-        group_id
-        for group_id, student_ids in target_students_by_group.items()
-        if student_ids <= current_by_group[group_id]
-    }
-    formed_group_ids -= allowed_group_ids
-    if not formed_group_ids:
-        return
-
-    names_by_id = dict(
-        Groups.objects.filter(id__in=formed_group_ids).values_list('id', 'group_name')
-    )
-    named = sorted(names_by_id.get(gid, str(gid)) for gid in formed_group_ids)
-    raise ValidationError({
-        "assignments": (
-            "Students cannot be matched into groups that already have members: "
-            + ", ".join(named)
-        )
-    })
-
-
 def confirm_student_assignments(input_data: Dict[str, Any], created_by=None) -> Dict[str, int]:
     """
     Confirm and finalize student assignments to groups.
@@ -899,8 +836,6 @@ def confirm_student_assignments(input_data: Dict[str, Any], created_by=None) -> 
                 check_room_for_students(groups[group_id], incoming[group_id], named=True)
             except DjangoValidationError as exc:
                 raise ValidationError({'assignments': list(exc.messages)}) from exc
-
-        _reject_assignments_into_formed_groups(assignments, current)
 
         # Create memberships
         memberships = [
