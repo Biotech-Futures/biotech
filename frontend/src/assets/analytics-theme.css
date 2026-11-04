@@ -1292,3 +1292,377 @@
   background-size: 12px 12px !important;
   text-overflow: ellipsis;
 }
+
+/* =========================================================
+   Analytics page header actions
+
+   Keep the year control and CSV action together on the first
+   row, with the refresh timestamp aligned beneath both. The
+   export stack previously took the width of the timestamp,
+   which pushed the CSV button away from the year selector.
+   ========================================================= */
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading {
+  --analytics-header-action-width: 142px;
+  --analytics-header-action-height: 46px;
+  position: relative;
+  z-index: 200;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: start !important;
+  gap: 24px !important;
+  margin-bottom: 22px !important;
+  overflow: visible;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions.page-actions.page-actions:has(> .analytics-export-stack) {
+  display: grid !important;
+  grid-template-columns: var(--analytics-header-action-width);
+  grid-template-rows: var(--analytics-header-action-height) auto;
+  align-items: start !important;
+  justify-content: end;
+  column-gap: 12px !important;
+  row-gap: 8px !important;
+  width: max-content !important;
+  max-width: 100%;
+  overflow: visible;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions.page-actions.page-actions > .analytics-export-stack.analytics-export-stack {
+  display: contents !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions.page-actions.page-actions .analytics-export-menu {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  justify-self: end;
+  width: var(--analytics-header-action-width) !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions.page-actions.page-actions .analytics-update-status {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  justify-self: end;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page
+) > .page-heading > .page-actions.page-actions.page-actions:has(
+  > :is(.date-range, .year-control, .range-control)
+) {
+  grid-template-columns: repeat(2, var(--analytics-header-action-width));
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page
+) > .page-heading > .page-actions.page-actions.page-actions:has(
+  > :is(.date-range, .year-control, .range-control)
+) .analytics-export-menu {
+  grid-column: 2;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page
+) > .page-heading > .page-actions.page-actions.page-actions > :is(.date-range, .year-control, .range-control) {
+  grid-column: 1;
+  grid-row: 1;
+  box-sizing: border-box;
+  width: var(--analytics-header-action-width) !important;
+  height: var(--analytics-header-action-height) !important;
+  min-height: var(--analytics-header-action-height) !important;
+  padding: 0 16px !important;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7) !important;
+  border-radius: 12px !important;
+  background: var(--analytics-ui-surface, #fff) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page
+) > .page-heading > .page-actions.page-actions.page-actions > :is(
+  .date-range,
+  .year-control,
+  .range-control
+) :is(select, span) {
+  color: inherit !important;
+  font: inherit !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page
+) > .page-heading > .page-actions.page-actions.page-actions > :is(
+  .date-range,
+  .year-control,
+  .range-control
+) i {
+  color: inherit !important;
+}
+
+/* Page-level Arial declarations must never replace Font Awesome's glyph font.
+   Keep the primary calendar/download icons visually identical on every page. */
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions :is(.fa-calendar, .fa-download) {
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  color: var(--analytics-ui-accent, #017151) !important;
+  font-family: "Font Awesome 6 Free" !important;
+  font-size: 16px !important;
+  font-style: normal !important;
+  font-weight: 900 !important;
+  line-height: 16px !important;
+  text-align: center !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions .analytics-export-menu__chevron {
+  color: var(--analytics-ui-accent, #017151) !important;
+  font-family: "Font Awesome 6 Free" !important;
+  font-size: 12px !important;
+  font-style: normal !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions .analytics-refresh-status {
+  color: var(--analytics-ui-muted, #536763) !important;
+  font: 400 13px/1.3 Arial, sans-serif !important;
+  letter-spacing: 0 !important;
+  text-align: right !important;
+}
+
+@media (max-width: 780px) {
+  :is(
+    .analytics-page,
+    .users-analytics-page,
+    .registration-analytics-page,
+    .groups-analytics-page,
+    .mentors-analytics-page,
+    .activity-analytics-page,
+    .messages-analytics-page,
+    .resources-analytics-page,
+    .email-monitoring-page
+  ) > .page-heading > .page-actions.page-actions.page-actions:has(> .analytics-export-stack) {
+    grid-template-columns: var(--analytics-header-action-width);
+    width: max-content !important;
+  }
+
+  :is(
+    .analytics-page,
+    .users-analytics-page,
+    .groups-analytics-page,
+    .mentors-analytics-page,
+    .activity-analytics-page,
+    .messages-analytics-page
+  ) > .page-heading > .page-actions.page-actions.page-actions:has(
+    > :is(.date-range, .year-control, .range-control)
+  ) {
+    grid-template-columns: repeat(2, minmax(0, var(--analytics-header-action-width)));
+    width: min(100%, 312px) !important;
+  }
+
+  :is(
+    .analytics-page,
+    .users-analytics-page,
+    .groups-analytics-page,
+    .mentors-analytics-page,
+    .activity-analytics-page,
+    .messages-analytics-page
+  ) > .page-heading > .page-actions.page-actions.page-actions > :is(.date-range, .year-control, .range-control) {
+    width: var(--analytics-header-action-width) !important;
+  }
+}
+
+/* Final header rhythm lock. Page-scoped styles previously left slightly
+   different space between the action row and "Last updated". These metrics
+   deliberately match the Messages Analytics header on every analytics page. */
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions.page-actions.page-actions:has(> .analytics-export-stack) {
+  grid-template-rows: 46px 17px !important;
+  row-gap: 8px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions.page-actions.page-actions :is(
+  .analytics-export-menu,
+  .export-button
+) {
+  box-sizing: border-box !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  max-height: 46px !important;
+  margin: 0 !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page
+) > .page-heading > .page-actions.page-actions.page-actions > :is(
+  .date-range,
+  .year-control,
+  .range-control
+) {
+  box-sizing: border-box !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  max-height: 46px !important;
+  margin: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) > .page-heading > .page-actions.page-actions.page-actions :is(
+  .analytics-update-status,
+  .analytics-refresh-status
+) {
+  box-sizing: border-box !important;
+  height: 17px !important;
+  min-height: 17px !important;
+  max-height: 17px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font: 400 13px/17px Arial, sans-serif !important;
+  line-height: 17px !important;
+}
