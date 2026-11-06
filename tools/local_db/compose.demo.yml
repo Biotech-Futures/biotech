@@ -1,0 +1,59 @@
+x-demo-environment: &demo-environment
+  DJANGO_SETTINGS_MODULE: django_settings
+  PYTHONPATH: /workspace/backend:/workspace/tools/local_db
+  DEBUG: 'true'
+  DB_NAME: ${DEMO_DB_NAME:?}
+  DB_USER: biotech_preview
+  DB_PASSWORD: ${PREVIEW_DB_PASSWORD:?}
+  DB_HOST: postgres
+  DB_PORT: '5432'
+  LOCAL_DB_TOOL_GUARD: BIOTECH_LOCAL_SYNTHETIC_DATA_ONLY
+  LOCAL_DB_EXPECTED_NAME: ${DEMO_DB_NAME:?}
+  LOCAL_DB_EXPECTED_HOST: postgres
+  LOCAL_DB_LOGIN_PASSWORD: LocalOnly!2026
+  LOCAL_DB_ADMIN_PASSWORD: admin123
+  LOCAL_DB_STUDENT_PASSWORD: student123
+  SCHEDULER_ENABLED: 'false'
+  EMAIL_PRECHECK_ENABLED: 'false'
+  EMAIL_CHECK_ON_EDIT: 'false'
+
+services:
+  backend:
+    command: ['manage.py', 'runserver', '0.0.0.0:8000', '--noreload', '--settings=preview_settings']
+    volumes:
+      - ${BIOTECH_SOURCE_ROOT:?}:/workspace:ro
+      - ${DEMO_RUNTIME_DIR:?}/files:/runtime
+    environment:
+      <<: *demo-environment
+      DJANGO_SETTINGS_MODULE: preview_settings
+
+  local-db-tool:
+    image: biotech-llm-preview:20261027
+    entrypoint: ['python', '-B', '/workspace/tools/local_db/cli.py']
+    working_dir: /workspace
+    profiles: [tools]
+    environment: *demo-environment
+    volumes:
+      - ${BIOTECH_SOURCE_ROOT:?}:/workspace:ro
+    networks: [preview]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  local-db-gui:
+    image: biotech-llm-preview:20261027
+    entrypoint: ['python', '-B', '/workspace/tools/local_db/gui_server.py']
+    working_dir: /workspace
+    profiles: [tools]
+    environment:
+      <<: *demo-environment
+      LOCAL_DB_GUI_PORT: '8766'
+    ports: ['127.0.0.1:8766:8766']
+    volumes:
+      - ${BIOTECH_SOURCE_ROOT:?}:/workspace:ro
+    # Docker Desktop needs a non-internal network to publish a loopback port.
+    # This service has no AI secret and django_settings disables integrations.
+    networks: [preview, api]
+    depends_on:
+      postgres:
+        condition: service_healthy

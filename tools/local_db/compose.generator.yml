@@ -1,0 +1,50 @@
+x-local-db-build: &local-db-build
+  context: .
+  dockerfile: tools/local_db/Dockerfile
+
+x-local-db-environment: &local-db-environment
+  DJANGO_SETTINGS_MODULE: django_settings
+  PYTHONPATH: /workspace/backend:/workspace/tools/local_db
+  DEBUG: "true"
+  # Legacy overlay is fail-closed. Use run/start-demo.command, which selects
+  # the isolated preview project and saved demo database automatically.
+  DB_NAME: ${DEMO_DB_NAME:?Use tools/local_db/run or start-demo.command}
+  DB_USER: biotech_preview
+  DB_PASSWORD: ${PREVIEW_DB_PASSWORD:?Use the demo launcher}
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_SSLMODE: disable
+  LOCAL_DB_TOOL_GUARD: BIOTECH_LOCAL_SYNTHETIC_DATA_ONLY
+  LOCAL_DB_EXPECTED_NAME: ${DEMO_DB_NAME:?Use the demo launcher}
+  LOCAL_DB_EXPECTED_HOST: postgres
+  LOCAL_DB_LOGIN_PASSWORD: LocalOnly!2026
+  LOCAL_DB_ADMIN_PASSWORD: admin123
+  LOCAL_DB_STUDENT_PASSWORD: student123
+
+x-local-db-service: &local-db-service
+  build: *local-db-build
+  init: true
+  working_dir: /workspace
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment: *local-db-environment
+  volumes:
+    - .:/workspace:ro
+
+services:
+  local-db-tool:
+    <<: *local-db-service
+
+  local-db-gui:
+    <<: *local-db-service
+    entrypoint:
+      - python
+      - -B
+      - /workspace/tools/local_db/gui_server.py
+    environment:
+      <<: *local-db-environment
+      LOCAL_DB_GUI_PORT: "8765"
+    ports:
+      - "127.0.0.1:8765:8765"
+    restart: "no"

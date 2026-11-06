@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>BIOTech Local Dataset Generator · 本地数据生成器</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Team 2 · Internal development tool</p>
+          <h1>Local analytics dataset</h1>
+          <p class="hero-copy">
+            Configure a deterministic dataset and load it into the project’s local Docker PostgreSQL.
+          </p>
+        </div>
+        <div class="local-badge" aria-label="Local Docker only">
+          <span class="status-dot"></span>
+          Local Docker only
+        </div>
+      </header>
+
+      <main>
+        <section class="notice" aria-labelledby="safety-heading">
+          <div class="notice-icon" aria-hidden="true">!</div>
+          <div>
+            <h2 id="safety-heading">Rebuild the local demo database</h2>
+            <p>
+              Each generation clears all existing data in the current local demo database,
+              rebuilds its tables, and writes your configured dataset. This includes records
+              created while trying the demo. Other databases are not changed.
+            </p>
+          </div>
+        </section>
+
+        <details class="panel usage-guide" id="usage-guide" data-localized>
+          <summary>
+            Detailed usage guide
+            <span class="zh-copy" lang="zh-CN">详细使用指南</span>
+            <span class="guide-summary-hint">Expand for steps, field meanings, email examples, dates and troubleshooting.<span class="zh-copy" lang="zh-CN">点击展开：操作步骤、字段含义、邮件样例、时间设置与常见问题。</span></span>
+          </summary>
+          <div class="guide-content">
+            <section class="guide-section">
+              <h3>Four steps to prepare your demo<span class="zh-copy" lang="zh-CN">第一次使用：按这四步操作</span></h3>
+              <ol class="quick-steps">
+                <li>Load the current database configuration or restore the form defaults. Neither action changes database data.<span class="zh-copy" lang="zh-CN"><strong>先选择起点。</strong>想沿用当前库，点击页面底部「载入到手动模式」；想重新配置，点击「恢复默认参数」。这两个按钮都只修改表单，不会写数据库。</span></li>
+                <li>Choose Manual mode for exact field-by-field settings, or Automatic mode for a student count and variation. Each mode has its own generation button.<span class="zh-copy" lang="zh-CN"><strong>选择生成模式。</strong>手动模式可逐项配置数量、邮件和时间；自动模式只填写学生数与浮动比例。两种模式各有生成按钮，切换时互不覆盖参数。</span></li>
+                <li>In Manual mode, check the dates. Automatic mode uses the current clock. Review the quantities, then use the selected mode's generation button and confirm the reset.<span class="zh-copy" lang="zh-CN"><strong>检查时间再生成。</strong>手动模式展示当天邮件统计时可点「使用最近 24 小时」；自动模式使用当前时间。查看数量预览，再点击当前模式的生成按钮并确认清库。</span></li>
+                <li>After success, reload the demo website and sign in again so it reads the new data.<span class="zh-copy" lang="zh-CN"><strong>等待成功，再登录网站。</strong>进度显示「生成成功 / succeeded」后，刷新演示网站并重新登录，避免继续显示旧缓存或已失效的会话。</span></li>
+              </ol>
+            </section>
+            <div class="guide-grid">
+              <section class="guide-section">
+                <h3>Announcements and email batches are separate<span class="zh-copy" lang="zh-CN">公告条数 ≠ 邮件批次数</span></h3>
+                <p>An announcement is content, a batch is one send, and each recipient outcome belongs to one address in that send. Both content and recipients may be reused across batches.<span class="zh-copy" lang="zh-CN">公告是一条内容；邮件批次是一轮发送；收件人结果是一轮发送中每个地址的结果。同一公告可以发送多次，同一个人也可以出现在多个批次中。</span></p>
+                <p>Analytics preset adds as many system batches as announcement batches: 24 + 24 = 48. It supplies varied audiences and edge cases.<span class="zh-copy" lang="zh-CN"><strong>统计演示预设：</strong>预设公告批次填 24，会再增加 24 批系统邮件，合计 48 批。适合展示不同角色、小组受众和边界情况，人数与结果由预设规则安排。</span></p>
+                <p>Custom batches uses the exact total. Announcement quantities stay independent; explicit recipients keep counts and details aligned.<span class="zh-copy" lang="zh-CN"><strong>自定义批次：</strong>邮件总批次填 48，最终就是 48 批，不会翻倍。公告数量独立；自定义公告按具体账号确定收件人，保证统计与明细一致。</span></p>
+              </section>
+              <section class="guide-section">
+                <h3>Delivery outcomes and Random buttons<span class="zh-copy" lang="zh-CN">投递结果与随机按钮</span></h3>
+                <p>All delivered or All failed applies to every recipient. Partial delivery needs at least two people; failures are half the count rounded down. For 27 people: 14 delivered and 13 failed.<span class="zh-copy" lang="zh-CN"><strong>全部成功 / 全部失败：</strong>每批全部收件人使用该结果。<strong>部分成功：</strong>至少 2 人，失败人数为一半向下取整；例如每批 27 人，得到 14 成功、13 失败。</span></p>
+                <p>Mixed rotates types and outcomes across batches. With one recipient, Mixed results use only success and failure.<span class="zh-copy" lang="zh-CN"><strong>混合：</strong>类型在九类之间轮换；结果在成功、部分成功、失败之间轮换。只有 1 名收件人时，不会生成「部分成功」。</span></p>
+                <p>Each Random button changes only its adjacent visible setting. It does not generate data or randomize every batch independently.<span class="zh-copy" lang="zh-CN"><strong>随机：</strong>只修改旁边那一项，结果立即显示，可以继续手动修改。它不会直接生成数据，也不是逐批随机；生成时会使用最终表单值。</span></p>
+              </section>
+              <section class="guide-section">
+                <h3>Recipient counts and totals<span class="zh-copy" lang="zh-CN">每批人数与统计总量</span></h3>
+                <p>Recipients are distinct active synthetic users within each batch. The default 158 accounts include 81 active users; the field displays the current capacity.<span class="zh-copy" lang="zh-CN">每批只选择不同的<strong>活跃合成账号</strong>，所以人数上限不是所有账号数。默认 158 个账号中有 81 个活跃账号；调整用户数量后，字段下方会显示新的上限。</span></p>
+                <p>48 batches × 27 people creates 1296 recipient outcomes, not 1296 unique people. Total outcomes are limited to 2,000,000.<span class="zh-copy" lang="zh-CN">例如 <strong>48 批 × 每批 27 人＝1296 条收件人结果</strong>，不代表 1296 个不同的人。每批相同人数时，总量可直接这样核对；总收件人结果上限为 2,000,000 条。</span></p>
+                <p>Explicit rows excludes some derived relationships. Messages include soft-deleted examples that Analytics does not count as visible messages.<span class="zh-copy" lang="zh-CN">「基础记录数量合计」不包含自动衍生的全部档案、成员关系等行。消息还包含软删除样本，因此 Analytics 可见消息数可能小于输入的消息总数。</span></p>
+              </section>
+              <section class="guide-section">
+                <h3>Understanding UTC and the dataset clock<span class="zh-copy" lang="zh-CN">UTC 时间怎么填</span></h3>
+                <p>All three fields use UTC. Inputs are not interpreted as local time. At UTC+11, local 14:30 corresponds to 03:30 UTC.<span class="zh-copy" lang="zh-CN">首批、末批和数据时钟都使用 <strong>UTC</strong>，不会自动把输入当成本地时间转换。例如当地时差为 UTC+11 时，本地 14:30 对应 UTC 03:30。</span></p>
+                <p>Batch times are evenly spaced, at least one second apart; one batch uses the first time. The dataset clock anchors the whole dataset, and the last batch must finish at least 20 seconds before it.<span class="zh-copy" lang="zh-CN"><strong>首批／末批</strong>决定邮件时间区间，批次在其中等间隔排列。多批次之间至少间隔 1 秒；单批次使用首批时间。<strong>数据时钟</strong>是整份样例的时间基准，末批至少早于它 20 秒。</span></p>
+                <p>Use recent 24 hours sets the clock to now and the interval to 23 hours ago through 5 minutes ago. Refresh these dates before your presentation; stored data does not move with the real clock.<span class="zh-copy" lang="zh-CN"><strong>使用最近 24 小时</strong>会把时钟设为现在，区间设为 23 小时前至 5 分钟前。正式展示滚动 24 小时指标前建议重新设置；数据不会随真实时间自动更新。</span></p>
+              </section>
+              <section class="guide-section">
+                <h3>Scenarios, seeds and configuration recovery<span class="zh-copy" lang="zh-CN">场景、种子与配置恢复</span></h3>
+                <p>Analytics coverage provides varied and edge-case examples. Uniform supports baseline totals. The seed changes assignments, not requested quantities.<span class="zh-copy" lang="zh-CN"><strong>统计覆盖场景</strong>包含未分组、无导师、活跃和不活跃等差异；<strong>均匀分布场景</strong>适合核对较均匀的基础总量。<strong>随机种子</strong>影响分配方式，不改变指定数量。</span></p>
+                <p>Load into manual mode restores saved settings and switches to Manual mode. Refresh rereads database status. Restore defaults resets the form. Only a confirmed generation writes to the database.<span class="zh-copy" lang="zh-CN"><strong>载入到手动模式</strong>会切换至手动模式，并把数据库里保存的数量、类型、日期和种子填回表单；<strong>刷新状态</strong>只重新读取库信息；<strong>恢复默认参数</strong>只恢复表单。只有点击生成并确认后才会写库。</span></p>
+                <p>Exact replay requires the same settings, seed and clock. The fingerprint checks reproducibility. The equivalent command uses the same configuration.<span class="zh-copy" lang="zh-CN">复现需要保持<strong>所有参数、种子和数据时钟</strong>相同。数据指纹用于核对生成结果，不是密码；等效命令可以复制到终端执行相同配置。</span></p>
+              </section>
+              <section class="guide-section">
+                <h3>Reset scope, sign-in and data boundaries<span class="zh-copy" lang="zh-CN">清库范围、登录与数据边界</span></h3>
+                <p>Generation clears all data, extra tables and sessions in the displayed local demo database, then rebuilds it. Other databases are unchanged. A failed reset rolls back completely.<span class="zh-copy" lang="zh-CN">每次生成都会清空下方显示的<strong>当前本地演示库</strong>，包括未知记录、额外表、旧登录会话；随后重建表结构并生成。其他数据库不会被清空，失败时整个事务回滚。</span></p>
+                <p>Reload the demo website and use Password Sign-in with the Admin or Student credentials shown above.<span class="zh-copy" lang="zh-CN">生成后刷新演示网站，选择 <strong>Password Sign-in</strong>。管理员：<code>synthetic.admin.0001@team4-synthetic.biotech.test</code>，密码 <code>admin123</code>；学生：<code>synthetic.student.0001@team4-synthetic.biotech.test</code>，密码 <code>student123</code>。</span></p>
+                <p>Generation does not send email. Delivery outcomes are samples; unsupported open and click metrics remain unavailable.<span class="zh-copy" lang="zh-CN">这些是合成记录，不会真正发送邮件。投递成功／失败只是样例结果；打开率、点击率等缺少真实来源的指标仍保持不可用，不能由生成器伪造。</span></p>
+              </section>
+            </div>
+            <section class="guide-section email-type-guide">
+              <h3>Email type reference<span class="zh-copy" lang="zh-CN">九种邮件类型对照</span></h3>
+              <dl class="type-reference">
+                <div><dt>Announcement<span class="zh-copy" lang="zh-CN">公告邮件</span></dt><dd>Delivery batches for announcement audiences.<span class="zh-copy" lang="zh-CN">公告向受众发送的批次统计。</span></dd></div>
+                <div><dt>Login code<span class="zh-copy" lang="zh-CN">登录验证码</span></dt><dd>Sample statistics for login-code emails.<span class="zh-copy" lang="zh-CN">验证码登录邮件的统计样例。</span></dd></div>
+                <div><dt>Password reset<span class="zh-copy" lang="zh-CN">密码重置</span></dt><dd>Sample statistics for password-reset emails.<span class="zh-copy" lang="zh-CN">重置密码邮件的统计样例。</span></dd></div>
+                <div><dt>Registration student<span class="zh-copy" lang="zh-CN">学生注册</span></dt><dd>Sample statistics for student registration notices.<span class="zh-copy" lang="zh-CN">学生注册通知的统计样例。</span></dd></div>
+                <div><dt>Registration mentor<span class="zh-copy" lang="zh-CN">导师注册</span></dt><dd>Sample statistics for mentor registration notices.<span class="zh-copy" lang="zh-CN">导师注册通知的统计样例。</span></dd></div>
+                <div><dt>Guardian consent request<span class="zh-copy" lang="zh-CN">监护人同意请求</span></dt><dd>Sample statistics for guardian consent requests.<span class="zh-copy" lang="zh-CN">请求监护人同意的邮件统计样例。</span></dd></div>
+                <div><dt>Unread messages<span class="zh-copy" lang="zh-CN">未读消息提醒</span></dt><dd>Sample statistics for unread-message reminders.<span class="zh-copy" lang="zh-CN">提醒用户查看未读消息的统计样例。</span></dd></div>
+                <div><dt>Submission reminder<span class="zh-copy" lang="zh-CN">作品提交提醒</span></dt><dd>Sample statistics for submission reminders.<span class="zh-copy" lang="zh-CN">作品提交截止提醒的统计样例。</span></dd></div>
+                <div><dt>RSVP reminder<span class="zh-copy" lang="zh-CN">活动报名提醒</span></dt><dd>Sample statistics for event-registration reminders.<span class="zh-copy" lang="zh-CN">活动报名相关提醒的统计样例。</span></dd></div>
+              </dl>
+            </section>
+          </div>
+        </details>
+
+        <section class="panel mode-panel" aria-labelledby="mode-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="mode-heading">Generation mode</h2>
+              <p>Choose one independent configuration. Switching modes preserves both sets of inputs.</p>
+            </div>
+          </div>
+          <div class="mode-switch" role="group" aria-label="Generation mode">
+            <button type="button" class="button button-quiet" id="mode-manual" aria-pressed="true" aria-controls="config-form" disabled>Manual mode</button>
+            <button type="button" class="button button-quiet" id="mode-auto" aria-pressed="false" aria-controls="scale-form" disabled>Automatic mode</button>
+          </div>
+        </section>
+
+        <form class="panel manual-mode" id="config-form" aria-labelledby="manual-heading" novalidate>
+          <div class="section-heading">
+            <div>
+              <h2 id="manual-heading">Manual configuration</h2>
+              <p>Set quantities, email settings and dates below, then use the manual generation button.</p>
+            </div>
+          </div>
+          <section class="manual-section" aria-labelledby="quantity-heading">
+            <div class="section-heading">
+              <div>
+                <h3 id="quantity-heading">Data quantities</h3>
+                <p>Set the explicit row counts. Related profiles and memberships are derived automatically.</p>
+              </div>
+              <button type="button" class="button button-quiet" id="reset-defaults" disabled>
+                Restore defaults
+              </button>
+            </div>
+            <div class="field-grid" id="count-fields"></div>
+          </section>
+
+          <section class="manual-section" aria-labelledby="email-heading">
+            <div class="section-heading">
+              <div>
+                <h3 id="email-heading">Announcements &amp; email batches</h3>
+                <p>Set announcement quantities independently. Custom batches let you control email data without sending mail.</p>
+              </div>
+            </div>
+            <div class="distribution-grid" id="email-quantity-fields">
+              <label class="field-card" for="email-mode">
+                <span class="field-label">Email generation</span>
+                <select id="email-mode" name="email_mode" disabled>
+                  <option value="coverage">Analytics preset</option>
+                  <option value="custom">Custom batches</option>
+                </select>
+                <span class="field-help">Choose Custom batches to edit timing, type, result and recipients.</span>
+              </label>
+              <label class="field-card" for="email-batches" id="custom-batch-card" hidden>
+                <span class="field-label">Total email batches</span>
+                <input id="email-batches" name="email_batches" type="number" min="0" max="2000000" step="1" disabled />
+                <span class="field-help">Exact total across all selected types. No additional batches are added.</span>
+              </label>
+            </div>
+            <div id="email-custom-fields" hidden>
+              <div class="distribution-grid email-fields">
+                <label class="field-card" for="email-start">
+                  <span class="field-label">First batch (UTC)</span>
+                  <input id="email-start" name="email_start" type="datetime-local" step="1" disabled />
+                  <span class="field-help">Batches are evenly spaced from the first to the last time.</span>
+                </label>
+                <label class="field-card" for="email-end">
+                  <span class="field-label">Last batch (UTC)</span>
+                  <input id="email-end" name="email_end" type="datetime-local" step="1" disabled />
+                  <span class="field-help">Allow at least 1 second between batches and 20 seconds to complete the final send.</span>
+                </label>
+                <div class="field-card">
+                  <span class="field-label">Recent demo data</span>
+                  <button type="button" class="button button-quiet" id="email-recent" disabled>Use recent 24 hours</button>
+                  <span class="field-help">Sets the dataset clock to now, with batches from 23 hours ago to 5 minutes ago.</span>
+                </div>
+              </div>
+              <div class="distribution-grid email-fields email-option-fields">
+                <div class="field-card">
+                  <label class="field-label" for="email-type">Email type</label>
+                  <div class="random-control">
+                    <select id="email-type" name="email_type" disabled></select>
+                    <button type="button" class="button button-quiet" id="random-email-type" aria-label="Random email type" disabled>Random</button>
+                  </div>
+                  <span class="field-help">One type for every batch, or a balanced mix of all nine types.</span>
+                </div>
+                <div class="field-card">
+                  <label class="field-label" for="email-status">Delivery result</label>
+                  <div class="random-control">
+                    <select id="email-status" name="email_status" disabled></select>
+                    <button type="button" class="button button-quiet" id="random-email-status" aria-label="Random delivery result" disabled>Random</button>
+                  </div>
+                  <span class="field-help">Partially delivered splits recipients between success and failure; it requires at least two.</span>
+                </div>
+                <div class="field-card">
+                  <label class="field-label" for="email-recipients">Recipients per batch</label>
+                  <div class="random-control">
+                    <input id="email-recipients" name="email_recipients" type="number" min="1" step="1" disabled />
+                    <button type="button" class="button button-quiet" id="random-email-recipients" aria-label="Random recipient count" disabled>Random</button>
+                  </div>
+                  <span class="field-help" id="email-recipient-help">Distinct active synthetic users in each batch.</span>
+                </div>
+              </div>
+              <p class="email-note">Each Random button fills a visible value that applies to all batches. You can edit it again before generating. Custom announcements target these recipients individually; use the Analytics preset for role/group audience examples.</p>
+            </div>
+            <p class="email-summary" id="email-summary" aria-live="polite"></p>
+          </section>
+
+          <section class="manual-section" aria-labelledby="distribution-heading">
+            <div class="section-heading">
+              <div>
+                <h3 id="distribution-heading">Data distribution</h3>
+                <p>Choose a versioned scenario, then keep or change its seed and clock for a repeatable dataset.</p>
+              </div>
+            </div>
+            <div class="distribution-grid">
+              <label class="field-card" for="scenario">
+                <span class="field-label" id="scenario-label">Scenario</span>
+                <select id="scenario" name="scenario" required disabled></select>
+                <span class="field-help" id="scenario-help">
+                  Loading the available dataset scenarios…
+                </span>
+              </label>
+              <label class="field-card" for="seed">
+                <span class="field-label">Random seed</span>
+                <input id="seed" name="seed" type="text" inputmode="numeric" autocomplete="off" disabled />
+                <span class="field-help">
+                  Changes interest selection and message-sender assignment deterministically.
+                </span>
+              </label>
+              <label class="field-card" for="as-of">
+                <span class="field-label">Dataset clock (UTC)</span>
+                <input id="as-of" name="as_of" type="datetime-local" step="1" disabled />
+                <span class="field-help">
+                  Moves registration, activity, resource-access, announcement, and event dates.
+                </span>
+              </label>
+            </div>
+
+            <div class="summary-grid" aria-live="polite">
+              <div class="summary-card">
+                <span>Total users</span>
+                <strong id="total-users">—</strong>
+              </div>
+              <div class="summary-card">
+                <span>RSVP capacity</span>
+                <strong id="rsvp-capacity">—</strong>
+              </div>
+              <div class="summary-card">
+                <span>Explicit rows</span>
+                <strong id="explicit-rows">—</strong>
+              </div>
+            </div>
+
+            <div class="form-error" id="form-error" role="alert" hidden></div>
+
+            <div class="action-row">
+              <div class="action-copy">
+                <strong>Ready to clear and rebuild this local demo database?</strong>
+                <span>After generation, reload the demo website and sign in again.</span>
+              </div>
+              <button type="submit" class="button button-primary" id="generate-button" disabled>
+                Generate manual data
+              </button>
+            </div>
+          </section>
+        </form>
+
+        <form class="panel" id="scale-form" aria-labelledby="scale-heading" novalidate hidden>
+            <div class="section-heading">
+              <div>
+                <h2 id="scale-heading">Automatic generation</h2>
+                <p>Enter a student count and variation to calculate the whole demo dataset from the 120-student baseline.</p>
+              </div>
+            </div>
+            <div class="distribution-grid">
+              <label class="field-card" for="scale-students">
+                <span class="field-label">Target student count</span>
+                <input id="scale-students" type="number" min="1" max="10000" step="1" value="120" disabled />
+                <span class="field-help">Students stay at this exact count. Two demo administrators are retained.</span>
+              </label>
+              <label class="field-card" for="scale-variation">
+                <span class="field-label">Random variation (±%)</span>
+                <input id="scale-variation" type="number" min="0" max="50" step="0.1" value="10" disabled />
+                <span class="field-help">Each other quantity varies independently within this percentage, then rounds to a whole number. Use 0 for exact proportions.</span>
+              </label>
+              <div class="field-card">
+                <span class="field-label">120-student baseline</span>
+                <p class="field-help">720 messages · 600 logins · 1,200 resource accesses · 12 events · 48 email batches. At 1,000 students and ±0%: 6,000 · 5,000 · 10,000 · 100 · 400.</p>
+              </div>
+            </div>
+            <p class="email-note">Automatic mode uses Analytics coverage, mixed email examples and the current clock. Manual settings stay unchanged. Memberships and email recipients follow the generated audiences; their totals need not scale linearly.</p>
+            <div id="scale-error" class="form-error" role="alert" hidden></div>
+            <p id="scale-status" class="email-summary" aria-live="polite">Calculating preset…</p>
+            <div id="scale-preview" class="scale-preview" aria-live="polite"></div>
+            <div class="action-row">
+              <button type="button" class="button button-quiet" id="scale-reroll" disabled>Randomize again</button>
+              <div class="button-group">
+                <button type="submit" class="button button-primary" id="scale-generate" disabled>Generate automatic data</button>
+              </div>
+            </div>
+            <p class="email-note">Changing these inputs only updates this preview. Generate automatic data confirms the database reset, then generates exactly these quantities. It does not overwrite your manual settings.</p>
+          </form>
+
+        <section class="panel compact-panel" aria-labelledby="preview-heading">
+          <div class="section-heading inline-heading">
+            <div>
+              <p class="section-number">CLI</p>
+              <h2 id="preview-heading">Equivalent command</h2>
+            </div>
+            <button type="button" class="button button-quiet" id="copy-command" disabled>Copy</button>
+          </div>
+          <pre id="command-preview" tabindex="0"></pre>
+          <p class="copy-status" id="copy-status" aria-live="polite"></p>
+        </section>
+
+        <section class="panel" aria-labelledby="job-heading">
+          <div class="section-heading inline-heading">
+            <div>
+              <p class="section-number">RUN</p>
+              <h2 id="job-heading">Generation status</h2>
+            </div>
+            <span class="state-pill state-idle" id="job-state">Idle</span>
+          </div>
+          <ol class="progress-list" id="job-messages">
+            <li>No generation job has been submitted in this GUI session.</li>
+          </ol>
+          <div class="job-error" id="job-error" role="alert" hidden></div>
+          <pre class="result-output" id="job-result" hidden></pre>
+        </section>
+
+        <section class="panel" aria-labelledby="database-heading">
+          <div class="section-heading inline-heading">
+            <div>
+              <p class="section-number">DB</p>
+              <h2 id="database-heading">Current database</h2>
+            </div>
+            <div class="button-group">
+              <button type="button" class="button button-quiet" id="load-current" disabled>
+                Load into manual mode
+              </button>
+              <button type="button" class="button button-quiet" id="refresh-status" disabled>
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div id="database-status" class="database-status" aria-live="polite">
+            Checking the local database…
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        Runs entirely on this machine. Product code never imports from <code>tools/</code>.
+      </footer>
+    </div>
+
+    <script src="/i18n.js" defer></script>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
