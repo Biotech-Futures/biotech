@@ -31,6 +31,121 @@ ENTRIES = [
     # --- Admin ---------------------------------------------------------------
     {
         "roles": ADMIN,
+        "keywords": ["resource usage", "resource analytics", "resource statistics", "daily usage", "资源统计", "资源使用", "资源分析"],
+        "answer": (
+            "Open Analytics > Resources. It shows recorded clicks, unique users and active resources. "
+            "Use the date controls and resource selections to explore usage; search and audience filters "
+            "narrow the details table. Export CSV offers Summary, Details and Daily usage by resource. "
+            "Summary covers figures and charts; Details follows the table filters; Daily usage provides "
+            "per-resource daily facts. Audience means who can access a resource, not who clicked it."
+        ),
+        "links": [{"label": "Resources Analytics", "to": "/analytics/resources"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["export csv", "analytics export", "export statistics", "export analytics", "导出统计", "统计导出", "导出 csv"],
+        "answer": (
+            "Open the relevant Analytics page and select its year, dates and filters before Export CSV. "
+            "Summary includes the page's figures and charts with scope notes; Details, where offered, "
+            "exports the filtered records. Groups also exports students without a group; Resources "
+            "offers daily usage by resource. Email Logs has per-send recipient CSV downloads. "
+            "Read each export's dates and availability notes; unavailable values are not zero."
+        ),
+        "links": [{"label": "Analytics", "to": "/analytics"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["email monitoring", "email analytics", "delivery status", "recipient csv", "opened", "quota", "邮件统计", "邮件分析", "收件人", "打开率"],
+        "answer": (
+            "Analytics > Email Monitoring shows attempted, delivered and failed recipients in a rolling "
+            "24-hour window, with separate mailbox usage. Email Logs keeps the latest 100 sends per "
+            "email type; filter or search it and use a send's CSV to inspect captured recipients. "
+            "Opened, clicked and spam metrics are unavailable without provider events. "
+            "Role attribution uses an announcement's current single-role audience, not historical roles."
+        ),
+        "links": [{"label": "Email Monitoring", "to": "/analytics/email"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["activity analytics", "daily active", "weekly active", "monthly active", "dau", "wau", "mau", "活跃用户", "活跃度"],
+        "answer": (
+            "Analytics > Activity uses recorded login events. Daily, weekly and monthly active counts "
+            "are unique users over 1, 7 and 30 days ending on the selected date. Change dates, interval, "
+            "role or activity status to explore the records. These are login measures, not every kind "
+            "of platform engagement. Account deactivation is separate from login inactivity."
+        ),
+        "links": [{"label": "Activity Analytics", "to": "/analytics/activity"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["groups analytics", "group statistics", "without a mentor", "unassigned students", "分组统计", "未分组", "缺少导师"],
+        "answer": (
+            "Analytics > Groups shows group status, mentor coverage, student assignment and group sizes. "
+            "Its follow-up lists identify students without a group and groups without mentors. "
+            "Export CSV offers Summary, group Details and Students without a group. "
+            "Use the year control and read scope notes: current membership and historical activity "
+            "are different facts."
+        ),
+        "links": [{"label": "Groups Analytics", "to": "/analytics/groups"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["mentors analytics", "mentor statistics", "mentor utilisation", "mentor capacity", "导师统计", "导师容量"],
+        "answer": (
+            "Analytics > Mentors shows assignment, utilisation, available capacity and engagement. "
+            "Select the analytics year, inspect mentors with available capacity, and compare login "
+            "or message activity. Account status, group allocation and activity are distinct measures. "
+            "Export CSV offers a page Summary and one Details row per mentor with capacity, groups "
+            "and messages."
+        ),
+        "links": [{"label": "Mentors Analytics", "to": "/analytics/mentors"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["registration analytics", "registration statistics", "registration completion", "registration follow up", "注册统计", "注册完成", "监护人审批统计"],
+        "answer": (
+            "Analytics > Registration shows account creation trends, guardian completion and follow-up "
+            "records. Set trend dates and interval; choose Missing guardian details or Awaiting guardian "
+            "approval to filter the follow-up table. Clicking an age bucket also filters follow-up. "
+            "Summary exports page figures; Details exports the filtered students. Fully registered "
+            "here means guardian permission has been received."
+        ),
+        "links": [{"label": "Registration Analytics", "to": "/analytics/registration"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["messages analytics", "message analytics", "message statistics", "messages over time", "消息统计", "消息分析"],
+        "answer": (
+            "Analytics > Messages reports recorded messages by date, group and user. Set the date "
+            "range and interval, switch Groups or Users, and apply group or role filters. "
+            "Details and its CSV follow their selected scope. Read chart labels: all-time totals "
+            "and selected-period counts can differ. Current roles and memberships are not historical snapshots."
+        ),
+        "links": [{"label": "Messages Analytics", "to": "/analytics/messages"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["users analytics", "user statistics", "participant statistics", "users by role", "用户统计", "参与者统计"],
+        "answer": (
+            "Analytics > Users shows participant counts by role, login distribution, registration "
+            "trends, interests and regions. Choose a year and use Export CSV for Summary or Details. "
+            "Current account status and login recency are different measures; a past-year filter "
+            "does not reconstruct every historical role or group attribute."
+        ),
+        "links": [{"label": "Users Analytics", "to": "/analytics/users"}],
+    },
+    {
+        "roles": ADMIN,
+        "keywords": ["how many", "current count", "live data", "real time", "目前有多少", "实时数据", "查询数据库"],
+        "answer": (
+            "I explain how to use BIOTech Connect but cannot query its live database or read the "
+            "current dashboard figures. Open Analytics and the relevant page to see the recorded "
+            "counts, dates and last-updated time. I can explain the available filters, metrics and exports."
+        ),
+        "links": [{"label": "Analytics", "to": "/analytics"}],
+    },
+    {
+        "roles": ADMIN,
         "keywords": ["user", "account", "import", "csv", "add student", "add mentor", "role"],
         "answer": (
             "Admin > Users has tabs for Users, Students, Mentors and Supervisors. "
@@ -386,11 +501,14 @@ FALLBACK = {
 
 
 def _words(text):
-    return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
+    return " ".join(re.findall(r"[\w']+", text.lower()))
 
 
 def _score(entry, words):
-    return sum(1 for keyword in entry["keywords"] if re.search(r"\b" + re.escape(keyword), words))
+    return sum(
+        1 for keyword in entry["keywords"]
+        if re.search((r"\b" if keyword.isascii() else "") + re.escape(keyword), words)
+    )
 
 
 def visible_entries(role):

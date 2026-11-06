@@ -54,6 +54,29 @@ class AssistantAskTests(APITestCase):
         response = self.ask(user, "Where do I mark submissions?")
         self.assertIn({"label": "Grading", "to": "/grading"}, response.data["links"])
 
+    def test_admin_analytics_questions_point_to_the_relevant_report(self):
+        admin = self.user_with_role("analytics@example.com", "admin")
+        cases = [
+            ("How can I export resource usage statistics as CSV?", "/analytics/resources", "Daily usage"),
+            ("如何导出资源统计 CSV？", "/analytics/resources", "Daily usage"),
+            ("What do daily active and monthly active users mean?", "/analytics/activity", "login"),
+            ("Where are unassigned students in groups analytics?", "/analytics/groups", "Students without a group"),
+            ("How does email monitoring track opened emails?", "/analytics/email", "unavailable"),
+            ("How many active users do we have right now?", "/analytics", "cannot query"),
+        ]
+        for question, path, explanation in cases:
+            with self.subTest(question=question):
+                cache.clear()
+                response = self.ask(admin, question)
+                self.assertTrue(response.data["matched"])
+                self.assertIn(path, [link["to"] for link in response.data["links"]])
+                self.assertIn(explanation, response.data["answer"])
+
+    def test_participant_cannot_receive_admin_analytics_guide(self):
+        student = self.user_with_role("analytics-student@example.com", "student")
+        response = self.ask(student, "How can I export resource usage statistics as CSV?")
+        self.assertFalse(any(link["to"].startswith("/analytics") for link in response.data["links"]))
+
     def test_student_never_gets_admin_pages(self):
         student = self.user_with_role("s@example.com", "student")
         response = self.ask(student, "How do I import mentors from a CSV?")

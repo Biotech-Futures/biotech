@@ -1,0 +1,156 @@
+Admin Analytics 与 AI chatbot 本地演示
+更新日期：2026-11-06（Australia/Sydney）
+
+使用范围
+本演示仅覆盖 Admin Analytics 和 AI chatbot，不要求学生注册、作品提交或证书业务。
+本地代码分支：codex/demo-analytics-llm。
+基线：origin/feat/team2-us20-llm @ dcf946ec。
+backend/apps/assistant/knowledge.py 为产品源码修改；tools/local_db 为本地工具，已在本地 Git exclude 中排除，不是客户端运行依赖。
+
+启动
+1. 打开 Docker Desktop。
+2. 双击本目录 start-demo.command；服务就绪后会在独立的 Chrome 新窗口打开 Analytics。
+   不会往已有工作窗口追加标签页；不修改系统默认浏览器设置。
+   首次启动会编译前端，之后源码未变时直接复用；演示使用编译版本，不使用开发热重载。
+   若服务已经运行，会复用服务并新开窗口；本次启动前端时，请保持 Terminal 窗口开启。
+   启动失败会显示错误并等待按回车，不会直接关闭窗口。
+   原先 tmp/llm-preview-20261027-1zyclbhd/start-preview.command 也已转向这个入口。
+3. 打开 http://127.0.0.1:5187/#/analytics。
+4. 选择 Password Sign-in，使用以下本地合成演示账号：
+   Admin：synthetic.admin.0001@team4-synthetic.biotech.test，密码：admin123。
+   Student：synthetic.student.0001@team4-synthetic.biotech.test，密码：student123。
+   生成器后续生成 Admin / Student 也使用对应密码；其他角色保持原配置。
+   此文件不保存 AI key。
+
+生成器界面
+双击 tools/local_db/open_gui.command，或运行：
+  python3 tools/local_db/demo.py gui
+地址：http://127.0.0.1:8766/。上述两个入口都会打开独立的 Chrome 新窗口，不追加到已有窗口。
+界面统一采用英文在前、中文在后的中英对照；中文为次级说明。
+页面顶部的 Detailed usage guide / 详细使用指南可展开，包含四步操作、字段解释、
+公告与批次的区别、九种邮件类型、随机按钮、结果和人数算法、UTC 时间及清库后的登录说明。
+旧 8765 GUI 属于原 biotech_dev，本次演示使用 8766。
+界面显示实际目标数据库和数据量；默认样例打开新会话时使用当前 UTC 时间。
+Load its config 恢复该数据库快照的日期和参数，便于精确复现。
+界面中的 Generate 每次都会清空当前演示库的全部数据和应用表，重新建表并写入当前配置。
+登录验证码、手动操作留下的记录和额外表也会一并清掉，不再因“非生成器数据”阻止生成。
+只操作界面显示的 biotech_llm_demo_* 本地库；其他数据库不受影响，生成过程不会发送真实邮件。
+清空、迁移、生成和校验在同一事务中完成；中途失败会回滚整个重建，恢复原库。
+成功后请刷新演示网站并重新登录，Chrome 保存的 admin123 / student123 仍可使用。
+Analytics preset 保留原样例：每条公告投递对应邮件统计及收件人记录，并生成等量的系统邮件批次。
+
+手动 / 自动两种独立入口（最新界面）
+页面提供 Manual configuration / 手动配置 与 Automatic configuration / 自动配置，两者二选一。
+- 手动配置：原数据数量、公告/邮件、分布与时间合并在一起，使用本模式的生成按钮。
+- 自动配置：只填 Target student count / 目标学生人数 和 Random variation (±%) / 随机浮动。
+  基于固定 120 学生预设按比例计算各项；学生人数精确，管理员固定 2 个。
+  其他每项数量独立在 ±N% 内波动并取整；小规模至少保留 1 条必要记录，报名量受容量约束。
+  预览立即显示完整数量；Randomize again / 重新随机 可换一组，生成使用当前显示的数量。
+  自动模式直接使用自己的生成按钮，无需填写或应用手动表单，也不会覆盖手动输入。
+  自动采用 Analytics coverage、Analytics 邮件预设与当前 UTC 时间；邮件收件人由受众派生，
+  因此关联行不保证严格同比。支持 1–10,000 学生、0–50% 浮动，邮件明细保守预算超 200 万时拒绝。
+两种模式都先显示清库确认，再清空当前演示库并生成；修改参数或切换模式不会写数据库。
+1000 学生、±0% 示例：100 教师、200 导师、200 小组、6000 消息、5000 登录、1500 任务、
+250 资源、10000 访问、100 公告、400 邮件批次、100 活动、1000 报名。
+1000 学生、±10% 的独立数据库实测已完成：生成与迁移约 18 秒，关系、指纹、邮件 API 及密码校验通过。
+为缩短大规模生成时间，本地合成账号按角色每次只计算一次标准密码哈希；产品认证逻辑未改。
+
+邮件自定义配置（v7）
+在 Announcements & email batches 中选择 Custom batches。
+- Announcements：公告数量；与邮件批次数独立，同一公告可以有多次投递。
+- Total email batches：准确的总批次数，不会再额外生成等量系统邮件。
+- First / Last batch (UTC)：设置发送起止时间，批次在区间内等间隔排列；单批次使用起始时间。
+  批次间至少间隔 1 秒，末批需早于 Dataset clock 至少 20 秒，表示已完成的合成发送记录。
+  Use recent 24 hours 会把数据时钟设为现在，并设置最近 23 小时至 5 分钟前的发送区间。
+- Email type：公告或 8 种系统邮件，也可选 Mixed 轮换全部 9 种。
+- Delivery result：All delivered / Partially delivered / All failed，或 Mixed 混合结果。
+  部分成功需要至少 2 个收件人；失败人数为人数的一半向下取整，其余为成功。
+  只有 1 个收件人时，Mixed 仅生成全成功、全失败。
+- Recipients per batch：每批的不同收件人数。只使用活跃合成账号，界面显示当前上限；
+  默认 158 个账号中有 81 个活跃账号。增加相应用户数量可提高上限。
+类型、结果、人数旁各有 Random 按钮：点击直接填入一个可见值，适用于全部批次，生成前仍可编辑。
+同样的配置与 seed 可以重建相同数据；配置会保存，Load its config 可恢复数据库中的完整配置。
+自定义时间窗口会保留，不会在重新打开页面时自动改为今天；彩排时可点击 Use recent 24 hours。
+自定义公告使用指定账号受众，发送统计、收件人明细和公告受众保持一致。
+需要角色/小组受众分布演示时，选择 Analytics preset。Opened / Clicked 等仍不伪造。
+Equivalent command 同步提供上述配置对应的 CLI 参数。
+
+2026-11-06 最新彩排配置已实际生成成功：12 公告、48 批，类型 Mixed、结果 Partially delivered，
+每批 27 人，共 1296 条收件人记录；每批 14 成功、13 失败。该配置为 6 批公告邮件、42 批系统邮件。
+本次完整清库重建修复通过 70 项测试，包含额外数据/表/schema 清理与失败后的完整回滚验证。
+
+本次新增功能已通过 57 项工具测试及浏览器实际生成验证：3 个公告、6 批、每批 7 人，
+得到 42 条收件人结果；每批 CSV 为 4 人成功、3 人失败。另验证混合类型、全失败、
+单收件人、历史日期、零批次、单批次、固定配置重建及篡改检测。
+上述旧验证使用独立测试库；当时演示库为 48 批及 1052 条收件人结果，当前数量以 GUI 为准。
+
+演示日期更新（推荐正式彩排前运行）
+在仓库根目录运行：
+  python3 tools/local_db/demo.py refresh
+此操作创建新的合成数据库快照，生成并验证后切换后端；若 GUI 正在运行，也会同步切换。
+旧数据库保留，不覆盖原 biotech_dev 或原 biotech_llm_preview。
+操作完成后重新加载网页并登录。邮件图表使用滚动 24 小时，旧快照随时间推移会自然减少。
+实际使用的数据库名称在 tmp/demo-update-20261106/demo-state.json 中。
+
+检查与命令行
+  ./tools/local_db/run status
+  ./tools/local_db/run verify
+  ./tools/local_db/run test
+run 入口已指向新演示库；GUI 复制出的命令也使用它。
+verify 校验行数、关系、每批邮件与收件人计数以及固定数据指纹；正常登录不再被视为修改种子数据。
+如需固定时间复现，可在 GUI 使用 Load its config，或将明确的 --as-of 参数传给 run bootstrap。
+bootstrap 与 GUI 相同，会清空当前目标演示库并重新建表、生成和校验。
+需要保留当前数据库时可使用 refresh 创建另一个新快照。
+
+Analytics preset 默认示例数据
+158 个账号、24 个小组、720 条消息（包含软删除样本）、600 个登录事件、30 个资源、1200 次资源访问。
+12 个公告、24 个公告投递、48 个邮件发送批次、1052 条收件人结果。
+邮件包含 9 种类型、两个发件邮箱，以及 Delivered / Partial / Failed 状态。
+所有数据均为合成样本，所有收件人地址均属合成域；生成过程没有真实发送行为。
+
+建议演示顺序
+1. Overview：总体数字与 Attention Required。
+2. Users / Groups / Mentors：角色分布、未分组学生、导师覆盖和容量。
+3. Activity / Messages / Registration：日期筛选、明细和统计口径。
+4. Resources：总点击、独立用户、按资源/日期比较及 Summary / Details / Daily usage CSV。
+5. Email Monitoring：两邮箱的 24 小时用量，类型/状态过滤，收件人搜索和单次发送的收件人 CSV。
+6. AI：点击右上角帮助按钮。
+
+已经实测的 AI 问题
+  如何导出资源使用统计的 CSV？
+  Why are opened email counts unavailable in Email Monitoring?
+  How many active users do we have right now?
+第一个问题应给出 Resources Analytics 的导出步骤和链接。
+第二个问题应说明缺少 provider events，不能声称已有打开率统计。
+第三个问题应说明助手不能读取实时数据库，并引导至 Activity 查看实际数据。
+AI 当前提供基于角色的站内帮助；没有新增实时数据查询功能。
+真实模型回答需要网络和已有私密 key。失败时使用本地 FAQ 回退；回退不能当作真实模型调用。
+
+保留的功能边界
+Opened / Clicked / Spam 等指标继续诚实显示 Unavailable。
+角色归属使用当前受众，历史角色/成员属性不是完整的事件时快照；本次未改动这些产品定义。
+用户数通常显示 156 个参与者，数据库 158 个账号另含 2 个 Admin。
+消息统计排除软删除消息，故可见消息总数不必等于生成器的 720 行。
+
+本地环境与回退
+继续使用既有 biotech-llm-preview-20261027 PostgreSQL 服务和 Docker 镜像，未安装新依赖。
+后端挂载当前仓库源码；前端快照在 tmp/demo-update-20261106/frontend，复用既有前端依赖。
+不要在演示过程中切换到缺少 assistant 的其他源码分支。
+原 preview 源码、原数据库、原备份和 API key 均保留；key 仍只从原私密文件挂载，不在源码、报告或前端中。
+旧入口备份：tmp/llm-preview-20261027-1zyclbhd/start-preview.before-demo-update-20261106.command。
+本次没有 commit、push、PR 或部署。
+
+验证证据
+tmp/demo-update-20261106/ 中保存生成器测试、AI 后端测试、固定快照重建与回滚验证、
+九页浏览器检查、CSV、AI 实际回复、GUI 检查和生产构建日志。
+同日启动白屏修复：发现重复启动会覆盖运行中开发服务的前端文件，触发大量刷新和配置重启。
+现改为不改写未变化文件、缓存 production build、等待后端和编译页面就绪，再打开 Chrome 新窗口。
+10 项启动器测试通过；实际冷启动、管理员登录、Analytics 数据显示、AI 面板及重复启动已验证。
+此轮没有重跑完整九页/CSV/模型调用验收；Safari 原窗口未作为本轮最终验收浏览器。
+证据：launcher-window-*.log/json、launcher-chrome-analytics.png。
+
+同日界面语言与窗口更新：英文在前、中文在后；按钮、选项、校验和状态同步为双语。
+较长邮件类型已加宽显示；实际 Chrome 验证新建一个独立单标签窗口，原工作窗口仍为 4 个标签。
+68 项非破坏性工具测试通过，2 项完整清库集成测试本轮跳过（上一轮已通过）。
+本轮未重新生成数据；检查前后仍为 48 批 × 28 人，共 1344 条结果，配置和指纹完全相同。
+代码备份：tmp/demo-update-20261106/local-demo-code-v7-bilingual.zip。
